@@ -1,0 +1,759 @@
+     1→'use client';
+     2→
+     3→import React, { useState, useEffect, useRef, useCallback } from 'react';
+     4→import { motion, AnimatePresence } from 'framer-motion';
+     5→import {
+     6→  Download, X, Play, Music, Image as ImageIcon,
+     7→  Clock, User, Heart, RefreshCw, ClipboardPaste,
+     8→  ChevronDown, ChevronUp, Shield, Zap, Infinity,
+     9→  Smartphone, Globe, CheckCircle, ExternalLink
+    10→} from 'lucide-react';
+    11→import { Toaster, toast } from 'sonner';
+    12→
+    13→interface VideoInfo {
+    14→  id: string;
+    15→  title: string;
+    16→  author: string;
+    17→  avatar: string;
+    18→  thumbnail: string;
+    19→  duration: string;
+    20→  views: string;
+    21→  likes: string;
+    22→  noWatermarkUrl: string;
+    23→  withWatermarkUrl: string;
+    24→  audioUrl: string;
+    25→  cover: string;
+    26→}
+    27→
+    28→interface FAQItem {
+    29→  question: string;
+    30→  answer: string;
+    31→}
+    32→
+    33→const FEATURES = [
+    34→  {
+    35→    icon: Shield,
+    36→    title: 'No Watermark',
+    37→    description: 'Download TikTok videos completely free of watermarks. Get clean, original-quality content every time without any branding overlay.',
+    38→    color: '#FE2C55',
+    39→  },
+    40→  {
+    41→    icon: Zap,
+    42→    title: 'Instant Speed',
+    43→    description: 'Our servers process your request in seconds. No waiting, no queues — paste your link and get your download link almost immediately.',
+    44→    color: '#25F4EE',
+    45→  },
+    46→  {
+    47→    icon: Infinity,
+    48→    title: 'Unlimited Downloads',
+    49→    description: 'No daily caps, no signup walls, no paywalls. Download as many TikTok videos as you need, completely free and unlimited.',
+    50→    color: '#FE2C55',
+    51→  },
+    52→  {
+    53→    icon: Smartphone,
+    54→    title: 'Mobile Friendly',
+    55→    description: 'Works perfectly on any device — phone, tablet, or desktop. Our responsive design ensures a smooth experience everywhere.',
+    56→    color: '#25F4EE',
+    57→  },
+    58→  {
+    59→    icon: Globe,
+    60→    title: 'All Formats',
+    61→    description: 'Save videos in HD MP4, extract audio as MP3, or grab cover images. Choose exactly what you need from every TikTok video.',
+    62→    color: '#FE2C55',
+    63→  },
+    64→  {
+    65→    icon: CheckCircle,
+    66→    title: 'Safe & Private',
+    67→    description: 'We never store your data or downloads. Your privacy is fully respected — no tracking, no cookies, no personal information collected.',
+    68→    color: '#25F4EE',
+    69→  },
+    70→];
+    71→
+    72→const FAQ_ITEMS: FAQItem[] = [
+    73→  {
+    74→    question: 'How do I download a TikTok video without watermark?',
+    75→    answer: 'Simply paste the TikTok video URL into the input field above, click Download, wait for the short ad timer, then click "Continue to Download." The video information will appear with download options for HD video without watermark, audio, and cover image. Click your preferred option and the file will start downloading immediately.',
+    76→  },
+    77→  {
+    78→    question: 'Is this TikTok downloader free to use?',
+    79→    answer: 'Yes, completely free with no limitations. You can download as many TikTok videos as you want without any signup, subscription, or hidden fees. We sustain the service through minimal ad support during the download process.',
+    80→  },
+    81→  {
+    82→    question: 'What video quality can I download?',
+    83→    answer: 'You can download TikTok videos in their original HD quality without watermark. The resolution matches what was uploaded by the creator — typically 1080p or higher. We never compress or reduce the video quality during the download process.',
+    84→  },
+    85→  {
+    86→    question: 'Can I download TikTok audio or music separately?',
+    87→    answer: 'Absolutely! Along with the video download, we provide an MP3 audio extraction option. This lets you save just the music or sound from any TikTok video as a standalone audio file, perfect for creating your own content or enjoying the sound offline.',
+    88→  },
+    89→  {
+    90→    question: 'Does this work on mobile phones?',
+    91→    answer: 'Yes, our downloader is fully responsive and works on any device — iPhone, Android, tablets, and desktop computers. Simply open the website in your mobile browser, paste the TikTok link, and download directly to your device. No app installation required.',
+    92→  },
+    93→  {
+    94→    question: 'Where can I find the TikTok video URL?',
+    95→    answer: 'Open the TikTok app, find the video you want to download, tap the Share button (arrow icon), and select "Copy Link." The URL will look like "https://vt.tiktok.com/..." or "https://www.tiktok.com/@user/video/...". Paste this URL into our downloader.',
+    96→  },
+    97→  {
+    98→    question: 'Is it legal to download TikTok videos?',
+    99→    answer: 'Downloading videos for personal offline viewing is generally acceptable. However, re-uploading or redistributing someone else\'s content without permission may violate copyright laws and TikTok\'s terms of service. Always respect creators\' rights and use downloaded content responsibly.',
+   100→  },
+   101→  {
+   102→    question: 'Why is there a waiting timer before downloading?',
+   103→    answer: 'The brief countdown timer supports our free service through ad revenue. This allows us to keep the downloader completely free and unlimited for everyone. The wait is only a few seconds, and you can skip it once the timer completes.',
+   104→  },
+   105→];
+   106→
+   107→const TikTokDownloader = () => {
+   108→  const [url, setUrl] = useState('');
+   109→  const [isLoading, setIsLoading] = useState(false);
+   110→  const [videoInfo, setVideoInfo] = useState<VideoInfo | null>(null);
+   111→  const [error, setError] = useState('');
+   112→  const [history, setHistory] = useState<VideoInfo[]>([]);
+   113→  const [activeTab, setActiveTab] = useState<'video' | 'audio' | 'cover'>('video');
+   114→  const [showAdPopup, setShowAdPopup] = useState(false);
+   115→  const [countdown, setCountdown] = useState(5);
+   116→  const [isAdComplete, setIsAdComplete] = useState(false);
+   117→  const [pendingUrl, setPendingUrl] = useState('');
+   118→  const [openFAQ, setOpenFAQ] = useState<number | null>(null);
+   119→  const adTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+   120→  const countdownRef = useRef<number>(5);
+   121→  const isAdCompleteRef = useRef(false);
+   122→
+   123→  // Load history from localStorage
+   124→  useEffect(() => {
+   125→    try {
+   126→      const saved = localStorage.getItem('tiktokHistory');
+   127→      if (saved) {
+   128→        const parsed = JSON.parse(saved);
+   129→        if (Array.isArray(parsed)) setHistory(parsed);
+   130→      }
+   131→    } catch (e) {
+   132→      console.warn('Failed to load history:', e);
+   133→    }
+   134→  }, []);
+   135→
+   136→  // Save history to localStorage
+   137→  useEffect(() => {
+   138→    try {
+   139→      localStorage.setItem('tiktokHistory', JSON.stringify(history));
+   140→    } catch (e) {
+   141→      console.warn('Failed to save history:', e);
+   142→    }
+   143→  }, [history]);
+   144→
+   145→  const isValidTikTokUrl = (inputUrl: string): boolean => {
+   146→    const regex = /^https?:\/\/(?:www\.|vm\.|vt\.|m\.)?tiktok\.com\/.+/i;
+   147→    return regex.test(inputUrl.trim());
+   148→  };
+   149→
+   150→  const startAdTimer = useCallback((videoUrl: string) => {
+   151→    // Reset state
+   152→    setCountdown(5);
+   153→    setIsAdComplete(false);
+   154→    setShowAdPopup(true);
+   155→    setPendingUrl(videoUrl);
+   156→    countdownRef.current = 5;
+   157→    isAdCompleteRef.current = false;
+   158→
+   159→    // Start countdown
+   160→    if (adTimerRef.current) clearInterval(adTimerRef.current);
+   161→
+   162→    adTimerRef.current = setInterval(() => {
+   163→      countdownRef.current -= 1;
+   164→      setCountdown(countdownRef.current);
+   165→
+   166→      if (countdownRef.current <= 0) {
+   167→        if (adTimerRef.current) clearInterval(adTimerRef.current);
+   168→        adTimerRef.current = null;
+   169→        setIsAdComplete(true);
+   170→        isAdCompleteRef.current = true;
+   171→      }
+   172→    }, 1000);
+   173→  }, []);
+   174→
+   175→  const skipAd = useCallback(() => {
+   176→    if (adTimerRef.current) {
+   177→      clearInterval(adTimerRef.current);
+   178→      adTimerRef.current = null;
+   179→    }
+   180→    setIsAdComplete(true);
+   181→    isAdCompleteRef.current = true;
+   182→    setCountdown(0);
+   183→  }, []);
+   184→
+   185→  const proceedAfterAd = useCallback(async () => {
+   186→    setShowAdPopup(false);
+   187→
+   188→    const videoUrl = pendingUrl;
+   189→    if (!videoUrl) return;
+   190→
+   191→    setIsLoading(true);
+   192→    setError('');
+   193→    setVideoInfo(null);
+   194→
+   195→    try {
+   196→      const response = await fetch('/api/download', {
+   197→        method: 'POST',
+   198→        headers: { 'Content-Type': 'application/json' },
+   199→        body: JSON.stringify({ url: videoUrl }),
+   200→      });
+   201→
+   202→      const result = await response.json();
+   203→
+   204→      if (!result.success) {
+   205→        throw new Error(result.error || 'Failed to fetch video info');
+   206→      }
+   207→
+   208→      const data: VideoInfo = result.data;
+   209→      setVideoInfo(data);
+   210→      setHistory(prev => [data, ...prev.slice(0, 4)]);
+   211→
+   212→      toast.success('Video ready!', {
+   213→        description: `Fetched via ${result.provider} in ${result.duration}ms`,
+   214→      });
+   215→    } catch (err: unknown) {
+   216→      const errorMessage = err instanceof Error ? err.message : 'Unable to process this video. Try again.';
+   217→      console.error('Download error:', err);
+   218→      setError(errorMessage);
+   219→      toast.error('Fetch failed', { description: errorMessage });
+   220→    } finally {
+   221→      setIsLoading(false);
+   222→      setPendingUrl('');
+   223→    }
+   224→  }, [pendingUrl]);
+   225→
+   226→  const handleSubmit = useCallback((e: React.FormEvent) => {
+   227→    e.preventDefault();
+   228→    const trimmed = url.trim();
+   229→    if (!trimmed) {
+   230→      toast.error('Enter a TikTok URL');
+   231→      return;
+   232→    }
+   233→    if (!isValidTikTokUrl(trimmed)) {
+   234→      setError('Invalid TikTok URL format. Please use a valid TikTok link.');
+   235→      toast.error('Please use a valid TikTok link');
+   236→      return;
+   237→    }
+   238→    setError('');
+   239→    startAdTimer(trimmed);
+   240→  }, [url, startAdTimer]);
+   241→
+   242→  const handleDownload = useCallback((downloadUrl: string, filename: string) => {
+   243→    if (!downloadUrl || downloadUrl.startsWith('#')) {
+   244→      toast.error('Download URL not available for this video.');
+   245→      return;
+   246→    }
+   247→
+   248→    // Use a hidden anchor to trigger the actual download
+   249→    const a = document.createElement('a');
+   250→    a.href = downloadUrl;
+   251→    a.download = filename;
+   252→    a.target = '_blank';
+   253→    a.rel = 'noopener noreferrer';
+   254→    document.body.appendChild(a);
+   255→    a.click();
+   256→    document.body.removeChild(a);
+   257→
+   258→    toast.success(`Downloading ${filename}`, {
+   259→      description: 'Your file download has started.',
+   260→    });
+   261→  }, []);
+   262→
+   263→  const getDownloadFilename = useCallback((type: 'video' | 'audio' | 'cover', info: VideoInfo): string => {
+   264→    const sanitizeName = (name: string) => name.replace(/[^a-zA-Z0-9_-]/g, '_').slice(0, 50);
+   265→    const baseName = sanitizeName(info.title || info.id);
+   266→    switch (type) {
+   267→      case 'video': return `tiktok_${baseName}_no_watermark.mp4`;
+   268→      case 'audio': return `tiktok_${baseName}_audio.mp3`;
+   269→      case 'cover': return `tiktok_${baseName}_cover.jpg`;
+   270→    }
+   271→  }, []);
+   272→
+   273→  const copyToClipboard = useCallback((text: string, label: string) => {
+   274→    navigator.clipboard.writeText(text).then(() => {
+   275→      toast.success(`${label} copied!`);
+   276→    }).catch(() => {
+   277→      toast.error('Failed to copy');
+   278→    });
+   279→  }, []);
+   280→
+   281→  const clearHistory = useCallback(() => {
+   282→    setHistory([]);
+   283→    localStorage.removeItem('tiktokHistory');
+   284→    toast.success('History cleared');
+   285→  }, []);
+   286→
+   287→  // Cleanup timer on unmount
+   288→  useEffect(() => {
+   289→    return () => {
+   290→      if (adTimerRef.current) clearInterval(adTimerRef.current);
+   291→    };
+   292→  }, []);
+   293→
+   294→  return (
+   295→    <div className="min-h-screen bg-[#000000] text-white flex flex-col">
+   296→      <Toaster position="top-center" richColors closeButton />
+   297→
+   298→      {/* ===== Navbar ===== */}
+   299→      <nav className="sticky top-0 z-50 glass border-b border-white/10 bg-black/80">
+   300→        <div className="max-w-7xl mx-auto px-4 sm:px-6 py-4 flex justify-between items-center">
+   301→          <div className="flex items-center gap-3">
+   302→            <div className="w-8 h-8 bg-[#FE2C55] rounded-xl flex items-center justify-center text-xl font-bold">♪</div>
+   303→            <span className="font-bold text-2xl sm:text-3xl tracking-tighter">TikDL</span>
+   304→          </div>
+   305→          <div className="hidden md:flex gap-8 text-sm font-medium">
+   306→            <a href="#features" className="hover:text-[#FE2C55] transition-colors">Features</a>
+   307→            <a href="#faq" className="hover:text-[#FE2C55] transition-colors">FAQ</a>
+   308→            <a href="#history" className="hover:text-[#FE2C55] transition-colors">History</a>
+   309→          </div>
+   310→        </div>
+   311→      </nav>
+   312→
+   313→      {/* ===== Hero Section ===== */}
+   314→      <section className="pt-16 sm:pt-20 pb-10 sm:pb-12 px-4 sm:px-6">
+   315→        <div className="max-w-3xl mx-auto text-center">
+   316→          <motion.h1
+   317→            initial={{ opacity: 0, y: 20 }}
+   318→            animate={{ opacity: 1, y: 0 }}
+   319→            transition={{ duration: 0.6 }}
+   320→            className="text-4xl sm:text-5xl md:text-6xl font-bold tracking-tighter mb-4 sm:mb-6"
+   321→          >
+   322→            TikTok Without Watermark
+   323→          </motion.h1>
+   324→          <motion.p
+   325→            initial={{ opacity: 0, y: 10 }}
+   326→            animate={{ opacity: 1, y: 0 }}
+   327→            transition={{ duration: 0.6, delay: 0.1 }}
+   328→            className="text-lg sm:text-xl text-gray-400 mb-8 sm:mb-10"
+   329→          >
+   330→            Fast, unlimited, high-quality downloads. No signup required.
+   331→          </motion.p>
+   332→
+   333→          <motion.form
+   334→            onSubmit={handleSubmit}
+   335→            initial={{ opacity: 0, y: 10 }}
+   336→            animate={{ opacity: 1, y: 0 }}
+   337→            transition={{ duration: 0.5, delay: 0.2 }}
+   338→            className="glass p-2 rounded-3xl flex flex-col sm:flex-row gap-3 max-w-xl mx-auto"
+   339→          >
+   340→            <input
+   341→              type="text"
+   342→              value={url}
+   343→              onChange={(e) => { setUrl(e.target.value); setError(''); }}
+   344→              placeholder="Paste TikTok link here..."
+   345→              className="flex-1 bg-transparent px-4 sm:px-6 py-4 sm:py-5 outline-none text-base sm:text-lg placeholder:text-gray-500"
+   346→              disabled={isLoading || showAdPopup}
+   347→            />
+   348→            <div className="flex gap-2 px-2 pb-2 sm:pb-0">
+   349→              <button
+   350→                type="button"
+   351→                onClick={async () => {
+   352→                  try {
+   353→                    const text = await navigator.clipboard.readText();
+   354→                    setUrl(text);
+   355→                    setError('');
+   356→                    toast.success('Link pasted from clipboard');
+   357→                  } catch {
+   358→                    toast.error('Cannot read clipboard — please paste manually');
+   359→                  }
+   360→                }}
+   361→                className="px-4 sm:px-6 py-4 sm:py-5 rounded-2xl bg-white/10 hover:bg-white/20 transition-colors flex items-center justify-center"
+   362→                title="Paste from clipboard"
+   363→                disabled={isLoading || showAdPopup}
+   364→              >
+   365→                <ClipboardPaste size={20} />
+   366→              </button>
+   367→              <button
+   368→                type="submit"
+   369→                disabled={isLoading || showAdPopup}
+   370→                className="px-8 sm:px-10 py-4 sm:py-5 bg-[#FE2C55] hover:bg-[#FE2C55]/90 rounded-2xl font-semibold flex items-center gap-2 disabled:opacity-60 transition-colors"
+   371→              >
+   372→                {isLoading ? <RefreshCw className="animate-spin" size={20} /> : <Download size={20} />}
+   373→                <span>{isLoading ? 'Processing...' : 'Download'}</span>
+   374→              </button>
+   375→            </div>
+   376→          </motion.form>
+   377→
+   378→          {/* Error message */}
+   379→          <AnimatePresence>
+   380→            {error && (
+   381→              <motion.div
+   382→                initial={{ opacity: 0, y: -10 }}
+   383→                animate={{ opacity: 1, y: 0 }}
+   384→                exit={{ opacity: 0, y: -10 }}
+   385→                className="mt-4 max-w-xl mx-auto text-red-400 text-sm bg-red-500/10 border border-red-500/20 rounded-2xl px-4 py-3"
+   386→              >
+   387→                {error}
+   388→              </motion.div>
+   389→            )}
+   390→          </AnimatePresence>
+   391→
+   392→          {/* Supported formats hint */}
+   393→          <motion.div
+   394→            initial={{ opacity: 0 }}
+   395→            animate={{ opacity: 1 }}
+   396→            transition={{ delay: 0.4 }}
+   397→            className="mt-6 flex flex-wrap justify-center gap-3 text-xs text-gray-500"
+   398→          >
+   399→            <span className="flex items-center gap-1"><Play size={14} /> MP4 HD</span>
+   400→            <span className="flex items-center gap-1"><Music size={14} /> MP3 Audio</span>
+   401→            <span className="flex items-center gap-1"><ImageIcon size={14} /> Cover Image</span>
+   402→          </motion.div>
+   403→        </div>
+   404→      </section>
+   405→
+   406→      {/* ===== Video Result Section ===== */}
+   407→      <AnimatePresence>
+   408→        {videoInfo && (
+   409→          <motion.section
+   410→            initial={{ opacity: 0, y: 20 }}
+   411→            animate={{ opacity: 1, y: 0 }}
+   412→            exit={{ opacity: 0, y: 20 }}
+   413→            className="max-w-4xl mx-auto px-4 sm:px-6 py-6 sm:py-8"
+   414→          >
+   415→            <div className="glass rounded-3xl p-4 sm:p-8">
+   416→              {/* Tab selector */}
+   417→              <div className="flex gap-2 mb-6">
+   418→                {(['video', 'audio', 'cover'] as const).map((tab) => (
+   419→                  <button
+   420→                    key={tab}
+   421→                    onClick={() => setActiveTab(tab)}
+   422→                    className={`px-4 py-2 rounded-xl text-sm font-medium transition-colors ${
+   423→                      activeTab === tab
+   424→                        ? 'bg-[#FE2C55] text-white'
+   425→                        : 'bg-white/10 text-gray-400 hover:bg-white/20'
+   426→                    }`}
+   427→                  >
+   428→                    {tab === 'video' && <Play size={16} className="inline mr-1" />}
+   429→                    {tab === 'audio' && <Music size={16} className="inline mr-1" />}
+   430→                    {tab === 'cover' && <ImageIcon size={16} className="inline mr-1" />}
+   431→                    {tab.charAt(0).toUpperCase() + tab.slice(1)}
+   432→                  </button>
+   433→                ))}
+   434→              </div>
+   435→
+   436→              <div className="flex flex-col lg:flex-row gap-6 sm:gap-8">
+   437→                {/* Preview */}
+   438→                <div className="lg:flex-1">
+   439→                  {activeTab === 'video' && (
+   440→                    <div className="relative rounded-2xl overflow-hidden bg-zinc-900">
+   441→                      <img
+   442→                        src={videoInfo.thumbnail}
+   443→                        alt={videoInfo.title}
+   444→                        className="w-full object-cover"
+   445→                        onError={(e) => { (e.target as HTMLImageElement).src = '/public/icon-512.png'; }}
+   446→                      />
+   447→                      <div className="absolute bottom-3 right-3 bg-black/70 px-2 py-1 rounded-lg text-xs flex items-center gap-1">
+   448→                        <Clock size={12} /> {videoInfo.duration}
+   449→                      </div>
+   450→                    </div>
+   451→                  )}
+   452→                  {activeTab === 'audio' && (
+   453→                    <div className="rounded-2xl bg-zinc-900 p-6 flex flex-col items-center justify-center min-h-[200px]">
+   454→                      <Music size={48} className="text-[#25F4EE] mb-4" />
+   455→                      <p className="text-gray-400 text-sm">Audio Preview</p>
+   456→                      <p className="text-lg font-semibold mt-2">{videoInfo.title}</p>
+   457→                    </div>
+   458→                  )}
+   459→                  {activeTab === 'cover' && (
+   460→                    <div className="rounded-2xl overflow-hidden">
+   461→                      <img
+   462→                        src={videoInfo.cover || videoInfo.thumbnail}
+   463→                        alt="Cover image"
+   464→                        className="w-full object-cover"
+   465→                      />
+   466→                    </div>
+   467→                  )}
+   468→                </div>
+   469→
+   470→                {/* Info + download buttons */}
+   471→                <div className="lg:flex-1 space-y-4 sm:space-y-6">
+   472→                  <h3 className="text-xl sm:text-2xl font-semibold line-clamp-2">{videoInfo.title}</h3>
+   473→
+   474→                  <div className="flex items-center gap-3">
+   475→                    {videoInfo.avatar && (
+   476→                      <img
+   477→                        src={videoInfo.avatar}
+   478→                        alt={videoInfo.author}
+   479→                        className="w-10 h-10 sm:w-12 sm:h-12 rounded-full object-cover bg-zinc-800"
+   480→                        onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }}
+   481→                      />
+   482→                    )}
+   483→                    <div>
+   484→                      <div className="font-medium">{videoInfo.author}</div>
+   485→                      <div className="text-sm text-gray-500 flex items-center gap-3">
+   486→                        {videoInfo.views && <span className="flex items-center gap-1"><User size={14} /> {videoInfo.views}</span>}
+   487→                        {videoInfo.likes && <span className="flex items-center gap-1"><Heart size={14} /> {videoInfo.likes}</span>}
+   488→                      </div>
+   489→                    </div>
+   490→                  </div>
+   491→
+   492→                  {/* Download actions */}
+   493→                  <div className="space-y-3">
+   494→                    {activeTab === 'video' && (
+   495→                      <>
+   496→                        <button
+   497→                          onClick={() => handleDownload(videoInfo.noWatermarkUrl, getDownloadFilename('video', videoInfo))}
+   498→                          className="w-full bg-[#FE2C55] hover:bg-[#FE2C55]/90 py-4 rounded-2xl font-semibold flex items-center justify-center gap-2 transition-colors"
+   499→                          disabled={!videoInfo.noWatermarkUrl || videoInfo.noWatermarkUrl.startsWith('#')}
+   500→                        >
+   501→                          <Download size={20} /> No Watermark HD
+   502→                        </button>
+   503→                        {videoInfo.withWatermarkUrl && !videoInfo.withWatermarkUrl.startsWith('#') && (
+   504→                          <button
+   505→                            onClick={() => handleDownload(videoInfo.withWatermarkUrl, `tiktok_${videoInfo.id}_with_watermark.mp4`)}
+   506→                            className="w-full bg-white/10 hover:bg-white/20 py-3 rounded-2xl font-medium flex items-center justify-center gap-2 transition-colors"
+   507→                          >
+   508→                            <Download size={18} /> With Watermark
+   509→                          </button>
+   510→                        )}
+   511→                      </>
+   512→                    )}
+   513→                    {activeTab === 'audio' && (
+   514→                      <button
+   515→                        onClick={() => handleDownload(videoInfo.audioUrl, getDownloadFilename('audio', videoInfo))}
+   516→                        className="w-full bg-[#25F4EE] hover:bg-[#25F4EE]/90 text-black py-4 rounded-2xl font-semibold flex items-center justify-center gap-2 transition-colors"
+   517→                        disabled={!videoInfo.audioUrl || videoInfo.audioUrl.startsWith('#')}
+   518→                      >
+   519→                        <Music size={20} /> Download MP3 Audio
+   520→                      </button>
+   521→                    )}
+   522→                    {activeTab === 'cover' && (
+   523→                      <button
+   524→                        onClick={() => handleDownload(videoInfo.cover || videoInfo.thumbnail, getDownloadFilename('cover', videoInfo))}
+   525→                        className="w-full bg-white/10 hover:bg-white/20 py-4 rounded-2xl font-semibold flex items-center justify-center gap-2 transition-colors"
+   526→                        disabled={!videoInfo.cover}
+   527→                      >
+   528→                        <ImageIcon size={20} /> Download Cover Image
+   529→                      </button>
+   530→                    )}
+   531→                  </div>
+   532→
+   533→                  {/* Copy URL */}
+   534→                  <div className="flex gap-2">
+   535→                    <button
+   536→                      onClick={() => copyToClipboard(videoInfo.noWatermarkUrl, 'Video URL')}
+   537→                      className="flex-1 bg-white/5 hover:bg-white/10 py-2 rounded-xl text-sm flex items-center justify-center gap-1 transition-colors"
+   538→                    >
+   539→                      <ExternalLink size={14} /> Copy URL
+   540→                    </button>
+   541→                  </div>
+   542→                </div>
+   543→              </div>
+   544→            </div>
+   545→          </motion.section>
+   546→        )}
+   547→      </AnimatePresence>
+   548→
+   549→      {/* ===== Ad Interstitial Popup ===== */}
+   550→      <AnimatePresence>
+   551→        {showAdPopup && (
+   552→          <motion.div
+   553→            initial={{ opacity: 0 }}
+   554→            animate={{ opacity: 1 }}
+   555→            exit={{ opacity: 0 }}
+   556→            className="fixed inset-0 z-[100] flex items-center justify-center bg-black/95 p-4 sm:p-6"
+   557→          >
+   558→            <motion.div
+   559→              initial={{ scale: 0.9, opacity: 0 }}
+   560→              animate={{ scale: 1, opacity: 1 }}
+   561→              exit={{ scale: 0.9, opacity: 0 }}
+   562→              className="glass max-w-md w-full rounded-3xl p-6 sm:p-10 text-center"
+   563→            >
+   564→              <div className="text-[#25F4EE] mb-3 text-sm font-medium tracking-wider uppercase">Sponsored</div>
+   565→              <h3 className="text-xl sm:text-2xl font-semibold mb-4 sm:mb-6">Support free downloads</h3>
+   566→
+   567→              {/* Ad space */}
+   568→              <div className="h-36 sm:h-48 bg-zinc-900 rounded-2xl mb-6 sm:mb-8 flex items-center justify-center border border-dashed border-white/20 text-gray-500 text-sm">
+   569→                {/* Insert your ad provider code here (e.g., Adsterra, Google Ad) */}
+   570→                Ad Space — Insert Ad Code
+   571→              </div>
+   572→
+   573→              {/* Countdown */}
+   574→              <div className="text-4xl sm:text-5xl font-mono mb-6 sm:mb-8 tabular-nums font-bold">
+   575→                {countdown > 0 ? countdown : <span className="text-[#25F4EE]">✓</span>}
+   576→              </div>
+   577→
+   578→              {/* Continue button */}
+   579→              <button
+   580→                onClick={isAdComplete ? proceedAfterAd : skipAd}
+   581→                disabled={countdown > 0 && !isAdComplete}
+   582→                className="w-full py-4 bg-[#FE2C55] hover:bg-[#FE2C55]/90 text-white font-semibold rounded-2xl disabled:opacity-50 disabled:cursor-not-allowed transition-colors flex items-center justify-center gap-2"
+   583→              >
+   584→                {countdown > 0 ? `Continue in ${countdown}s` : 'Continue to Download'}
+   585→              </button>
+   586→
+   587→              <p className="text-xs text-gray-500 mt-4">
+   588→                Ads keep this service free for everyone
+   589→              </p>
+   590→            </motion.div>
+   591→          </motion.div>
+   592→        )}
+   593→      </AnimatePresence>
+   594→
+   595→      {/* ===== Features Section ===== */}
+   596→      <section id="features" className="py-16 sm:py-20 px-4 sm:px-6 bg-[#0a0a0a]">
+   597→        <div className="max-w-6xl mx-auto">
+   598→          <motion.div
+   599→            initial={{ opacity: 0, y: 20 }}
+   600→            whileInView={{ opacity: 1, y: 0 }}
+   601→            viewport={{ once: true }}
+   602→            transition={{ duration: 0.5 }}
+   603→            className="text-center mb-12 sm:mb-16"
+   604→          >
+   605→            <h2 className="text-3xl sm:text-4xl md:text-5xl font-bold tracking-tight mb-4">
+   606→              Why Choose <span className="text-[#FE2C55]">TikDL</span>
+   607→            </h2>
+   608→            <p className="text-gray-400 text-lg max-w-2xl mx-auto">
+   609→              The fastest and most reliable TikTok downloader with premium features — completely free.
+   610→            </p>
+   611→          </motion.div>
+   612→
+   613→          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 sm:gap-6">
+   614→            {FEATURES.map((feature, index) => (
+   615→              <motion.div
+   616→                key={feature.title}
+   617→                initial={{ opacity: 0, y: 20 }}
+   618→                whileInView={{ opacity: 1, y: 0 }}
+   619→                viewport={{ once: true }}
+   620→                transition={{ duration: 0.4, delay: index * 0.08 }}
+   621→                className="glass rounded-2xl p-6 hover:bg-white/5 transition-colors group"
+   622→              >
+   623→                <div
+   624→                  className="w-12 h-12 rounded-xl flex items-center justify-center mb-4 transition-transform group-hover:scale-110"
+   625→                  style={{ backgroundColor: `${feature.color}20` }}
+   626→                >
+   627→                  <feature.icon size={24} style={{ color: feature.color }} />
+   628→                </div>
+   629→                <h3 className="text-xl font-semibold mb-2">{feature.title}</h3>
+   630→                <p className="text-gray-400 text-sm leading-relaxed">{feature.description}</p>
+   631→              </motion.div>
+   632→            ))}
+   633→          </div>
+   634→        </div>
+   635→      </section>
+   636→
+   637→      {/* ===== FAQ Section ===== */}
+   638→      <section id="faq" className="py-16 sm:py-20 px-4 sm:px-6 bg-[#121212]">
+   639→        <div className="max-w-3xl mx-auto">
+   640→          <motion.div
+   641→            initial={{ opacity: 0, y: 20 }}
+   642→            whileInView={{ opacity: 1, y: 0 }}
+   643→            viewport={{ once: true }}
+   644→            transition={{ duration: 0.5 }}
+   645→            className="text-center mb-12"
+   646→          >
+   647→            <h2 className="text-3xl sm:text-4xl font-bold tracking-tight mb-4">
+   648→              Frequently Asked Questions
+   649→            </h2>
+   650→            <p className="text-gray-400">
+   651→              Everything you need to know about using TikDL
+   652→            </p>
+   653→          </motion.div>
+   654→
+   655→          <div className="space-y-3">
+   656→            {FAQ_ITEMS.map((item, index) => (
+   657→              <motion.div
+   658→                key={index}
+   659→                initial={{ opacity: 0, y: 10 }}
+   660→                whileInView={{ opacity: 1, y: 0 }}
+   661→                viewport={{ once: true }}
+   662→                transition={{ duration: 0.3, delay: index * 0.05 }}
+   663→                className="glass rounded-2xl overflow-hidden"
+   664→              >
+   665→                <button
+   666→                  onClick={() => setOpenFAQ(openFAQ === index ? null : index)}
+   667→                  className="w-full flex items-center justify-between p-4 sm:p-5 text-left hover:bg-white/5 transition-colors"
+   668→                  aria-expanded={openFAQ === index}
+   669→                >
+   670→                  <span className="font-medium pr-4">{item.question}</span>
+   671→                  {openFAQ === index ? (
+   672→                    <ChevronUp size={20} className="text-[#FE2C55] shrink-0" />
+   673→                  ) : (
+   674→                    <ChevronDown size={20} className="text-gray-400 shrink-0" />
+   675→                  )}
+   676→                </button>
+   677→                <AnimatePresence>
+   678→                  {openFAQ === index && (
+   679→                    <motion.div
+   680→                      initial={{ height: 0, opacity: 0 }}
+   681→                      animate={{ height: 'auto', opacity: 1 }}
+   682→                      exit={{ height: 0, opacity: 0 }}
+   683→                      transition={{ duration: 0.25 }}
+   684→                      className="overflow-hidden"
+   685→                    >
+   686→                      <div className="px-4 sm:px-5 pb-4 sm:pb-5 text-gray-400 text-sm leading-relaxed">
+   687→                        {item.answer}
+   688→                      </div>
+   689→                    </motion.div>
+   690→                  )}
+   691→                </AnimatePresence>
+   692→              </motion.div>
+   693→            ))}
+   694→          </div>
+   695→        </div>
+   696→      </section>
+   697→
+   698→      {/* ===== History Section ===== */}
+   699→      {history.length > 0 && (
+   700→        <section id="history" className="py-10 sm:py-12 px-4 sm:px-6 bg-[#0a0a0a]">
+   701→          <div className="max-w-4xl mx-auto">
+   702→            <div className="flex items-center justify-between mb-6">
+   703→              <h2 className="text-2xl font-bold">Recent Downloads</h2>
+   704→              <button
+   705→                onClick={clearHistory}
+   706→                className="text-sm text-gray-500 hover:text-red-400 transition-colors"
+   707→              >
+   708→                Clear history
+   709→              </button>
+   710→            </div>
+   711→            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+   712→              {history.map((item) => (
+   713→                <div
+   714→                  key={item.id}
+   715→                  className="glass rounded-2xl p-4 flex items-center gap-4 hover:bg-white/5 transition-colors cursor-pointer"
+   716→                  onClick={() => {
+   717→                    setVideoInfo(item);
+   718→                    setActiveTab('video');
+   719→                  }}
+   720→                >
+   721→                  <img
+   722→                    src={item.thumbnail}
+   723→                    alt={item.title}
+   724→                    className="w-16 h-16 rounded-xl object-cover bg-zinc-800"
+   725→                    onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }}
+   726→                  />
+   727→                  <div className="flex-1 min-w-0">
+   728→                    <p className="font-medium truncate">{item.title}</p>
+   729→                    <p className="text-sm text-gray-500">{item.author}</p>
+   730→                  </div>
+   731→                </div>
+   732→              ))}
+   733→            </div>
+   734→          </div>
+   735→        </section>
+   736→      )}
+   737→
+   738→      {/* ===== Footer ===== */}
+   739→      <footer className="py-8 sm:py-10 px-4 sm:px-6 bg-[#0a0a0a] border-t border-white/10 mt-auto">
+   740→        <div className="max-w-6xl mx-auto flex flex-col sm:flex-row items-center justify-between gap-4">
+   741→          <div className="flex items-center gap-3">
+   742→            <div className="w-6 h-6 bg-[#FE2C55] rounded-lg flex items-center justify-center text-sm font-bold">♪</div>
+   743→            <span className="font-bold text-lg tracking-tighter">TikDL</span>
+   744→          </div>
+   745→          <div className="flex gap-6 text-sm text-gray-500">
+   746→            <a href="#features" className="hover:text-[#FE2C55] transition-colors">Features</a>
+   747→            <a href="#faq" className="hover:text-[#FE2C55] transition-colors">FAQ</a>
+   748→          </div>
+   749→          <p className="text-xs text-gray-600">
+   750→            TikDL is not affiliated with TikTok. For personal use only.
+   751→          </p>
+   752→        </div>
+   753→      </footer>
+   754→    </div>
+   755→  );
+   756→};
+   757→
+   758→export default TikTokDownloader;
+   759→
