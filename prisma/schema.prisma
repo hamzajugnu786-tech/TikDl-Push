@@ -30,3 +30,67 @@ model Post {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 }
+
+model InterstitialConfig {
+  id                String   @id @default(cuid())
+  enabled           Boolean  @default(true)
+  countdownDuration Int      @default(5)
+  autoDownload      Boolean  @default(true)
+  popupTitle        String   @default("Support free downloads")
+  popupDescription  String   @default("Your download will start automatically...")
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+}
+
+model AdPlacement {
+  id          String   @id @default(cuid())
+  enabled     Boolean  @default(true)
+  type        String   @default("display")
+  position    String   @default("center")
+  dimensions  String   @default("300x250")
+  priority    Int      @default(1)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+model DownloadLog {
+  id            String   @id @default(cuid())
+  videoId       String?
+  videoTitle    String?
+  provider      String?
+  success       Boolean  @default(false)
+  responseTime  Int?
+  error         String?
+  ipAddress     String?
+  createdAt     DateTime @default(now())
+}
+
+model Analytics {
+  id             String   @id @default(cuid())
+  date           DateTime @unique
+  totalDownloads Int      @default(0)
+  successCount   Int      @default(0)
+  failCount      Int      @default(0)
+  avgResponseMs  Int      @default(0)
+  uniqueVisitors Int      @default(0)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+}
+
+model ProviderStatus {
+  id            String   @id @default(cuid())
+  name          String   @unique
+  active        Boolean  @default(true)
+  successRate   Float    @default(0.0)
+  avgResponseMs Int      @default(0)
+  lastCheck     DateTime @default(now())
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+}
+
+model Settings {
+  id        String @id @default(cuid())
+  key       String @unique
+  value     String
+  updatedAt DateTime @updatedAt
+}

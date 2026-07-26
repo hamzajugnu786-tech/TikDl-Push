@@ -100,7 +100,7 @@ const FAQ_ITEMS: FAQItem[] = [
   },
   {
     question: 'Why is there a waiting timer before downloading?',
-    answer: 'The brief countdown timer supports our free service through ad revenue. This allows us to keep the downloader completely free and unlimited for everyone. The wait is only a few seconds, and you can skip it once the timer completes.',
+    answer: 'The brief countdown timer supports our free service through ad revenue. This allows us to keep the downloader completely free and unlimited for everyone. Your download will start automatically after the timer completes.',
   },
 ];
 
@@ -113,12 +113,35 @@ const TikTokDownloader = () => {
   const [activeTab, setActiveTab] = useState<'video' | 'audio' | 'cover'>('video');
   const [showAdPopup, setShowAdPopup] = useState(false);
   const [countdown, setCountdown] = useState(5);
-  const [isAdComplete, setIsAdComplete] = useState(false);
   const [pendingUrl, setPendingUrl] = useState('');
   const [openFAQ, setOpenFAQ] = useState<number | null>(null);
+  const [autoProceedDone, setAutoProceedDone] = useState(false);
+  const [interstitialConfig, setInterstitialConfig] = useState({
+    enabled: true,
+    countdownDuration: 5,
+    autoDownload: true,
+    popupTitle: 'Support free downloads',
+    popupDescription: 'Your download will start automatically...',
+  });
   const adTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const countdownRef = useRef<number>(5);
-  const isAdCompleteRef = useRef(false);
+  const autoProceedRef = useRef(false);
+
+  // Fetch interstitial config on mount
+  useEffect(() => {
+    const fetchConfig = async () => {
+      try {
+        const res = await fetch('/api/config/ads');
+        const data = await res.json();
+        if (data.success && data.interstitial) {
+          setInterstitialConfig(data.interstitial);
+        }
+      } catch {
+        // Use default config on fetch failure
+      }
+    };
+    fetchConfig();
+  }, []);
 
   // Load history from localStorage
   useEffect(() => {
@@ -148,15 +171,14 @@ const TikTokDownloader = () => {
   };
 
   const startAdTimer = useCallback((videoUrl: string) => {
-    // Reset state
-    setCountdown(5);
-    setIsAdComplete(false);
+    const duration = interstitialConfig.countdownDuration || 5;
+    setCountdown(duration);
+    setAutoProceedDone(false);
+    autoProceedRef.current = false;
     setShowAdPopup(true);
     setPendingUrl(videoUrl);
-    countdownRef.current = 5;
-    isAdCompleteRef.current = false;
+    countdownRef.current = duration;
 
-    // Start countdown
     if (adTimerRef.current) clearInterval(adTimerRef.current);
 
     adTimerRef.current = setInterval(() => {
@@ -166,21 +188,9 @@ const TikTokDownloader = () => {
       if (countdownRef.current <= 0) {
         if (adTimerRef.current) clearInterval(adTimerRef.current);
         adTimerRef.current = null;
-        setIsAdComplete(true);
-        isAdCompleteRef.current = true;
       }
     }, 1000);
-  }, []);
-
-  const skipAd = useCallback(() => {
-    if (adTimerRef.current) {
-      clearInterval(adTimerRef.current);
-      adTimerRef.current = null;
-    }
-    setIsAdComplete(true);
-    isAdCompleteRef.current = true;
-    setCountdown(0);
-  }, []);
+  }, [interstitialConfig.countdownDuration]);
 
   const proceedAfterAd = useCallback(async () => {
     setShowAdPopup(false);
@@ -222,6 +232,18 @@ const TikTokDownloader = () => {
       setPendingUrl('');
     }
   }, [pendingUrl]);
+
+  // Auto-proceed when countdown reaches 0
+  useEffect(() => {
+    if (countdown === 0 && showAdPopup && interstitialConfig.autoDownload && !autoProceedRef.current) {
+      autoProceedRef.current = true;
+      setAutoProceedDone(true);
+      const timeout = setTimeout(() => {
+        proceedAfterAd();
+      }, 800);
+      return () => clearTimeout(timeout);
+    }
+  }, [countdown, showAdPopup, interstitialConfig.autoDownload, proceedAfterAd]);
 
   const handleSubmit = useCallback((e: React.FormEvent) => {
     e.preventDefault();
@@ -330,22 +352,22 @@ const TikTokDownloader = () => {
             Fast, unlimited, high-quality downloads. No signup required.
           </motion.p>
 
-          <motion.form
-            onSubmit={handleSubmit}
+          <motion.div
             initial={{ opacity: 0, y: 10 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.5, delay: 0.2 }}
-            className="glass p-2 rounded-3xl flex flex-col sm:flex-row gap-3 max-w-xl mx-auto"
+            className="max-w-xl mx-auto"
           >
-            <input
-              type="text"
-              value={url}
-              onChange={(e) => { setUrl(e.target.value); setError(''); }}
-              placeholder="Paste TikTok link here..."
-              className="flex-1 bg-transparent px-4 sm:px-6 py-4 sm:py-5 outline-none text-base sm:text-lg placeholder:text-gray-500"
-              disabled={isLoading || showAdPopup}
-            />
-            <div className="flex gap-2 px-2 pb-2 sm:pb-0">
+            {/* Standalone input field */}
+            <div className="relative">
+              <input
+                type="text"
+                value={url}
+                onChange={(e) => { setUrl(e.target.value); setError(''); }}
+                placeholder="Paste TikTok link here..."
+                className="w-full bg-[#1a1a1a] border border-white/10 rounded-2xl pl-6 pr-12 py-[18px] outline-none text-base sm:text-lg placeholder:text-[#888] focus:border-[#FE2C55]/50 transition-colors"
+                disabled={isLoading || showAdPopup}
+              />
               <button
                 type="button"
                 onClick={async () => {
@@ -358,22 +380,26 @@ const TikTokDownloader = () => {
                     toast.error('Cannot read clipboard — please paste manually');
                   }
                 }}
-                className="px-4 sm:px-6 py-4 sm:py-5 rounded-2xl bg-white/10 hover:bg-white/20 transition-colors flex items-center justify-center"
+                className="absolute right-3 top-1/2 -translate-y-1/2 p-2 rounded-xl hover:bg-white/10 transition-colors"
                 title="Paste from clipboard"
                 disabled={isLoading || showAdPopup}
               >
-                <ClipboardPaste size={20} />
+                <ClipboardPaste size={18} className="text-gray-400" />
               </button>
+            </div>
+
+            {/* Standalone download button */}
+            <form onSubmit={handleSubmit} className="mt-5">
               <button
                 type="submit"
                 disabled={isLoading || showAdPopup}
-                className="px-8 sm:px-10 py-4 sm:py-5 bg-[#FE2C55] hover:bg-[#FE2C55]/90 rounded-2xl font-semibold flex items-center gap-2 disabled:opacity-60 transition-colors"
+                className="w-full py-[18px] bg-[#FE2C55] hover:bg-[#FE2C55]/90 rounded-2xl font-semibold text-lg flex items-center justify-center gap-2.5 disabled:opacity-60 transition-colors"
               >
                 {isLoading ? <RefreshCw className="animate-spin" size={20} /> : <Download size={20} />}
                 <span>{isLoading ? 'Processing...' : 'Download'}</span>
               </button>
-            </div>
-          </motion.form>
+            </form>
+          </motion.div>
 
           {/* Error message */}
           <AnimatePresence>
@@ -394,11 +420,11 @@ const TikTokDownloader = () => {
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             transition={{ delay: 0.4 }}
-            className="mt-6 flex flex-wrap justify-center gap-3 text-xs text-gray-500"
+            className="mt-8 flex flex-wrap justify-center gap-6 text-sm text-[#888]"
           >
-            <span className="flex items-center gap-1"><Play size={14} /> MP4 HD</span>
-            <span className="flex items-center gap-1"><Music size={14} /> MP3 Audio</span>
-            <span className="flex items-center gap-1"><ImageIcon size={14} /> Cover Image</span>
+            <span className="flex items-center gap-1.5"><Play size={15} className="text-[#FE2C55]" /> MP4 HD</span>
+            <span className="flex items-center gap-1.5"><Music size={15} className="text-[#25F4EE]" /> MP3 Audio</span>
+            <span className="flex items-center gap-1.5"><ImageIcon size={15} className="text-[#FE2C55]" /> Cover Image</span>
           </motion.div>
         </div>
       </section>
@@ -559,32 +585,114 @@ const TikTokDownloader = () => {
               initial={{ scale: 0.9, opacity: 0 }}
               animate={{ scale: 1, opacity: 1 }}
               exit={{ scale: 0.9, opacity: 0 }}
+              transition={{ duration: 0.3 }}
               className="glass max-w-md w-full rounded-3xl p-6 sm:p-10 text-center"
             >
-              <div className="text-[#25F4EE] mb-3 text-sm font-medium tracking-wider uppercase">Sponsored</div>
-              <h3 className="text-xl sm:text-2xl font-semibold mb-4 sm:mb-6">Support free downloads</h3>
-
-              {/* Ad space */}
-              <div className="h-36 sm:h-48 bg-zinc-900 rounded-2xl mb-6 sm:mb-8 flex items-center justify-center border border-dashed border-white/20 text-gray-500 text-sm">
-                {/* Insert your ad provider code here (e.g., Adsterra, Google Ad) */}
-                Ad Space — Insert Ad Code
-              </div>
-
-              {/* Countdown */}
-              <div className="text-4xl sm:text-5xl font-mono mb-6 sm:mb-8 tabular-nums font-bold">
-                {countdown > 0 ? countdown : <span className="text-[#25F4EE]">✓</span>}
-              </div>
-
-              {/* Continue button */}
-              <button
-                onClick={isAdComplete ? proceedAfterAd : skipAd}
-                disabled={countdown > 0 && !isAdComplete}
-                className="w-full py-4 bg-[#FE2C55] hover:bg-[#FE2C55]/90 text-white font-semibold rounded-2xl disabled:opacity-50 disabled:cursor-not-allowed transition-colors flex items-center justify-center gap-2"
+              <motion.div
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                transition={{ delay: 0.1 }}
+                className="text-[#25F4EE] mb-3 text-sm font-medium tracking-wider uppercase"
               >
-                {countdown > 0 ? `Continue in ${countdown}s` : 'Continue to Download'}
-              </button>
+                Sponsored
+              </motion.div>
+              <motion.h3
+                initial={{ opacity: 0, y: -5 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ delay: 0.15 }}
+                className="text-xl sm:text-2xl font-semibold mb-4 sm:mb-6"
+              >
+                {interstitialConfig.popupTitle}
+              </motion.h3>
 
-              <p className="text-xs text-gray-500 mt-4">
+              {/* 300×250 Ad placement area */}
+              <div className="w-full max-w-[300px] mx-auto h-[250px] bg-zinc-900 rounded-xl mb-6 sm:mb-8 flex items-center justify-center border border-white/10 text-gray-600 text-sm overflow-hidden">
+                <div className="flex flex-col items-center gap-2">
+                  <Globe size={24} className="text-gray-700" />
+                  <span className="text-gray-500">Advertisement</span>
+                  <span className="text-xs text-gray-600">300 × 250</span>
+                </div>
+              </div>
+
+              {/* Circular countdown ring */}
+              <motion.div
+                initial={{ scale: 0.8 }}
+                animate={{ scale: 1 }}
+                transition={{ delay: 0.2, type: 'spring', stiffness: 200 }}
+                className="flex items-center justify-center mb-4"
+              >
+                <div className="relative w-16 h-16 sm:w-20 sm:h-20">
+                  {/* SVG circular progress ring */}
+                  <svg
+                    className="w-full h-full -rotate-90"
+                    viewBox="0 0 80 80"
+                  >
+                    {/* Background circle */}
+                    <circle
+                      cx="40"
+                      cy="40"
+                      r="36"
+                      fill="none"
+                      stroke="rgba(255,255,255,0.1)"
+                      strokeWidth="4"
+                    />
+                    {/* Progress circle */}
+                    <motion.circle
+                      cx="40"
+                      cy="40"
+                      r="36"
+                      fill="none"
+                      stroke="#FE2C55"
+                      strokeWidth="4"
+                      strokeLinecap="round"
+                      strokeDasharray={2 * Math.PI * 36}
+                      animate={{
+                        strokeDashoffset: countdown > 0
+                          ? 2 * Math.PI * 36 * (1 - (interstitialConfig.countdownDuration - countdown) / interstitialConfig.countdownDuration)
+                          : 0,
+                      }}
+                      transition={{ duration: 0.5, ease: 'easeOut' }}
+                    />
+                  </svg>
+                  {/* Countdown number */}
+                  <div className="absolute inset-0 flex items-center justify-center">
+                    {countdown > 0 ? (
+                      <motion.span
+                        key={countdown}
+                        initial={{ scale: 1.2, opacity: 0 }}
+                        animate={{ scale: 1, opacity: 1 }}
+                        transition={{ duration: 0.3 }}
+                        className="text-2xl sm:text-3xl font-bold tabular-nums"
+                      >
+                        {countdown}
+                      </motion.span>
+                    ) : (
+                      <motion.span
+                        initial={{ scale: 0, opacity: 0 }}
+                        animate={{ scale: 1, opacity: 1 }}
+                        transition={{ type: 'spring', stiffness: 300 }}
+                        className="text-[#25F4EE]"
+                      >
+                        <CheckCircle size={28} />
+                      </motion.span>
+                    )}
+                  </div>
+                </div>
+              </motion.div>
+
+              {/* Auto-start message */}
+              <motion.p
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                transition={{ delay: 0.3 }}
+                className="text-sm text-gray-400 mb-2"
+              >
+                {autoProceedDone
+                  ? 'Starting download...'
+                  : interstitialConfig.popupDescription}
+              </motion.p>
+
+              <p className="text-xs text-gray-500 mt-2">
                 Ads keep this service free for everyone
               </p>
             </motion.div>
