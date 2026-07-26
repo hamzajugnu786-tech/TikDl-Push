@@ -44,10 +44,15 @@ model InterstitialConfig {
 
 model AdPlacement {
   id          String   @id @default(cuid())
+  name        String   @default("Untitled Ad")
+  template    String   @default("medium_rectangle")
   enabled     Boolean  @default(true)
   type        String   @default("display")
+  placement   String   @default("interstitial_popup")
   position    String   @default("center")
   dimensions  String   @default("300x250")
+  adCode      String   @default("")
+  description String   @default("")
   priority    Int      @default(1)
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt

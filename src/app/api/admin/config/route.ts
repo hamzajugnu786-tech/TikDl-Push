@@ -23,10 +23,15 @@ export async function GET() {
         : null,
       ads: adPlacements.map((ad) => ({
         id: ad.id,
+        name: ad.name,
+        template: ad.template,
         enabled: ad.enabled,
         type: ad.type,
+        placement: ad.placement,
         position: ad.position,
         dimensions: ad.dimensions,
+        adCode: ad.adCode,
+        description: ad.description,
         priority: ad.priority,
       })),
       settings: settings.map((s) => ({ key: s.key, value: s.value })),
@@ -43,7 +48,7 @@ export async function POST(request: Request) {
   try {
     const body = await request.json();
 
-    // Upsert InterstitialConfig — always work with the first record
+    // Upsert InterstitialConfig
     const interstitialData = {
       enabled: body.interstitial?.enabled ?? true,
       countdownDuration: body.interstitial?.countdownDuration ?? 5,
@@ -74,24 +79,43 @@ export async function POST(request: Request) {
           await db.adPlacement.update({
             where: { id: adData.id },
             data: {
+              name: adData.name ?? 'Untitled Ad',
+              template: adData.template ?? 'medium_rectangle',
               enabled: adData.enabled ?? true,
               type: adData.type ?? 'display',
+              placement: adData.placement ?? 'interstitial_popup',
               position: adData.position ?? 'center',
               dimensions: adData.dimensions ?? '300x250',
+              adCode: adData.adCode ?? '',
+              description: adData.description ?? '',
               priority: adData.priority ?? 1,
             },
           });
         } else {
           await db.adPlacement.create({
             data: {
+              name: adData.name ?? 'Untitled Ad',
+              template: adData.template ?? 'medium_rectangle',
               enabled: adData.enabled ?? true,
               type: adData.type ?? 'display',
+              placement: adData.placement ?? 'interstitial_popup',
               position: adData.position ?? 'center',
               dimensions: adData.dimensions ?? '300x250',
+              adCode: adData.adCode ?? '',
+              description: adData.description ?? '',
               priority: adData.priority ?? 1,
             },
           });
         }
+      }
+    }
+
+    // Delete ad placements
+    if (body.deleteAds && Array.isArray(body.deleteAds)) {
+      for (const adId of body.deleteAds) {
+        await db.adPlacement.delete({
+          where: { id: adId },
+        });
       }
     }
 
