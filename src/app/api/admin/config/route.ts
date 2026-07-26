@@ -36,7 +36,8 @@ export async function GET() {
       })),
       settings: settings.map((s) => ({ key: s.key, value: s.value })),
     });
-  } catch {
+  } catch (error) {
+    console.error('Failed to fetch config:', error);
     return NextResponse.json(
       { success: false, error: 'Failed to fetch config' },
       { status: 500 }
@@ -72,11 +73,19 @@ export async function POST(request: Request) {
       });
     }
 
-    // Upsert AdPlacement records — collect results with IDs
+    // Upsert AdPlacement records — use DB lookup to determine create vs update
     const savedAds: Array<{ id: string; name: string; template: string; enabled: boolean; type: string; placement: string; position: string; dimensions: string; adCode: string; description: string; priority: number }> = [];
+
     if (body.ads && Array.isArray(body.ads)) {
+      // Fetch all existing ad IDs for efficient lookup
+      const existingAds = await db.adPlacement.findMany({ select: { id: true } });
+      const existingIds = new Set(existingAds.map(a => a.id));
+
       for (const adData of body.ads) {
-        if (adData.id && typeof adData.id === 'string' && adData.id.startsWith('cl')) {
+        const isExisting = adData.id && typeof adData.id === 'string' && existingIds.has(adData.id);
+
+        if (isExisting) {
+          // Update existing ad
           const updated = await db.adPlacement.update({
             where: { id: adData.id },
             data: {
@@ -99,6 +108,7 @@ export async function POST(request: Request) {
             adCode: updated.adCode, description: updated.description, priority: updated.priority,
           });
         } else {
+          // Create new ad (ignore any stale/invalid id)
           const created = await db.adPlacement.create({
             data: {
               name: adData.name ?? 'Untitled Ad',
@@ -126,20 +136,26 @@ export async function POST(request: Request) {
     // Delete ad placements
     if (body.deleteAds && Array.isArray(body.deleteAds)) {
       for (const adId of body.deleteAds) {
-        await db.adPlacement.delete({
-          where: { id: adId },
-        });
+        // Verify the ad exists before deleting to avoid Prisma errors
+        const exists = await db.adPlacement.findUnique({ where: { id: adId } });
+        if (exists) {
+          await db.adPlacement.delete({
+            where: { id: adId },
+          });
+        }
       }
     }
 
     // Upsert Settings entries
     if (body.settings && Array.isArray(body.settings)) {
       for (const setting of body.settings) {
-        await db.settings.upsert({
-          where: { key: setting.key },
-          update: { value: setting.value },
-          create: { key: setting.key, value: setting.value },
-        });
+        if (setting.key && typeof setting.key === 'string') {
+          await db.settings.upsert({
+            where: { key: setting.key },
+            update: { value: String(setting.value ?? '') },
+            create: { key: setting.key, value: String(setting.value ?? '') },
+          });
+        }
       }
     }
 

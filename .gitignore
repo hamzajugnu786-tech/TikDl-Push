@@ -68,4 +68,8 @@ server.log
 /skills/
 
 # IDE & AI config
-.zscripts/
+.zscripts/tool-results/
+tool-results/
+
+# Agent context
+agent-ctx/

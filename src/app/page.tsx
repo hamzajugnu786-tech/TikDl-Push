@@ -91,19 +91,7 @@ const FEATURES = [
   },
 ];
 
-// Future-ready platform list — only TikTok is active
-const PLATFORMS = [
-  { name: 'TikTok', active: true },
-  { name: 'Instagram', active: false },
-  { name: 'YouTube', active: false },
-  { name: 'Facebook', active: false },
-  { name: 'X', active: false },
-  { name: 'Pinterest', active: false },
-  { name: 'Reddit', active: false },
-  { name: 'Snapchat', active: false },
-  { name: 'Vimeo', active: false },
-  { name: 'Dailymotion', active: false },
-];
+// Platform architecture kept internally for future NovaDL integration — not shown to users
 
 const FAQ_ITEMS: FAQItem[] = [
   {
@@ -503,22 +491,7 @@ const TikTokDownloader = () => {
                 The fastest and most reliable way to download TikTok videos in HD quality, completely free, with no watermarks, no signup, and no limits.
               </motion.p>
 
-              {/* Platform indicator — TikTok only visible to users; others kept internally for future NovaDL */}
-              <motion.div
-                initial={{ opacity: 0 }}
-                animate={{ opacity: 1 }}
-                transition={{ delay: 0.2 }}
-                className="flex justify-center gap-2 mb-6"
-              >
-                {PLATFORMS.filter(p => p.active).map((platform) => (
-                  <span
-                    key={platform.name}
-                    className="platform-btn active"
-                  >
-                    ✓ {platform.name}
-                  </span>
-                ))}
-              </motion.div>
+
 
               {/* Input + Button */}
               <motion.div

@@ -206,6 +206,9 @@ const AdminDashboard = () => {
   }, []);
   const [isLoading, setIsLoading] = useState(false);
   const [loginPassword, setLoginPassword] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
+  const [loginError, setLoginError] = useState('');
+  const [loginShake, setLoginShake] = useState(false);
   const [stats, setStats] = useState<AdminStats>({
     totalDownloads: 0,
     todayDownloads: 0,
@@ -381,13 +384,21 @@ const AdminDashboard = () => {
 
   const handleLogin = (e: React.FormEvent) => {
     e.preventDefault();
-    if (loginPassword === ADMIN_PASSWORD) {
-      setIsAuthenticated(true);
-      sessionStorage.setItem('tikdl_admin_session', 'authenticated');
-      toast.success('Admin access granted');
-    } else {
-      toast.error('Invalid password');
-    }
+    setLoginError('');
+    setIsLoading(true);
+    // Simulate brief loading for UX
+    setTimeout(() => {
+      if (loginPassword === ADMIN_PASSWORD) {
+        setIsAuthenticated(true);
+        sessionStorage.setItem('tikdl_admin_session', 'authenticated');
+        toast.success('Admin access granted');
+      } else {
+        setLoginError('Invalid password. Please try again.');
+        setLoginShake(true);
+        setTimeout(() => setLoginShake(false), 600);
+      }
+      setIsLoading(false);
+    }, 400);
   };
 
   const handleLogout = () => {
@@ -674,38 +685,103 @@ const AdminDashboard = () => {
     { id: 'platforms', label: 'Platforms', icon: LayoutGrid },
   ];
 
-  // Not authenticated — show login
+  // Not authenticated — show professional login
   if (!isAuthenticated) {
     return (
       <div className="min-h-screen bg-[#000000] text-white flex items-center justify-center px-4">
         <Toaster position="top-center" richColors closeButton />
+
+        {/* Ambient background accents */}
+        <div className="fixed inset-0 overflow-hidden pointer-events-none">
+          <div className="absolute -top-[30%] -left-[20%] w-[60%] h-[60%] rounded-full bg-[#FE2C55]/[0.03] blur-[120px]" />
+          <div className="absolute -bottom-[30%] -right-[20%] w-[50%] h-[50%] rounded-full bg-[#25F4EE]/[0.03] blur-[120px]" />
+        </div>
+
         <motion.div
-          initial={{ opacity: 0, scale: 0.95 }}
-          animate={{ opacity: 1, scale: 1 }}
-          className="glass max-w-md w-full rounded-[16px] p-8"
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.5, ease: [0.16, 1, 0.3, 1] }}
+          className={`relative max-w-[420px] w-full ${loginShake ? 'animate-shake' : ''}`}
         >
-          <div className="text-center mb-6">
-            <div className="w-10 h-10 bg-[#FE2C55] rounded-[12px] flex items-center justify-center text-xl mx-auto mb-3">♪</div>
-            <h1 className="text-lg font-bold">TikDL Admin</h1>
-            <p className="text-[#9CA3AF] text-sm mt-1">Enter admin password to continue</p>
+          {/* Premium card */}
+          <div className="glass rounded-[20px] p-8 sm:p-10 border border-white/[0.08] shadow-[0_8px_40px_rgba(0,0,0,0.4)]">
+            {/* Logo */}
+            <div className="flex items-center justify-center gap-3 mb-2">
+              <div className="w-11 h-11 bg-[#FE2C55] rounded-[14px] flex items-center justify-center text-xl font-bold shadow-[0_4px_20px_rgba(254,44,85,0.3)]">
+                ♪
+              </div>
+              <span className="text-[22px] font-extrabold tracking-tighter">TikDL</span>
+            </div>
+
+            {/* Subtitle */}
+            <p className="text-center text-[#9CA3AF] text-sm mb-8">
+              Admin Console — Authorized Access Only
+            </p>
+
+            {/* Separator */}
+            <div className="h-px bg-gradient-to-r from-transparent via-white/10 to-transparent mb-6" />
+
+            <form onSubmit={handleLogin} className="space-y-4">
+              {/* Password field with show/hide */}
+              <div>
+                <label className="text-xs text-[#9CA3AF] font-medium mb-2 block">Admin Password</label>
+                <div className="relative">
+                  <input
+                    type={showPassword ? 'text' : 'password'}
+                    value={loginPassword}
+                    onChange={(e) => { setLoginPassword(e.target.value); setLoginError(''); }}
+                    placeholder="Enter your admin password"
+                    disabled={isLoading}
+                    autoFocus
+                    className="w-full bg-[#1a1a1a] border border-[#333] rounded-[12px] px-4 py-3 outline-none input-focus-ring text-sm pr-10 disabled:opacity-50"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowPassword(!showPassword)}
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-[#666] hover:text-[#9CA3AF] transition-colors"
+                    tabIndex={-1}
+                  >
+                    {showPassword ? <Eye size={16} /> : <Lock size={16} />}
+                  </button>
+                </div>
+              </div>
+
+              {/* Error message */}
+              <AnimatePresence>
+                {loginError && (
+                  <motion.div
+                    initial={{ opacity: 0, y: -5 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    exit={{ opacity: 0, y: -5 }}
+                    transition={{ duration: 0.2 }}
+                    className="flex items-center gap-2 text-[#FE2C55] text-xs bg-[#FE2C55]/10 border border-[#FE2C55]/20 rounded-[10px] px-3 py-2"
+                  >
+                    <AlertCircle size={14} />
+                    {loginError}
+                  </motion.div>
+                )}
+              </AnimatePresence>
+
+              {/* Submit button */}
+              <motion.button
+                whileHover={!isLoading ? { scale: 1.01, y: -1 } : {}}
+                whileTap={!isLoading ? { scale: 0.98 } : {}}
+                type="submit"
+                disabled={isLoading || !loginPassword}
+                className="w-full bg-[#FE2C55] hover:bg-[#FE2C55]/95 disabled:bg-[#FE2C55]/50 disabled:cursor-not-allowed py-3 rounded-[12px] font-semibold text-sm transition-colors duration-150 shadow-[0_4px_20px_rgba(254,44,85,0.3)] flex items-center justify-center gap-2"
+              >
+                {isLoading ? <RefreshCw className="animate-spin" size={16} /> : null}
+                {isLoading ? 'Authenticating...' : 'Access Admin Panel'}
+              </motion.button>
+            </form>
+
+            {/* Footer */}
+            <div className="mt-6 text-center">
+              <p className="text-[10px] text-[#666]">
+                Session persists in this browser • Password set via environment variable
+              </p>
+            </div>
           </div>
-          <form onSubmit={handleLogin} className="space-y-3">
-            <input
-              type="password"
-              value={loginPassword}
-              onChange={(e) => setLoginPassword(e.target.value)}
-              placeholder="Admin password"
-              className="w-full bg-[#1a1a1a] border border-[#333] rounded-[12px] px-4 py-2.5 outline-none input-focus-ring text-sm"
-            />
-            <motion.button
-              whileHover={{ scale: 1.02, y: -1 }}
-              whileTap={{ scale: 0.98 }}
-              type="submit"
-              className="w-full bg-[#FE2C55] hover:bg-[#FE2C55]/95 py-2.5 rounded-[12px] font-semibold text-sm transition-colors duration-150 shadow-[0_4px_16px_rgba(254,44,85,0.25)]"
-            >
-              Login
-            </motion.button>
-          </form>
         </motion.div>
       </div>
     );
