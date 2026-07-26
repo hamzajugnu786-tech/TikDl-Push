@@ -152,3 +152,84 @@
 ::-webkit-scrollbar-thumb:hover {
   background: rgba(255, 255, 255, 0.3);
 }
+
+/* Premium focus ring animation */
+@keyframes focusRing {
+  0% { border-color: #333; }
+  100% { border-color: #FE2C55; }
+}
+
+/* Subtle pulse for countdown */
+@keyframes subtlePulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.85; }
+}
+
+/* Premium hover lift */
+.premium-hover {
+  transition: transform 150ms ease, background-color 150ms ease;
+}
+.premium-hover:hover {
+  transform: translateY(-1px);
+}
+
+/* Compact stat card */
+.stat-card {
+  background: rgba(28, 28, 28, 0.8);
+  backdrop-filter: blur(20px);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 14px;
+  padding: 20px;
+}
+
+/* Sidebar nav item */
+.sidebar-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 16px;
+  border-radius: 10px;
+  font-size: 14px;
+  font-weight: 500;
+  color: rgba(255, 255, 255, 0.6);
+  transition: all 150ms ease;
+}
+.sidebar-item:hover {
+  background: rgba(255, 255, 255, 0.05);
+  color: rgba(255, 255, 255, 0.9);
+}
+.sidebar-item.active {
+  background: rgba(254, 44, 85, 0.15);
+  color: #FE2C55;
+}
+
+/* Mini chart bar */
+.chart-bar {
+  border-radius: 4px 4px 0 0;
+  background: linear-gradient(to top, #FE2C55, rgba(254, 44, 85, 0.8));
+  min-height: 4px;
+  transition: height 300ms ease;
+}
+
+/* Circular countdown animation */
+@keyframes countdownRing {
+  from {
+    stroke-dashoffset: 226.19;
+  }
+}
+
+/* Ad placeholder styling */
+.ad-placeholder {
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  background: rgba(20, 20, 20, 0.6);
+  border-radius: 8px;
+}
+
+/* Premium input focus transition */
+.input-focus-ring {
+  transition: border-color 200ms ease, box-shadow 200ms ease;
+}
+.input-focus-ring:focus {
+  border-color: #FE2C55;
+  box-shadow: 0 0 0 3px rgba(254, 44, 85, 0.15);
+}
