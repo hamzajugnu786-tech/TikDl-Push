@@ -188,14 +188,22 @@ function PlacementMockup({ placementId }: { placementId: string }) {
 const AdminDashboard = () => {
   const ADMIN_PASSWORD = process.env.NEXT_PUBLIC_ADMIN_PASSWORD || 'admin123';
 
-  const [isAuthenticated, setIsAuthenticated] = useState(() => {
+  // Initialize to false to avoid hydration mismatch — sessionStorage is undefined during SSR
+  const [isAuthenticated, setIsAuthenticated] = useState(false);
+  const [mounted, setMounted] = useState(false);
+
+  // After mount, check sessionStorage for existing session (client-only)
+  useEffect(() => {
+    setMounted(true);
     try {
       const session = sessionStorage.getItem('tikdl_admin_session');
-      return session === 'authenticated';
+      if (session === 'authenticated') {
+        setIsAuthenticated(true);
+      }
     } catch {
-      return false;
+      // sessionStorage not available
     }
-  });
+  }, []);
   const [isLoading, setIsLoading] = useState(false);
   const [loginPassword, setLoginPassword] = useState('');
   const [stats, setStats] = useState<AdminStats>({
@@ -415,7 +423,27 @@ const AdminDashboard = () => {
       });
       const data = await res.json();
       if (data.success) {
-        toast.success('Advertisement configuration saved');
+        toast.success('Configuration Saved Successfully');
+        // Update local state with DB-generated IDs for new ads
+        if (data.ads && Array.isArray(data.ads)) {
+          setAds(data.ads.map((ad: any) => ({
+            id: ad.id,
+            name: ad.name || 'Untitled Ad',
+            template: ad.template || 'medium_rectangle',
+            enabled: ad.enabled,
+            type: ad.type || 'display',
+            placement: ad.placement || 'interstitial_popup',
+            position: ad.position || 'center',
+            dimensions: ad.dimensions || '300x250',
+            adCode: ad.adCode || '',
+            description: ad.description || '',
+            priority: ad.priority || 1,
+          })));
+        }
+        // Update interstitial config with DB ID
+        if (data.interstitial?.id) {
+          setInterstitialConfig(prev => ({ ...prev, id: data.interstitial.id }));
+        }
         setSettingsValues(prev => ({
           ...prev,
           countdownDuration: interstitialConfig.countdownDuration,

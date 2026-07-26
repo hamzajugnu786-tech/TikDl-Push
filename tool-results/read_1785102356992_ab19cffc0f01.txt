@@ -1,0 +1,1813 @@
+     1→'use client';
+     2→
+     3→import { useState, useEffect, useCallback } from 'react';
+     4→import { motion, AnimatePresence } from 'framer-motion';
+     5→import {
+     6→  RefreshCw, Download, Clock, Shield, Settings, BarChart3, Key, Activity,
+     7→  Megaphone, LayoutDashboard, Menu, X, TrendingUp, TrendingDown,
+     8→  Globe, ChevronDown, ChevronUp, Search, Trash2, Database, Monitor,
+     9→  Smartphone, Lock, Eye, FileText, Palette, Zap, Wrench,
+    10→  Copy, Plus, Layers, Tag, LayoutGrid,
+    11→  Code, MoveUp, MoveDown, Edit3, Check, AlertCircle
+    12→} from 'lucide-react';
+    13→import { Toaster, toast } from 'sonner';
+    14→import { Switch } from '@/components/ui/switch';
+    15→import {
+    16→  Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
+    17→} from '@/components/ui/select';
+    18→
+    19→// ===== Ad Templates =====
+    20→const AD_TEMPLATES = [
+    21→  { id: 'mobile_banner', label: '📱 Mobile Banner', dimensions: '320x100', placement: 'header_banner', desc: 'Compact banner optimized for mobile screens. Best for header or footer placement.' },
+    22→  { id: 'medium_rectangle', label: '🖼️ Medium Rectangle', dimensions: '300x250', placement: 'interstitial_popup', desc: 'The most common ad size. Versatile for popups, sidebars, and inline placements.' },
+    23→  { id: 'large_rectangle', label: '📏 Large Rectangle', dimensions: '336x280', placement: 'interstitial_popup', desc: 'Slightly larger than medium rectangle. Higher visibility for important placements.' },
+    24→  { id: 'leaderboard', label: '🖥️ Leaderboard', dimensions: '728x90', placement: 'header_banner', desc: 'Wide horizontal banner ideal for header placement on desktop.' },
+    25→  { id: 'large_leaderboard', label: '🎯 Large Leaderboard', dimensions: '970x250', placement: 'header_banner', desc: 'Premium large banner for maximum desktop visibility.' },
+    26→  { id: 'half_page', label: '📐 Half Page', dimensions: '300x600', placement: 'right_sidebar', desc: 'Tall vertical ad perfect for sidebar placement.' },
+    27→  { id: 'skyscraper', label: '🏢 Skyscraper', dimensions: '160x600', placement: 'right_sidebar', desc: 'Slim vertical ad designed for sidebar placement.' },
+    28→  { id: 'responsive_banner', label: '🌐 Responsive Banner', dimensions: 'responsive', placement: 'native_content', desc: 'Fluid ad that adapts to any container width. Best for flexible layouts.' },
+    29→  { id: 'interstitial', label: '📺 Interstitial', dimensions: '300x250', placement: 'interstitial_popup', desc: 'Full-screen overlay ad shown during the countdown popup.' },
+    30→  { id: 'native_ad', label: '📰 Native Ad', dimensions: 'responsive', placement: 'native_content', desc: 'Content-integrated ad that blends naturally with the page layout.' },
+    31→];
+    32→
+    33→// ===== Ad Placements =====
+    34→const AD_PLACEMENTS = [
+    35→  { id: 'header_banner', label: 'Header Banner', desc: 'Top of page, above the hero section', icon: Monitor },
+    36→  { id: 'hero_section', label: 'Hero Section', desc: 'Inside the hero/download area', icon: LayoutGrid },
+    37→  { id: 'between_url_download', label: 'Between URL & Download', desc: 'Between input field and download button', icon: Zap },
+    38→  { id: 'between_features_faq', label: 'Between Features & FAQ', desc: 'Inline placement between sections', icon: FileText },
+    39→  { id: 'above_footer', label: 'Above Footer', desc: 'Bottom banner before the footer', icon: Globe },
+    40→  { id: 'left_sidebar', label: 'Left Desktop Sidebar', desc: 'Left sidebar ad (desktop only)', icon: Layers },
+    41→  { id: 'right_sidebar', label: 'Right Desktop Sidebar', desc: 'Right sidebar ad (desktop only)', icon: Layers },
+    42→  { id: 'interstitial_popup', label: 'Interstitial Popup', desc: 'Inside the countdown popup modal', icon: Megaphone },
+    43→  { id: 'native_content', label: 'Native Content', desc: 'Blends with page content naturally', icon: Tag },
+    44→];
+    45→
+    46→// ===== Future Platforms =====
+    47→const FUTURE_PLATFORMS = [
+    48→  { name: 'TikTok', enabled: true, icon: '♪' },
+    49→  { name: 'Instagram', enabled: false, icon: 'IG' },
+    50→  { name: 'YouTube', enabled: false, icon: 'YT' },
+    51→  { name: 'Facebook', enabled: false, icon: 'FB' },
+    52→  { name: 'X (Twitter)', enabled: false, icon: 'X' },
+    53→  { name: 'Pinterest', enabled: false, icon: 'PI' },
+    54→  { name: 'Reddit', enabled: false, icon: 'RE' },
+    55→  { name: 'Snapchat', enabled: false, icon: 'SC' },
+    56→  { name: 'Vimeo', enabled: false, icon: 'VI' },
+    57→  { name: 'Dailymotion', enabled: false, icon: 'DM' },
+    58→];
+    59→
+    60→// ===== Interfaces =====
+    61→interface AdminStats {
+    62→  totalDownloads: number;
+    63→  todayDownloads: number;
+    64→  activeProvider: string;
+    65→  avgResponseTime: number;
+    66→  errorRate: number;
+    67→}
+    68→
+    69→interface InterstitialConfig {
+    70→  id?: string;
+    71→  enabled: boolean;
+    72→  countdownDuration: number;
+    73→  autoDownload: boolean;
+    74→  popupTitle: string;
+    75→  popupDescription: string;
+    76→}
+    77→
+    78→interface AdPlacementConfig {
+    79→  id?: string;
+    80→  name: string;
+    81→  template: string;
+    82→  enabled: boolean;
+    83→  type: string;
+    84→  placement: string;
+    85→  position: string;
+    86→  dimensions: string;
+    87→  adCode: string;
+    88→  description: string;
+    89→  priority: number;
+    90→}
+    91→
+    92→interface AnalyticsData {
+    93→  last7Days: Array<{
+    94→    date: string;
+    95→    totalDownloads: number;
+    96→    successCount: number;
+    97→    failCount: number;
+    98→    avgResponseMs: number;
+    99→    uniqueVisitors: number;
+   100→  }>;
+   101→  recentLogs: Array<{
+   102→    id: string;
+   103→    videoId: string;
+   104→    videoTitle: string;
+   105→    provider: string;
+   106→    success: boolean;
+   107→    responseTime: number;
+   108→    error: string;
+   109→    createdAt: string;
+   110→  }>;
+   111→  providers: Array<{
+   112→    name: string;
+   113→    active: boolean;
+   114→    successRate: number;
+   115→    avgResponseMs: number;
+   116→    lastCheck: string;
+   117→  }>;
+   118→}
+   119→
+   120→interface ProviderConfig {
+   121→  name: string;
+   122→  enabled: boolean;
+   123→  priority: number;
+   124→  status: 'Active' | 'Fallback';
+   125→}
+   126→
+   127→// ===== Dynamic dimension parser =====
+   128→function parseDimensions(dimStr: string): { w: number; h: number } {
+   129→  if (dimStr === 'responsive' || dimStr === 'native') return { w: 300, h: 150 };
+   130→  const parts = dimStr.split('x');
+   131→  return { w: parseInt(parts[0]) || 300, h: parseInt(parts[1]) || 250 };
+   132→}
+   133→
+   134→// ===== Placement mockup generator =====
+   135→function PlacementMockup({ placementId }: { placementId: string }) {
+   136→  const mockups: Record<string, React.ReactNode> = {
+   137→    header_banner: (
+   138→      <div className="placement-mockup w-full h-[40px] flex flex-col justify-center">
+   139→        <div className="ad-zone h-[24px] text-center">Header Banner</div>
+   140→      </div>
+   141→    ),
+   142→    hero_section: (
+   143→      <div className="placement-mockup w-full h-[60px] flex flex-col">
+   144→        <div className="ad-zone h-[28px] text-center">Hero Ad</div>
+   145→      </div>
+   146→    ),
+   147→    between_url_download: (
+   148→      <div className="placement-mockup w-full h-[50px] flex flex-col items-center justify-center">
+   149→        <div className="ad-zone w-[80%] h-[28px] text-center">Inline Ad</div>
+   150→      </div>
+   151→    ),
+   152→    between_features_faq: (
+   153→      <div className="placement-mockup w-full h-[50px] flex flex-col items-center justify-center">
+   154→        <div className="ad-zone w-[80%] h-[28px] text-center">Inline Ad</div>
+   155→      </div>
+   156→    ),
+   157→    above_footer: (
+   158→      <div className="placement-mockup w-full h-[40px] flex flex-col justify-center">
+   159→        <div className="ad-zone h-[24px] text-center">Footer Banner</div>
+   160→      </div>
+   161→    ),
+   162→    left_sidebar: (
+   163→      <div className="placement-mockup h-[120px] flex flex-col items-center justify-center">
+   164→        <div className="ad-zone w-[90%] h-[80px] text-center">Left Sidebar</div>
+   165→      </div>
+   166→    ),
+   167→    right_sidebar: (
+   168→      <div className="placement-mockup h-[120px] flex flex-col items-center justify-center">
+   169→        <div className="ad-zone w-[90%] h-[80px] text-center">Right Sidebar</div>
+   170→      </div>
+   171→    ),
+   172→    interstitial_popup: (
+   173→      <div className="placement-mockup w-full h-[80px] flex flex-col items-center justify-center rounded-[8px]">
+   174→        <div className="text-[8px] text-[#9CA3AF] uppercase mb-1">Popup</div>
+   175→        <div className="ad-zone w-[60%] h-[40px] text-center">Interstitial Ad</div>
+   176→      </div>
+   177→    ),
+   178→    native_content: (
+   179→      <div className="placement-mockup w-full h-[50px] flex flex-col items-center justify-center">
+   180→        <div className="ad-zone w-[90%] h-[30px] text-center">Native Content</div>
+   181→      </div>
+   182→    ),
+   183→  };
+   184→  return mockups[placementId] || <div className="placement-mockup h-[40px]"><div className="ad-zone h-full text-center">Ad Placement</div></div>;
+   185→}
+   186→
+   187→// ===== Admin Dashboard =====
+   188→const AdminDashboard = () => {
+   189→  const ADMIN_PASSWORD = process.env.NEXT_PUBLIC_ADMIN_PASSWORD || 'admin123';
+   190→
+   191→  const [isAuthenticated, setIsAuthenticated] = useState(() => {
+   192→    try {
+   193→      const session = sessionStorage.getItem('tikdl_admin_session');
+   194→      return session === 'authenticated';
+   195→    } catch {
+   196→      return false;
+   197→    }
+   198→  });
+   199→  const [isLoading, setIsLoading] = useState(false);
+   200→  const [loginPassword, setLoginPassword] = useState('');
+   201→  const [stats, setStats] = useState<AdminStats>({
+   202→    totalDownloads: 0,
+   203→    todayDownloads: 0,
+   204→    activeProvider: 'tikhub',
+   205→    avgResponseTime: 0,
+   206→    errorRate: 0,
+   207→  });
+   208→  const [activeTab, setActiveTab] = useState<'dashboard' | 'providers' | 'ads' | 'analytics' | 'settings' | 'platforms'>('dashboard');
+   209→  const [sidebarOpen, setSidebarOpen] = useState(false);
+   210→  const [analyticsData, setAnalyticsData] = useState<AnalyticsData>({
+   211→    last7Days: [],
+   212→    recentLogs: [],
+   213→    providers: [],
+   214→  });
+   215→
+   216→  // Interstitial config state
+   217→  const [interstitialConfig, setInterstitialConfig] = useState<InterstitialConfig>({
+   218→    enabled: true,
+   219→    countdownDuration: 5,
+   220→    autoDownload: true,
+   221→    popupTitle: 'Support free downloads',
+   222→    popupDescription: 'Your download will start automatically...',
+   223→  });
+   224→
+   225→  // Unlimited ads state
+   226→  const [ads, setAds] = useState<AdPlacementConfig[]>([
+   227→    {
+   228→      name: 'Interstitial Medium Rectangle',
+   229→      template: 'medium_rectangle',
+   230→      enabled: true,
+   231→      type: 'display',
+   232→      placement: 'interstitial_popup',
+   233→      position: 'center',
+   234→      dimensions: '300x250',
+   235→      adCode: '',
+   236→      description: 'Primary ad shown in the countdown popup',
+   237→      priority: 1,
+   238→    },
+   239→  ]);
+   240→
+   241→  // Providers config state
+   242→  const [providerConfigs, setProviderConfigs] = useState<ProviderConfig[]>([
+   243→    { name: 'TikHub', enabled: true, priority: 1, status: 'Active' },
+   244→    { name: 'RapidAPI', enabled: true, priority: 2, status: 'Fallback' },
+   245→  ]);
+   246→  const [providerSearch, setProviderSearch] = useState('');
+   247→
+   248→  // Settings state
+   249→  const [settingsValues, setSettingsValues] = useState({
+   250→    countdownDuration: 5,
+   251→    rateLimit: '20/h',
+   252→    retryAttempts: 3,
+   253→    siteName: 'TikDL',
+   254→    siteUrl: 'https://tikdl.app',
+   255→    maintenanceMode: false,
+   256→    metaTitle: 'TikDL - Free TikTok Video Downloader Without Watermark',
+   257→    metaDescription: 'Download TikTok videos without watermark in HD quality. Free, unlimited, no signup required.',
+   258→    ogImageUrl: '',
+   259→    robotsDirective: 'index, follow',
+   260→    logoText: 'TikDL',
+   261→    primaryColor: '#FE2C55',
+   262→    accentColor: '#25F4EE',
+   263→    maxFileSize: '100MB',
+   264→    allowedFormats: 'mp4, mp3, jpg',
+   265→    concurrentDownloads: 3,
+   266→    corsOrigins: '*',
+   267→  });
+   268→
+   269→  // Settings collapsible sections
+   270→  const [openSettingsSections, setOpenSettingsSections] = useState<Set<string>>(new Set(['site']));
+   271→
+   272→  const [isSaving, setIsSaving] = useState(false);
+   273→
+   274→  // Fetch config on mount
+   275→  useEffect(() => {
+   276→    const fetchConfig = async () => {
+   277→      try {
+   278→        const res = await fetch('/api/admin/config');
+   279→        const data = await res.json();
+   280→        if (data.success) {
+   281→          if (data.interstitial) {
+   282→            setInterstitialConfig({
+   283→              id: data.interstitial.id,
+   284→              enabled: data.interstitial.enabled,
+   285→              countdownDuration: data.interstitial.countdownDuration,
+   286→              autoDownload: data.interstitial.autoDownload,
+   287→              popupTitle: data.interstitial.popupTitle,
+   288→              popupDescription: data.interstitial.popupDescription,
+   289→            });
+   290→            setSettingsValues(prev => ({
+   291→              ...prev,
+   292→              countdownDuration: data.interstitial.countdownDuration,
+   293→            }));
+   294→          }
+   295→          if (data.ads && data.ads.length > 0) {
+   296→            setAds(data.ads.map((ad: any) => ({
+   297→              id: ad.id,
+   298→              name: ad.name || 'Untitled Ad',
+   299→              template: ad.template || 'medium_rectangle',
+   300→              enabled: ad.enabled,
+   301→              type: ad.type || 'display',
+   302→              placement: ad.placement || 'interstitial_popup',
+   303→              position: ad.position || 'center',
+   304→              dimensions: ad.dimensions || '300x250',
+   305→              adCode: ad.adCode || '',
+   306→              description: ad.description || '',
+   307→              priority: ad.priority || 1,
+   308→            })));
+   309→          }
+   310→          if (data.settings) {
+   311→            const settingsMap: Record<string, string> = {};
+   312→            for (const s of data.settings) {
+   313→              settingsMap[s.key] = s.value;
+   314→            }
+   315→            setSettingsValues(prev => ({
+   316→              ...prev,
+   317→              rateLimit: settingsMap['rateLimit'] || prev.rateLimit,
+   318→              retryAttempts: parseInt(settingsMap['retryAttempts'] || String(prev.retryAttempts)),
+   319→              siteName: settingsMap['siteName'] || prev.siteName,
+   320→              siteUrl: settingsMap['siteUrl'] || prev.siteUrl,
+   321→              maintenanceMode: settingsMap['maintenanceMode'] === 'true',
+   322→              metaTitle: settingsMap['metaTitle'] || prev.metaTitle,
+   323→              metaDescription: settingsMap['metaDescription'] || prev.metaDescription,
+   324→              ogImageUrl: settingsMap['ogImageUrl'] || prev.ogImageUrl,
+   325→              robotsDirective: settingsMap['robotsDirective'] || prev.robotsDirective,
+   326→              logoText: settingsMap['logoText'] || prev.logoText,
+   327→              primaryColor: settingsMap['primaryColor'] || prev.primaryColor,
+   328→              accentColor: settingsMap['accentColor'] || prev.accentColor,
+   329→              maxFileSize: settingsMap['maxFileSize'] || prev.maxFileSize,
+   330→              allowedFormats: settingsMap['allowedFormats'] || prev.allowedFormats,
+   331→              concurrentDownloads: parseInt(settingsMap['concurrentDownloads'] || String(prev.concurrentDownloads)),
+   332→              corsOrigins: settingsMap['corsOrigins'] || prev.corsOrigins,
+   333→            }));
+   334→          }
+   335→        }
+   336→      } catch {
+   337→        // Use defaults on failure
+   338→      }
+   339→    };
+   340→    if (isAuthenticated) {
+   341→      fetchConfig();
+   342→    }
+   343→  }, [isAuthenticated]);
+   344→
+   345→  // Fetch analytics stats
+   346→  useEffect(() => {
+   347→    const fetchStats = async () => {
+   348→      try {
+   349→        const res = await fetch('/api/analytics');
+   350→        const data = await res.json();
+   351→        if (data.success) {
+   352→          setStats({
+   353→            totalDownloads: data.summary.totalDownloads || 0,
+   354→            todayDownloads: data.today.totalDownloads || 0,
+   355→            activeProvider: 'tikhub',
+   356→            avgResponseTime: data.summary.avgResponseMs || 0,
+   357→            errorRate: data.summary.successRate > 0 ? 100 - data.summary.successRate : 0,
+   358→          });
+   359→          setAnalyticsData({
+   360→            last7Days: data.last7Days || [],
+   361→            recentLogs: data.recentLogs || [],
+   362→            providers: data.providers || [],
+   363→          });
+   364→        }
+   365→      } catch {
+   366→        // Keep default stats
+   367→      }
+   368→    };
+   369→    if (isAuthenticated) {
+   370→      fetchStats();
+   371→    }
+   372→  }, [isAuthenticated]);
+   373→
+   374→  const handleLogin = (e: React.FormEvent) => {
+   375→    e.preventDefault();
+   376→    if (loginPassword === ADMIN_PASSWORD) {
+   377→      setIsAuthenticated(true);
+   378→      sessionStorage.setItem('tikdl_admin_session', 'authenticated');
+   379→      toast.success('Admin access granted');
+   380→    } else {
+   381→      toast.error('Invalid password');
+   382→    }
+   383→  };
+   384→
+   385→  const handleLogout = () => {
+   386→    setIsAuthenticated(false);
+   387→    sessionStorage.removeItem('tikdl_admin_session');
+   388→    setLoginPassword('');
+   389→    toast.success('Logged out');
+   390→  };
+   391→
+   392→  // Save interstitial + ads config
+   393→  const handleSaveAdsConfig = async () => {
+   394→    setIsSaving(true);
+   395→    try {
+   396→      const res = await fetch('/api/admin/config', {
+   397→        method: 'POST',
+   398→        headers: { 'Content-Type': 'application/json' },
+   399→        body: JSON.stringify({
+   400→          interstitial: { ...interstitialConfig },
+   401→          ads: ads.map(ad => ({
+   402→            id: ad.id,
+   403→            name: ad.name,
+   404→            template: ad.template,
+   405→            enabled: ad.enabled,
+   406→            type: ad.type,
+   407→            placement: ad.placement,
+   408→            position: ad.position,
+   409→            dimensions: ad.dimensions,
+   410→            adCode: ad.adCode,
+   411→            description: ad.description,
+   412→            priority: ad.priority,
+   413→          })),
+   414→        }),
+   415→      });
+   416→      const data = await res.json();
+   417→      if (data.success) {
+   418→        toast.success('Advertisement configuration saved');
+   419→        setSettingsValues(prev => ({
+   420→          ...prev,
+   421→          countdownDuration: interstitialConfig.countdownDuration,
+   422→        }));
+   423→      } else {
+   424→        toast.error(data.error || 'Failed to save configuration');
+   425→      }
+   426→    } catch {
+   427→      toast.error('Network error — failed to save');
+   428→    } finally {
+   429→      setIsSaving(false);
+   430→    }
+   431→  };
+   432→
+   433→  // Add new ad
+   434→  const addNewAd = () => {
+   435→    setAds(prev => [...prev, {
+   436→      name: 'New Advertisement',
+   437→      template: 'medium_rectangle',
+   438→      enabled: false,
+   439→      type: 'display',
+   440→      placement: 'interstitial_popup',
+   441→      position: 'center',
+   442→      dimensions: '300x250',
+   443→      adCode: '',
+   444→      description: '',
+   445→      priority: prev.length + 1,
+   446→    }]);
+   447→    toast.success('New advertisement added');
+   448→  };
+   449→
+   450→  // Delete ad
+   451→  const deleteAd = async (index: number) => {
+   452→    const ad = ads[index];
+   453→    if (ad.id) {
+   454→      // Delete from DB
+   455→      try {
+   456→        await fetch('/api/admin/config', {
+   457→          method: 'POST',
+   458→          headers: { 'Content-Type': 'application/json' },
+   459→          body: JSON.stringify({ deleteAds: [ad.id] }),
+   460→        });
+   461→        toast.success('Advertisement deleted');
+   462→      } catch {
+   463→        toast.error('Failed to delete from database');
+   464→      }
+   465→    }
+   466→    setAds(prev => prev.filter((_, i) => i !== index));
+   467→  };
+   468→
+   469→  // Duplicate ad
+   470→  const duplicateAd = (index: number) => {
+   471→    const ad = ads[index];
+   472→    setAds(prev => [...prev, {
+   473→      name: `${ad.name} (Copy)`,
+   474→      template: ad.template,
+   475→      enabled: false,
+   476→      type: ad.type,
+   477→      placement: ad.placement,
+   478→      position: ad.position,
+   479→      dimensions: ad.dimensions,
+   480→      adCode: ad.adCode,
+   481→      description: ad.description,
+   482→      priority: prev.length + 1,
+   483→    }]);
+   484→    toast.success('Advertisement duplicated');
+   485→  };
+   486→
+   487→  // Update single ad field
+   488→  const updateAd = (index: number, field: string, value: any) => {
+   489→    setAds(prev => prev.map((ad, i) => i === index ? { ...ad, [field]: value } : ad));
+   490→  };
+   491→
+   492→  // Apply template to ad
+   493→  const applyTemplate = (index: number, templateId: string) => {
+   494→    const template = AD_TEMPLATES.find(t => t.id === templateId);
+   495→    if (!template) return;
+   496→    setAds(prev => prev.map((ad, i) => i === index ? {
+   497→      ...ad,
+   498→      template: templateId,
+   499→      dimensions: template.dimensions,
+   500→      placement: template.placement,
+   501→      description: template.desc,
+   502→      name: ad.name || template.label.replace(/^[^\s]+\s/, ''),
+   503→    } : ad));
+   504→  };
+   505→
+   506→  // Save settings
+   507→  const handleSaveSettings = async () => {
+   508→    setIsSaving(true);
+   509→    try {
+   510→      const res = await fetch('/api/admin/config', {
+   511→        method: 'POST',
+   512→        headers: { 'Content-Type': 'application/json' },
+   513→        body: JSON.stringify({
+   514→          settings: [
+   515→            { key: 'rateLimit', value: settingsValues.rateLimit },
+   516→            { key: 'retryAttempts', value: String(settingsValues.retryAttempts) },
+   517→            { key: 'siteName', value: settingsValues.siteName },
+   518→            { key: 'siteUrl', value: settingsValues.siteUrl },
+   519→            { key: 'maintenanceMode', value: String(settingsValues.maintenanceMode) },
+   520→            { key: 'metaTitle', value: settingsValues.metaTitle },
+   521→            { key: 'metaDescription', value: settingsValues.metaDescription },
+   522→            { key: 'ogImageUrl', value: settingsValues.ogImageUrl },
+   523→            { key: 'robotsDirective', value: settingsValues.robotsDirective },
+   524→            { key: 'logoText', value: settingsValues.logoText },
+   525→            { key: 'primaryColor', value: settingsValues.primaryColor },
+   526→            { key: 'accentColor', value: settingsValues.accentColor },
+   527→            { key: 'maxFileSize', value: settingsValues.maxFileSize },
+   528→            { key: 'allowedFormats', value: settingsValues.allowedFormats },
+   529→            { key: 'concurrentDownloads', value: String(settingsValues.concurrentDownloads) },
+   530→            { key: 'corsOrigins', value: settingsValues.corsOrigins },
+   531→          ],
+   532→        }),
+   533→      });
+   534→      const data = await res.json();
+   535→      if (data.success) {
+   536→        toast.success('Settings saved successfully');
+   537→      } else {
+   538→        toast.error(data.error || 'Failed to save settings');
+   539→      }
+   540→    } catch {
+   541→      toast.error('Network error — failed to save');
+   542→    } finally {
+   543→      setIsSaving(false);
+   544→    }
+   545→  };
+   546→
+   547→  // Toggle settings section
+   548→  const toggleSettingsSection = useCallback((section: string) => {
+   549→    setOpenSettingsSections(prev => {
+   550→      const newSet = new Set(prev);
+   551→      if (newSet.has(section)) {
+   552→        newSet.delete(section);
+   553→      } else {
+   554→        newSet.add(section);
+   555→      }
+   556→      return newSet;
+   557→    });
+   558→  }, []);
+   559→
+   560→  // Quick actions
+   561→  const handleHealthCheck = async () => {
+   562→    try {
+   563→      const res = await fetch('/api/health');
+   564→      const data = await res.json();
+   565→      if (data.status === 'ok') {
+   566→        toast.success('Health check passed', { description: 'Database connected' });
+   567→      } else {
+   568→        toast.error('Health check degraded', { description: 'Database disconnected' });
+   569→      }
+   570→    } catch {
+   571→      toast.error('Health check failed');
+   572→    }
+   573→  };
+   574→
+   575→  const handleClearCache = () => {
+   576→    toast.success('Cache cleared');
+   577→  };
+   578→
+   579→  const handleSeedConfig = async () => {
+   580→    setIsSaving(true);
+   581→    try {
+   582→      const res = await fetch('/api/admin/config', {
+   583→        method: 'POST',
+   584→        headers: { 'Content-Type': 'application/json' },
+   585→        body: JSON.stringify({
+   586→          interstitial: {
+   587→            enabled: true,
+   588→            countdownDuration: 5,
+   589→            autoDownload: true,
+   590→            popupTitle: 'Support free downloads',
+   591→            popupDescription: 'Your download will start automatically...',
+   592→          },
+   593→          ads: [{
+   594→            name: 'Interstitial Medium Rectangle',
+   595→            template: 'medium_rectangle',
+   596→            enabled: true,
+   597→            type: 'display',
+   598→            placement: 'interstitial_popup',
+   599→            position: 'center',
+   600→            dimensions: '300x250',
+   601→            adCode: '',
+   602→            description: 'Primary ad shown in the countdown popup',
+   603→            priority: 1,
+   604→          }],
+   605→        }),
+   606→      });
+   607→      const data = await res.json();
+   608→      if (data.success) {
+   609→        toast.success('Config seeded with defaults');
+   610→        setInterstitialConfig({
+   611→          enabled: true,
+   612→          countdownDuration: 5,
+   613→          autoDownload: true,
+   614→          popupTitle: 'Support free downloads',
+   615→          popupDescription: 'Your download will start automatically...',
+   616→        });
+   617→        setAds([{
+   618→          name: 'Interstitial Medium Rectangle',
+   619→          template: 'medium_rectangle',
+   620→          enabled: true,
+   621→          type: 'display',
+   622→          placement: 'interstitial_popup',
+   623→          position: 'center',
+   624→          dimensions: '300x250',
+   625→          adCode: '',
+   626→          description: 'Primary ad shown in the countdown popup',
+   627→          priority: 1,
+   628→        }]);
+   629→      } else {
+   630→        toast.error(data.error || 'Failed to seed config');
+   631→      }
+   632→    } catch {
+   633→      toast.error('Network error');
+   634→    } finally {
+   635→      setIsSaving(false);
+   636→    }
+   637→  };
+   638→
+   639→  // Sidebar nav items — includes Platforms
+   640→  const navItems = [
+   641→    { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
+   642→    { id: 'providers', label: 'Providers', icon: Key },
+   643→    { id: 'ads', label: 'Advertisements', icon: Megaphone },
+   644→    { id: 'analytics', label: 'Analytics', icon: BarChart3 },
+   645→    { id: 'settings', label: 'Settings', icon: Settings },
+   646→    { id: 'platforms', label: 'Platforms', icon: LayoutGrid },
+   647→  ];
+   648→
+   649→  // Not authenticated — show login
+   650→  if (!isAuthenticated) {
+   651→    return (
+   652→      <div className="min-h-screen bg-[#000000] text-white flex items-center justify-center px-4">
+   653→        <Toaster position="top-center" richColors closeButton />
+   654→        <motion.div
+   655→          initial={{ opacity: 0, scale: 0.95 }}
+   656→          animate={{ opacity: 1, scale: 1 }}
+   657→          className="glass max-w-md w-full rounded-[16px] p-8"
+   658→        >
+   659→          <div className="text-center mb-6">
+   660→            <div className="w-10 h-10 bg-[#FE2C55] rounded-[12px] flex items-center justify-center text-xl mx-auto mb-3">♪</div>
+   661→            <h1 className="text-lg font-bold">TikDL Admin</h1>
+   662→            <p className="text-[#9CA3AF] text-sm mt-1">Enter admin password to continue</p>
+   663→          </div>
+   664→          <form onSubmit={handleLogin} className="space-y-3">
+   665→            <input
+   666→              type="password"
+   667→              value={loginPassword}
+   668→              onChange={(e) => setLoginPassword(e.target.value)}
+   669→              placeholder="Admin password"
+   670→              className="w-full bg-[#1a1a1a] border border-[#333] rounded-[12px] px-4 py-2.5 outline-none input-focus-ring text-sm"
+   671→            />
+   672→            <motion.button
+   673→              whileHover={{ scale: 1.02, y: -1 }}
+   674→              whileTap={{ scale: 0.98 }}
+   675→              type="submit"
+   676→              className="w-full bg-[#FE2C55] hover:bg-[#FE2C55]/95 py-2.5 rounded-[12px] font-semibold text-sm transition-colors duration-150 shadow-[0_4px_16px_rgba(254,44,85,0.25)]"
+   677→            >
+   678→              Login
+   679→            </motion.button>
+   680→          </form>
+   681→        </motion.div>
+   682→      </div>
+   683→    );
+   684→  }
+   685→
+   686→  // Authenticated — show dashboard
+   687→  const maxBarValue = analyticsData.last7Days.length > 0
+   688→    ? Math.max(...analyticsData.last7Days.map(d => d.totalDownloads), 1)
+   689→    : 1;
+   690→
+   691→  return (
+   692→    <div className="min-h-screen bg-[#000000] text-white flex">
+   693→      <Toaster position="top-center" richColors closeButton />
+   694→
+   695→      {/* ===== Sidebar (Desktop) ===== */}
+   696→      <aside className="hidden lg:flex w-[200px] min-h-screen bg-[#111] border-r border-white/8 flex-col flex-shrink-0">
+   697→        <div className="px-3 py-3.5 flex items-center gap-2 border-b border-white/8">
+   698→          <div className="w-7 h-7 bg-[#FE2C55] rounded-lg flex items-center justify-center text-base font-bold">♪</div>
+   699→          <span className="font-bold text-base tracking-tighter">TikDL Admin</span>
+   700→        </div>
+   701→        <nav className="flex-1 px-2.5 py-3 space-y-0.5">
+   702→          {navItems.map((item) => (
+   703→            <button
+   704→              key={item.id}
+   705→              onClick={() => setActiveTab(item.id as typeof activeTab)}
+   706→              className={`sidebar-item w-full text-left ${activeTab === item.id ? 'active' : ''}`}
+   707→            >
+   708→              <item.icon size={15} />
+   709→              {item.label}
+   710→            </button>
+   711→          ))}
+   712→        </nav>
+   713→        <div className="px-2.5 py-3 border-t border-white/8">
+   714→          <button
+   715→            onClick={handleLogout}
+   716→            className="sidebar-item w-full text-left hover:!text-red-400"
+   717→          >
+   718→            <X size={15} />
+   719→            Logout
+   720→          </button>
+   721→        </div>
+   722→      </aside>
+   723→
+   724→      {/* ===== Mobile Sidebar Overlay ===== */}
+   725→      <AnimatePresence>
+   726→        {sidebarOpen && (
+   727→          <motion.div
+   728→            initial={{ opacity: 0 }}
+   729→            animate={{ opacity: 1 }}
+   730→            exit={{ opacity: 0 }}
+   731→            className="fixed inset-0 z-50 bg-black/60 lg:hidden"
+   732→            onClick={() => setSidebarOpen(false)}
+   733→          >
+   734→            <motion.aside
+   735→              initial={{ x: -200 }}
+   736→              animate={{ x: 0 }}
+   737→              exit={{ x: -200 }}
+   738→              transition={{ duration: 0.2 }}
+   739→              className="w-[200px] min-h-screen bg-[#111] border-r border-white/8 flex flex-col"
+   740→              onClick={(e) => e.stopPropagation()}
+   741→            >
+   742→              <div className="px-3 py-3.5 flex items-center justify-between border-b border-white/8">
+   743→                <div className="flex items-center gap-2">
+   744→                  <div className="w-7 h-7 bg-[#FE2C55] rounded-lg flex items-center justify-center text-base font-bold">♪</div>
+   745→                  <span className="font-bold text-base tracking-tighter">TikDL</span>
+   746→                </div>
+   747→                <button onClick={() => setSidebarOpen(false)} className="p-2 rounded-lg hover:bg-white/10">
+   748→                  <X size={15} />
+   749→                </button>
+   750→              </div>
+   751→              <nav className="flex-1 px-2.5 py-3 space-y-0.5">
+   752→                {navItems.map((item) => (
+   753→                  <button
+   754→                    key={item.id}
+   755→                    onClick={() => { setActiveTab(item.id as typeof activeTab); setSidebarOpen(false); }}
+   756→                    className={`sidebar-item w-full text-left ${activeTab === item.id ? 'active' : ''}`}
+   757→                  >
+   758→                    <item.icon size={15} />
+   759→                    {item.label}
+   760→                  </button>
+   761→                ))}
+   762→              </nav>
+   763→              <div className="px-2.5 py-3 border-t border-white/8">
+   764→                <button onClick={handleLogout} className="sidebar-item w-full text-left hover:!text-red-400">
+   765→                  <X size={15} />
+   766→                  Logout
+   767→                </button>
+   768→              </div>
+   769→            </motion.aside>
+   770→          </motion.div>
+   771→        )}
+   772→      </AnimatePresence>
+   773→
+   774→      {/* ===== Main Content ===== */}
+   775→      <main className="flex-1 min-h-screen overflow-y-auto">
+   776→        {/* Top bar (mobile) */}
+   777→        <div className="sticky top-0 z-40 glass border-b border-white/10 bg-black/80 px-4 py-2.5 flex items-center justify-between lg:hidden">
+   778→          <button onClick={() => setSidebarOpen(true)} className="p-2 rounded-lg hover:bg-white/10">
+   779→            <Menu size={18} />
+   780→          </button>
+   781→          <span className="font-bold text-sm tracking-tighter">TikDL Admin</span>
+   782→          <button onClick={handleLogout} className="text-xs text-gray-500 hover:text-red-400 transition-colors duration-150">
+   783→            Logout
+   784→          </button>
+   785→        </div>
+   786→
+   787→        <div className="px-4 sm:px-6 lg:px-8 py-5 lg:py-6 max-w-[1100px]">
+   788→
+   789→          {/* ===== Dashboard Tab ===== */}
+   790→          {activeTab === 'dashboard' && (
+   791→            <motion.div
+   792→              initial={{ opacity: 0 }}
+   793→              animate={{ opacity: 1 }}
+   794→              transition={{ duration: 0.25 }}
+   795→            >
+   796→              {/* Stat Cards */}
+   797→              <div className="grid grid-cols-2 lg:grid-cols-4 gap-2.5 sm:gap-3 mb-5">
+   798→                <div className="stat-card">
+   799→                  <div className="flex items-center gap-2 mb-1.5">
+   800→                    <Download size={14} className="text-[#FE2C55]" />
+   801→                    <span className="text-[#9CA3AF] text-xs font-medium">Total Downloads</span>
+   802→                  </div>
+   803→                  <div className="text-lg sm:text-xl font-bold">{stats.totalDownloads.toLocaleString()}</div>
+   804→                  <div className="flex items-center gap-1 mt-0.5 text-xs text-[#9CA3AF]">
+   805→                    <TrendingUp size={11} className="text-green-400" />
+   806→                    <span className="text-green-400">All time</span>
+   807→                  </div>
+   808→                </div>
+   809→                <div className="stat-card">
+   810→                  <div className="flex items-center gap-2 mb-1.5">
+   811→                    <Activity size={14} className="text-[#25F4EE]" />
+   812→                    <span className="text-[#9CA3AF] text-xs font-medium">Today&apos;s Downloads</span>
+   813→                  </div>
+   814→                  <div className="text-lg sm:text-xl font-bold">{stats.todayDownloads.toLocaleString()}</div>
+   815→                  <div className="live-indicator mt-0.5 text-xs text-[#9CA3AF]">
+   816→                    <span className="dot" />
+   817→                    <span className="text-[#25F4EE]">Live</span>
+   818→                  </div>
+   819→                </div>
+   820→                <div className="stat-card">
+   821→                  <div className="flex items-center gap-2 mb-1.5">
+   822→                    <Clock size={14} className="text-[#25F4EE]" />
+   823→                    <span className="text-[#9CA3AF] text-xs font-medium">Avg Response</span>
+   824→                  </div>
+   825→                  <div className="text-lg sm:text-xl font-bold">{stats.avgResponseTime}ms</div>
+   826→                  <div className="flex items-center gap-1 mt-0.5 text-xs text-[#9CA3AF]">
+   827→                    {stats.avgResponseTime < 1000 ? (
+   828→                      <TrendingDown size={11} className="text-green-400" />
+   829→                    ) : (
+   830→                      <TrendingUp size={11} className="text-yellow-400" />
+   831→                    )}
+   832→                    <span>Speed</span>
+   833→                  </div>
+   834→                </div>
+   835→                <div className="stat-card">
+   836→                  <div className="flex items-center gap-2 mb-1.5">
+   837→                    <Shield size={14} className="text-[#FE2C55]" />
+   838→                    <span className="text-[#9CA3AF] text-xs font-medium">Error Rate</span>
+   839→                  </div>
+   840→                  <div className="text-lg sm:text-xl font-bold">{stats.errorRate}%</div>
+   841→                  <div className="flex items-center gap-1 mt-0.5 text-xs text-[#9CA3AF]">
+   842→                    {stats.errorRate < 5 ? (
+   843→                      <TrendingDown size={11} className="text-green-400" />
+   844→                    ) : (
+   845→                      <TrendingUp size={11} className="text-red-400" />
+   846→                    )}
+   847→                    <span>Reliability</span>
+   848→                  </div>
+   849→                </div>
+   850→              </div>
+   851→
+   852→              {/* Quick Actions */}
+   853→              <div className="flex flex-wrap gap-2 mb-5">
+   854→                <motion.button
+   855→                  whileHover={{ scale: 1.02 }}
+   856→                  whileTap={{ scale: 0.98 }}
+   857→                  onClick={handleHealthCheck}
+   858→                  className="px-3 py-2 bg-white/5 hover:bg-white/10 rounded-[10px] text-xs font-medium flex items-center gap-1.5 transition-colors duration-150 border border-white/10"
+   859→                >
+   860→                  <Activity size={13} /> Health Check
+   861→                </motion.button>
+   862→                <motion.button
+   863→                  whileHover={{ scale: 1.02 }}
+   864→                  whileTap={{ scale: 0.98 }}
+   865→                  onClick={handleClearCache}
+   866→                  className="px-3 py-2 bg-white/5 hover:bg-white/10 rounded-[10px] text-xs font-medium flex items-center gap-1.5 transition-colors duration-150 border border-white/10"
+   867→                >
+   868→                  <Trash2 size={13} /> Clear Cache
+   869→                </motion.button>
+   870→                <motion.button
+   871→                  whileHover={{ scale: 1.02 }}
+   872→                  whileTap={{ scale: 0.98 }}
+   873→                  onClick={handleSeedConfig}
+   874→                  disabled={isSaving}
+   875→                  className="px-3 py-2 bg-white/5 hover:bg-white/10 rounded-[10px] text-xs font-medium flex items-center gap-1.5 transition-colors duration-150 border border-white/10 disabled:opacity-50"
+   876→                >
+   877→                  <Database size={13} /> Seed Config
+   878→                </motion.button>
+   879→              </div>
+   880→
+   881→              {/* Provider Status */}
+   882→              <div className="mb-5">
+   883→                <h3 className="text-xs font-semibold mb-2 text-[#9CA3AF] uppercase tracking-wider">Provider Status</h3>
+   884→                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+   885→                  {analyticsData.providers.length > 0 ? (
+   886→                    analyticsData.providers.map((p) => (
+   887→                      <div key={p.name} className="stat-card flex items-center justify-between">
+   888→                        <div>
+   889→                          <div className="font-semibold text-sm">{p.name}</div>
+   890→                          <div className="text-xs text-[#9CA3AF] mt-0.5">
+   891→                            Latency: {p.avgResponseMs}ms · Rate: {p.successRate}%
+   892→                          </div>
+   893→                        </div>
+   894→                        <div className={`px-2.5 py-1 rounded-full text-xs font-semibold ${
+   895→                          p.active ? 'bg-[#25F4EE]/15 text-[#25F4EE]' : 'bg-[#FE2C55]/15 text-[#FE2C55]'
+   896→                        }`}>
+   897→                          {p.active ? 'Active' : 'Inactive'}
+   898→                        </div>
+   899→                      </div>
+   900→                    ))
+   901→                  ) : (
+   902→                    <>
+   903→                      <div className="stat-card flex items-center justify-between">
+   904→                        <div>
+   905→                          <div className="font-semibold text-sm">TikHub</div>
+   906→                          <div className="text-xs text-[#9CA3AF] mt-0.5">Primary provider</div>
+   907→                        </div>
+   908→                        <div className="px-2.5 py-1 rounded-full text-xs font-semibold bg-[#25F4EE]/15 text-[#25F4EE]">Active</div>
+   909→                      </div>
+   910→                      <div className="stat-card flex items-center justify-between">
+   911→                        <div>
+   912→                          <div className="font-semibold text-sm">RapidAPI</div>
+   913→                          <div className="text-xs text-[#9CA3AF] mt-0.5">Fallback provider</div>
+   914→                        </div>
+   915→                        <div className="px-2.5 py-1 rounded-full text-xs font-semibold bg-[#FE2C55]/15 text-[#FE2C55]">Fallback</div>
+   916→                      </div>
+   917→                    </>
+   918→                  )}
+   919→                </div>
+   920→              </div>
+   921→
+   922→              {/* Recent Downloads Table */}
+   923→              <div>
+   924→                <h3 className="text-xs font-semibold mb-2 text-[#9CA3AF] uppercase tracking-wider">Recent Downloads</h3>
+   925→                <div className="stat-card overflow-hidden">
+   926→                  <div className="overflow-x-auto max-h-[280px] overflow-y-auto">
+   927→                    <table className="w-full text-sm">
+   928→                      <thead className="sticky top-0 bg-[#1a1a1a]">
+   929→                        <tr className="text-[#9CA3AF] text-xs uppercase tracking-wider">
+   930→                          <th className="text-left py-2.5 px-2.5 font-medium">Time</th>
+   931→                          <th className="text-left py-2.5 px-2.5 font-medium">Video</th>
+   932→                          <th className="text-left py-2.5 px-2.5 font-medium">Provider</th>
+   933→                          <th className="text-center py-2.5 px-2.5 font-medium">Status</th>
+   934→                          <th className="text-right py-2.5 px-2.5 font-medium">Response</th>
+   935→                        </tr>
+   936→                      </thead>
+   937→                      <tbody>
+   938→                        {analyticsData.recentLogs.length > 0 ? (
+   939→                          analyticsData.recentLogs.slice(0, 10).map((log) => (
+   940→                            <tr key={log.id} className="table-row">
+   941→                              <td className="py-2 px-2.5 text-xs text-[#9CA3AF]">
+   942→                                {new Date(log.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+   943→                              </td>
+   944→                              <td className="py-2 px-2.5 text-xs truncate max-w-[120px]">
+   945→                                {log.videoTitle || log.videoId || '—'}
+   946→                              </td>
+   947→                              <td className="py-2 px-2.5 text-xs text-[#9CA3AF]">{log.provider || '—'}</td>
+   948→                              <td className="py-2 px-2.5 text-center">
+   949→                                {log.success ? (
+   950→                                  <Check size={12} className="text-green-400 mx-auto" />
+   951→                                ) : (
+   952→                                  <X size={12} className="text-red-400 mx-auto" />
+   953→                                )}
+   954→                              </td>
+   955→                              <td className="py-2 px-2.5 text-xs text-right text-[#9CA3AF]">
+   956→                                {log.responseTime ? `${log.responseTime}ms` : '—'}
+   957→                              </td>
+   958→                            </tr>
+   959→                          ))
+   960→                        ) : (
+   961→                          <tr>
+   962→                            <td colSpan={5} className="py-6 text-center text-[#9CA3AF] text-xs">
+   963→                              No download logs yet
+   964→                            </td>
+   965→                          </tr>
+   966→                        )}
+   967→                      </tbody>
+   968→                    </table>
+   969→                  </div>
+   970→                </div>
+   971→              </div>
+   972→            </motion.div>
+   973→          )}
+   974→
+   975→          {/* ===== Providers Tab ===== */}
+   976→          {activeTab === 'providers' && (
+   977→            <motion.div
+   978→              initial={{ opacity: 0 }}
+   979→              animate={{ opacity: 1 }}
+   980→              transition={{ duration: 0.25 }}
+   981→            >
+   982→              <h2 className="text-lg font-bold mb-3">Provider Management</h2>
+   983→
+   984→              {/* Search */}
+   985→              <div className="relative mb-3">
+   986→                <Search size={13} className="absolute left-3 top-1/2 -translate-y-1/2 text-[#666]" />
+   987→                <input
+   988→                  type="text"
+   989→                  value={providerSearch}
+   990→                  onChange={(e) => setProviderSearch(e.target.value)}
+   991→                  placeholder="Search providers..."
+   992→                  className="w-full bg-[#1a1a1a] border border-[#333] rounded-[10px] pl-8 pr-4 py-2 text-sm outline-none input-focus-ring"
+   993→                />
+   994→              </div>
+   995→
+   996→              {/* Provider Table */}
+   997→              <div className="stat-card overflow-hidden mb-4">
+   998→                <div className="overflow-x-auto">
+   999→                  <table className="w-full text-sm">
+  1000→                    <thead>
+  1001→                      <tr className="text-[#9CA3AF] text-xs uppercase tracking-wider">
+  1002→                        <th className="text-left py-2.5 px-2.5 font-medium">Name</th>
+  1003→                        <th className="text-left py-2.5 px-2.5 font-medium">Status</th>
+  1004→                        <th className="text-center py-2.5 px-2.5 font-medium">Priority</th>
+  1005→                        <th className="text-center py-2.5 px-2.5 font-medium">Enabled</th>
+  1006→                        <th className="text-left py-2.5 px-2.5 font-medium">Health</th>
+  1007→                        <th className="text-right py-2.5 px-2.5 font-medium">Latency</th>
+  1008→                        <th className="text-right py-2.5 px-2.5 font-medium">Success</th>
+  1009→                      </tr>
+  1010→                    </thead>
+  1011→                    <tbody>
+  1012→                      {providerConfigs
+  1013→                        .filter(p => p.name.toLowerCase().includes(providerSearch.toLowerCase()))
+  1014→                        .map((provider) => {
+  1015→                          const analyticsProvider = analyticsData.providers.find(
+  1016→                            ap => ap.name.toLowerCase() === provider.name.toLowerCase()
+  1017→                          );
+  1018→                          return (
+  1019→                            <tr key={provider.name} className="table-row">
+  1020→                              <td className="py-2.5 px-2.5 font-medium text-sm">{provider.name}</td>
+  1021→                              <td className="py-2.5 px-2.5">
+  1022→                                <span className={`px-2 py-0.5 rounded-full text-xs font-semibold ${
+  1023→                                  provider.status === 'Active'
+  1024→                                    ? 'bg-[#25F4EE]/15 text-[#25F4EE]'
+  1025→                                    : 'bg-[#FE2C55]/15 text-[#FE2C55]'
+  1026→                                }`}>
+  1027→                                  {provider.status}
+  1028→                                </span>
+  1029→                              </td>
+  1030→                              <td className="py-2.5 px-2.5 text-center">
+  1031→                                <div className="flex items-center justify-center gap-1">
+  1032→                                  <button
+  1033→                                    onClick={() => setProviderConfigs(prev =>
+  1034→                                      prev.map(p => p.name === provider.name ? { ...p, priority: Math.max(1, p.priority - 1) } : p)
+  1035→                                    )}
+  1036→                                    className="w-6 h-6 flex items-center justify-center rounded bg-white/5 hover:bg-white/10 transition-colors"
+  1037→                                  >
+  1038→                                    <MoveUp size={10} />
+  1039→                                  </button>
+  1040→                                  <span className="text-sm font-semibold w-4 text-center">{provider.priority}</span>
+  1041→                                  <button
+  1042→                                    onClick={() => setProviderConfigs(prev =>
+  1043→                                      prev.map(p => p.name === provider.name ? { ...p, priority: Math.min(10, p.priority + 1) } : p)
+  1044→                                    )}
+  1045→                                    className="w-6 h-6 flex items-center justify-center rounded bg-white/5 hover:bg-white/10 transition-colors"
+  1046→                                  >
+  1047→                                    <MoveDown size={10} />
+  1048→                                  </button>
+  1049→                                </div>
+  1050→                              </td>
+  1051→                              <td className="py-2.5 px-2.5">
+  1052→                                <div className="flex justify-center">
+  1053→                                  <Switch
+  1054→                                    checked={provider.enabled}
+  1055→                                    onCheckedChange={(val) => setProviderConfigs(prev =>
+  1056→                                      prev.map(p => p.name === provider.name ? { ...p, enabled: val } : p)
+  1057→                                    )}
+  1058→                                  />
+  1059→                                </div>
+  1060→                              </td>
+  1061→                              <td className="py-2.5 px-2.5">
+  1062→                                <div className={`w-2 h-2 rounded-full inline-block ${
+  1063→                                  analyticsProvider?.active || provider.enabled ? 'bg-green-400' : 'bg-red-400'
+  1064→                                }`} />
+  1065→                              </td>
+  1066→                              <td className="py-2.5 px-2.5 text-right text-xs text-[#9CA3AF]">
+  1067→                                {analyticsProvider?.avgResponseMs ? `${analyticsProvider.avgResponseMs}ms` : '—'}
+  1068→                              </td>
+  1069→                              <td className="py-2.5 px-2.5 text-right text-xs text-[#9CA3AF]">
+  1070→                                {analyticsProvider?.successRate ? `${analyticsProvider.successRate}%` : '—'}
+  1071→                              </td>
+  1072→                            </tr>
+  1073→                          );
+  1074→                        })}
+  1075→                    </tbody>
+  1076→                  </table>
+  1077→                </div>
+  1078→              </div>
+  1079→
+  1080→              {/* Environment Keys */}
+  1081→              <div className="stat-card mb-4">
+  1082→                <h3 className="text-sm font-semibold mb-2">Environment Keys</h3>
+  1083→                <p className="text-[#9CA3AF] text-xs mb-2">
+  1084→                  API keys are configured via environment variables. Never hardcode keys in source code.
+  1085→                </p>
+  1086→                <div className="space-y-1.5">
+  1087→                  {['TIKHUB_API_KEY', 'RAPIDAPI_KEY', 'PROVIDER_NAME'].map((key) => (
+  1088→                    <div key={key} className="flex items-center gap-2 p-2 bg-[#1a1a1a] rounded-[8px]">
+  1089→                      <Key size={11} className="text-[#666]" />
+  1090→                      <span className="text-xs font-medium">{key}</span>
+  1091→                      <span className="text-[10px] text-[#9CA3AF] ml-auto">Set via env var</span>
+  1092→                      <Lock size={9} className="text-[#666]" />
+  1093→                    </div>
+  1094→                  ))}
+  1095→                </div>
+  1096→              </div>
+  1097→
+  1098→              <motion.button
+  1099→                whileHover={{ scale: 1.02, y: -1 }}
+  1100→                whileTap={{ scale: 0.98 }}
+  1101→                onClick={() => toast.info('Provider config saved locally. API keys are env-based.')}
+  1102→                className="save-btn"
+  1103→              >
+  1104→                Save Provider Config
+  1105→              </motion.button>
+  1106→            </motion.div>
+  1107→          )}
+  1108→
+  1109→          {/* ===== Advertisements Tab ===== */}
+  1110→          {activeTab === 'ads' && (
+  1111→            <motion.div
+  1112→              initial={{ opacity: 0 }}
+  1113→              animate={{ opacity: 1 }}
+  1114→              transition={{ duration: 0.25 }}
+  1115→              className="space-y-4"
+  1116→            >
+  1117→              <div className="flex items-center justify-between">
+  1118→                <h2 className="text-lg font-bold">Advertisements</h2>
+  1119→                <motion.button
+  1120→                  whileHover={{ scale: 1.02 }}
+  1121→                  whileTap={{ scale: 0.98 }}
+  1122→                  onClick={addNewAd}
+  1123→                  className="px-3 py-2 bg-[#FE2C55] hover:bg-[#FE2C55]/95 rounded-[10px] text-sm font-semibold flex items-center gap-1.5 transition-colors duration-150 shadow-[0_4px_16px_rgba(254,44,85,0.25)]"
+  1124→                >
+  1125→                  <Plus size={14} /> Add Advertisement
+  1126→                </motion.button>
+  1127→              </div>
+  1128→
+  1129→              {/* Interstitial Config */}
+  1130→              <div className="stat-card">
+  1131→                <h3 className="text-sm font-semibold mb-4">Interstitial Popup</h3>
+  1132→                <div className="space-y-4">
+  1133→                  {/* Enabled switch */}
+  1134→                  <div className="flex items-center justify-between">
+  1135→                    <div>
+  1136→                      <div className="font-medium text-sm">Interstitial Enabled</div>
+  1137→                      <div className="text-xs text-[#9CA3AF]">Show countdown popup before downloads</div>
+  1138→                    </div>
+  1139→                    <Switch
+  1140→                      checked={interstitialConfig.enabled}
+  1141→                      onCheckedChange={(val) => setInterstitialConfig(prev => ({ ...prev, enabled: val }))}
+  1142→                    />
+  1143→                  </div>
+  1144→
+  1145→                  {/* Timer dropdown */}
+  1146→                  <div>
+  1147→                    <label className="font-medium text-sm">Countdown Duration</label>
+  1148→                    <p className="text-xs text-[#9CA3AF] mb-1.5">Seconds users wait before auto-download</p>
+  1149→                    <Select
+  1150→                      value={String(interstitialConfig.countdownDuration)}
+  1151→                      onValueChange={(val) => setInterstitialConfig(prev => ({ ...prev, countdownDuration: parseInt(val) }))}
+  1152→                    >
+  1153→                      <SelectTrigger className="w-[130px] bg-[#1a1a1a] border-[#333]">
+  1154→                        <SelectValue />
+  1155→                      </SelectTrigger>
+  1156→                      <SelectContent className="bg-[#1a1a1a] border-[#333]">
+  1157→                        {[5, 10, 15, 20, 25, 30].map((val) => (
+  1158→                          <SelectItem key={val} value={String(val)}>
+  1159→                            {val} seconds
+  1160→                          </SelectItem>
+  1161→                        ))}
+  1162→                      </SelectContent>
+  1163→                    </Select>
+  1164→                  </div>
+  1165→
+  1166→                  {/* Auto-download switch */}
+  1167→                  <div className="flex items-center justify-between">
+  1168→                    <div>
+  1169→                      <div className="font-medium text-sm">Auto-Download After Timer</div>
+  1170→                      <div className="text-xs text-[#9CA3AF]">Automatically trigger download when countdown reaches 0</div>
+  1171→                    </div>
+  1172→                    <Switch
+  1173→                      checked={interstitialConfig.autoDownload}
+  1174→                      onCheckedChange={(val) => setInterstitialConfig(prev => ({ ...prev, autoDownload: val }))}
+  1175→                    />
+  1176→                  </div>
+  1177→
+  1178→                  {/* Popup title */}
+  1179→                  <div>
+  1180→                    <label className="font-medium text-sm">Popup Title</label>
+  1181→                    <p className="text-xs text-[#9CA3AF] mb-1.5">Heading displayed in the interstitial popup</p>
+  1182→                    <input
+  1183→                      type="text"
+  1184→                      value={interstitialConfig.popupTitle}
+  1185→                      onChange={(e) => setInterstitialConfig(prev => ({ ...prev, popupTitle: e.target.value }))}
+  1186→                      className="w-full bg-[#1a1a1a] border border-[#333] rounded-[10px] px-3 py-2 text-sm outline-none input-focus-ring"
+  1187→                      placeholder="Support free downloads"
+  1188→                    />
+  1189→                  </div>
+  1190→
+  1191→                  {/* Popup description */}
+  1192→                  <div>
+  1193→                    <label className="font-medium text-sm">Popup Description</label>
+  1194→                    <p className="text-xs text-[#9CA3AF] mb-1.5">Subtext shown below the countdown</p>
+  1195→                    <textarea
+  1196→                      value={interstitialConfig.popupDescription}
+  1197→                      onChange={(e) => setInterstitialConfig(prev => ({ ...prev, popupDescription: e.target.value }))}
+  1198→                      className="w-full bg-[#1a1a1a] border border-[#333] rounded-[10px] px-3 py-2 text-sm outline-none input-focus-ring resize-none"
+  1199→                      rows={2}
+  1200→                      placeholder="Your download will start automatically..."
+  1201→                    />
+  1202→                  </div>
+  1203→                </div>
+  1204→              </div>
+  1205→
+  1206→              {/* ===== Individual Ad Cards ===== */}
+  1207→              {ads.map((ad, index) => {
+  1208→                const dim = parseDimensions(ad.dimensions);
+  1209→                const templateInfo = AD_TEMPLATES.find(t => t.id === ad.template);
+  1210→                const placementInfo = AD_PLACEMENTS.find(p => p.id === ad.placement);
+  1211→
+  1212→                return (
+  1213→                  <div key={ad.id || `new-${index}`} className="stat-card space-y-4">
+  1214→                    {/* Ad Header */}
+  1215→                    <div className="flex items-center justify-between">
+  1216→                      <div className="flex items-center gap-2">
+  1217→                        <Megaphone size={14} className="text-[#9CA3AF]" />
+  1218→                        <h3 className="text-sm font-semibold">{ad.name}</h3>
+  1219→                      </div>
+  1220→                      <div className="flex items-center gap-2">
+  1221→                        <Switch
+  1222→                          checked={ad.enabled}
+  1223→                          onCheckedChange={(val) => updateAd(index, 'enabled', val)}
+  1224→                        />
+  1225→                        <button
+  1226→                          onClick={() => duplicateAd(index)}
+  1227→                          className="w-7 h-7 flex items-center justify-center rounded-lg bg-white/5 hover:bg-white/10 transition-colors"
+  1228→                          title="Duplicate"
+  1229→                        >
+  1230→                          <Copy size={12} className="text-[#9CA3AF]" />
+  1231→                        </button>
+  1232→                        <button
+  1233→                          onClick={() => deleteAd(index)}
+  1234→                          className="w-7 h-7 flex items-center justify-center rounded-lg bg-white/5 hover:bg-red-500/20 transition-colors"
+  1235→                          title="Delete"
+  1236→                        >
+  1237→                          <Trash2 size={12} className="text-[#9CA3AF] hover:text-red-400" />
+  1238→                        </button>
+  1239→                      </div>
+  1240→                    </div>
+  1241→
+  1242→                    {/* Dynamic Preview */}
+  1243→                    <div className="p-3 bg-[#0d0d0d] rounded-[12px] border border-white/8">
+  1244→                      <div className="text-xs text-[#9CA3AF] mb-1.5 flex items-center gap-1.5">
+  1245→                        <Eye size={11} /> Dynamic Preview
+  1246→                      </div>
+  1247→                      {ad.adCode ? (
+  1248→                        <div className="rounded-[8px] overflow-hidden" style={{ maxWidth: Math.min(dim.w, 380), minHeight: Math.min(dim.h, 280) }}>
+  1249→                          <div dangerouslySetInnerHTML={{ __html: ad.adCode }} />
+  1250→                        </div>
+  1251→                      ) : (
+  1252→                        <div
+  1253→                          className="template-preview-mini mx-auto flex items-center justify-center"
+  1254→                          style={{
+  1255→                            width: Math.min(dim.w, 380),
+  1256→                            height: Math.min(dim.h, 280),
+  1257→                            maxWidth: '100%',
+  1258→                          }}
+  1259→                        >
+  1260→                          <div className="flex flex-col items-center gap-1">
+  1261→                            <Globe size={16} className="text-gray-600" />
+  1262→                            <span className="text-xs text-[#9CA3AF]">{ad.dimensions === 'responsive' ? 'Responsive' : `${dim.w} × ${dim.h}`}</span>
+  1263→                            <span className="text-[10px] text-gray-500">{templateInfo?.label || ad.template}</span>
+  1264→                          </div>
+  1265→                        </div>
+  1266→                      )}
+  1267→                    </div>
+  1268→
+  1269→                    {/* Placement Mockup */}
+  1270→                    {placementInfo && (
+  1271→                      <div className="p-3 bg-[#1a1a1a] rounded-[10px]">
+  1272→                        <div className="text-xs text-[#9CA3AF] mb-1.5 flex items-center gap-1.5">
+  1273→                          <LayoutGrid size={11} /> Where this appears
+  1274→                        </div>
+  1275→                        <div className="text-xs text-[#9CA3AF] mb-1">{placementInfo.desc}</div>
+  1276→                        <PlacementMockup placementId={ad.placement} />
+  1277→                      </div>
+  1278→                    )}
+  1279→
+  1280→                    {/* Ad Config Fields */}
+  1281→                    <div className="space-y-3">
+  1282→                      {/* Name */}
+  1283→                      <div>
+  1284→                        <label className="text-xs text-[#9CA3AF] mb-1">Name</label>
+  1285→                        <input
+  1286→                          type="text"
+  1287→                          value={ad.name}
+  1288→                          onChange={(e) => updateAd(index, 'name', e.target.value)}
+  1289→                          className="w-full bg-[#1a1a1a] border border-[#333] rounded-[10px] px-3 py-2 text-sm outline-none input-focus-ring"
+  1290→                        />
+  1291→                      </div>
+  1292→
+  1293→                      {/* Template */}
+  1294→                      <div>
+  1295→                        <label className="text-xs text-[#9CA3AF] mb-1">Template</label>
+  1296→                        <p className="text-[10px] text-[#9CA3AF] mb-1">Select a built-in template — auto-configures dimensions, placement & description</p>
+  1297→                        <Select
+  1298→                          value={ad.template}
+  1299→                          onValueChange={(val) => applyTemplate(index, val)}
+  1300→                        >
+  1301→                          <SelectTrigger className="w-full bg-[#1a1a1a] border-[#333]">
+  1302→                            <SelectValue />
+  1303→                          </SelectTrigger>
+  1304→                          <SelectContent className="bg-[#1a1a1a] border-[#333]">
+  1305→                            {AD_TEMPLATES.map((t) => (
+  1306→                              <SelectItem key={t.id} value={t.id}>
+  1307→                                {t.label} — {t.dimensions}
+  1308→                              </SelectItem>
+  1309→                            ))}
+  1310→                          </SelectContent>
+  1311→                        </Select>
+  1312→                      </div>
+  1313→
+  1314→                      {/* Placement */}
+  1315→                      <div>
+  1316→                        <label className="text-xs text-[#9CA3AF] mb-1">Placement</label>
+  1317→                        <p className="text-[10px] text-[#9CA3AF] mb-1">Where this ad will appear on the landing page</p>
+  1318→                        <Select
+  1319→                          value={ad.placement}
+  1320→                          onValueChange={(val) => updateAd(index, 'placement', val)}
+  1321→                        >
+  1322→                          <SelectTrigger className="w-full bg-[#1a1a1a] border-[#333]">
+  1323→                            <SelectValue />
+  1324→                          </SelectTrigger>
+  1325→                          <SelectContent className="bg-[#1a1a1a] border-[#333]">
+  1326→                            {AD_PLACEMENTS.map((p) => (
+  1327→                              <SelectItem key={p.id} value={p.id}>
+  1328→                                {p.label} — {p.desc}
+  1329→                              </SelectItem>
+  1330→                            ))}
+  1331→                          </SelectContent>
+  1332→                        </Select>
+  1333→                      </div>
+  1334→
+  1335→                      {/* Dimensions */}
+  1336→                      <div>
+  1337→                        <label className="text-xs text-[#9CA3AF] mb-1">Dimensions</label>
+  1338→                        <p className="text-[10px] text-[#9CA3AF] mb-1">Size of the ad area. Changing this instantly updates the preview above.</p>
+  1339→                        <Select
+  1340→                          value={ad.dimensions}
+  1341→                          onValueChange={(val) => updateAd(index, 'dimensions', val)}
+  1342→                        >
+  1343→                          <SelectTrigger className="w-full bg-[#1a1a1a] border-[#333]">
+  1344→                            <SelectValue />
+  1345→                          </SelectTrigger>
+  1346→                          <SelectContent className="bg-[#1a1a1a] border-[#333]">
+  1347→                            <SelectItem value="320x100">320 × 100 (Mobile Banner)</SelectItem>
+  1348→                            <SelectItem value="300x250">300 × 250 (Medium Rectangle)</SelectItem>
+  1349→                            <SelectItem value="336x280">336 × 280 (Large Rectangle)</SelectItem>
+  1350→                            <SelectItem value="728x90">728 × 90 (Leaderboard)</SelectItem>
+  1351→                            <SelectItem value="970x250">970 × 250 (Large Leaderboard)</SelectItem>
+  1352→                            <SelectItem value="300x600">300 × 600 (Half Page)</SelectItem>
+  1353→                            <SelectItem value="160x600">160 × 600 (Skyscraper)</SelectItem>
+  1354→                            <SelectItem value="970x90">970 × 90 (Billboard)</SelectItem>
+  1355→                            <SelectItem value="responsive">Responsive</SelectItem>
+  1356→                          </SelectContent>
+  1357→                        </Select>
+  1358→                      </div>
+  1359→
+  1360→                      {/* Ad Type */}
+  1361→                      <div>
+  1362→                        <label className="text-xs text-[#9CA3AF] mb-1">Type</label>
+  1363→                        <Select
+  1364→                          value={ad.type}
+  1365→                          onValueChange={(val) => updateAd(index, 'type', val)}
+  1366→                        >
+  1367→                          <SelectTrigger className="w-[120px] bg-[#1a1a1a] border-[#333]">
+  1368→                            <SelectValue />
+  1369→                          </SelectTrigger>
+  1370→                          <SelectContent className="bg-[#1a1a1a] border-[#333]">
+  1371→                            <SelectItem value="display">Display</SelectItem>
+  1372→                            <SelectItem value="video">Video</SelectItem>
+  1373→                            <SelectItem value="native">Native</SelectItem>
+  1374→                          </SelectContent>
+  1375→                        </Select>
+  1376→                      </div>
+  1377→
+  1378→                      {/* Priority */}
+  1379→                      <div>
+  1380→                        <label className="text-xs text-[#9CA3AF] mb-1">Priority</label>
+  1381→                        <input
+  1382→                          type="number"
+  1383→                          min={1}
+  1384→                          max={100}
+  1385→                          value={ad.priority}
+  1386→                          onChange={(e) => updateAd(index, 'priority', Math.max(1, parseInt(e.target.value) || 1))}
+  1387→                          className="w-[60px] bg-[#1a1a1a] border border-[#333] rounded-[8px] px-2 py-1.5 text-sm text-center outline-none input-focus-ring"
+  1388→                        />
+  1389→                      </div>
+  1390→
+  1391→                      {/* Description */}
+  1392→                      <div>
+  1393→                        <label className="text-xs text-[#9CA3AF] mb-1">Description</label>
+  1394→                        <textarea
+  1395→                          value={ad.description}
+  1396→                          onChange={(e) => updateAd(index, 'description', e.target.value)}
+  1397→                          className="w-full bg-[#1a1a1a] border border-[#333] rounded-[10px] px-3 py-2 text-xs outline-none input-focus-ring resize-none"
+  1398→                          rows={2}
+  1399→                          placeholder="Describe this advertisement..."
+  1400→                        />
+  1401→                      </div>
+  1402→
+  1403→                      {/* Code Editor */}
+  1404→                      <div>
+  1405→                        <label className="text-xs text-[#9CA3AF] mb-1 flex items-center gap-1.5">
+  1406→                          <Code size={11} /> Ad Provider Code
+  1407→                        </label>
+  1408→                        <p className="text-[10px] text-[#9CA3AF] mb-1">Paste HTML/JS code from your ad provider. This will render on the landing page.</p>
+  1409→                        <textarea
+  1410→                          value={ad.adCode}
+  1411→                          onChange={(e) => updateAd(index, 'adCode', e.target.value)}
+  1412→                          className="code-editor w-full"
+  1413→                          rows={4}
+  1414→                          placeholder="<!-- Paste your ad provider HTML/JS code here -->"
+  1415→                        />
+  1416→                      </div>
+  1417→                    </div>
+  1418→                  </div>
+  1419→                );
+  1420→              })}
+  1421→
+  1422→              {/* Save button */}
+  1423→              <motion.button
+  1424→                whileHover={{ scale: 1.02, y: -1 }}
+  1425→                whileTap={{ scale: 0.98 }}
+  1426→                onClick={handleSaveAdsConfig}
+  1427→                disabled={isSaving}
+  1428→                className="save-btn flex items-center justify-center gap-2"
+  1429→              >
+  1430→                {isSaving ? <RefreshCw className="animate-spin" size={14} /> : <Shield size={14} />}
+  1431→                {isSaving ? 'Saving...' : 'Save All Advertisements'}
+  1432→              </motion.button>
+  1433→            </motion.div>
+  1434→          )}
+  1435→
+  1436→          {/* ===== Analytics Tab ===== */}
+  1437→          {activeTab === 'analytics' && (
+  1438→            <motion.div
+  1439→              initial={{ opacity: 0 }}
+  1440→              animate={{ opacity: 1 }}
+  1441→              transition={{ duration: 0.25 }}
+  1442→            >
+  1443→              <h2 className="text-lg font-bold mb-3">Analytics</h2>
+  1444→
+  1445→              {/* Daily Downloads Bar Chart */}
+  1446→              <div className="stat-card mb-3">
+  1447→                <h3 className="text-sm font-semibold mb-3">Daily Downloads (Last 7 Days)</h3>
+  1448→                {analyticsData.last7Days.length > 0 ? (
+  1449→                  <div className="flex items-end gap-1.5 h-[140px]">
+  1450→                    {analyticsData.last7Days.map((day) => (
+  1451→                      <div key={day.date} className="flex-1 flex flex-col items-center justify-end h-full">
+  1452→                        <div className="text-xs text-[#9CA3AF] mb-1 font-medium">
+  1453→                          {day.totalDownloads}
+  1454→                        </div>
+  1455→                        <div
+  1456→                          className="chart-bar w-full"
+  1457→                          style={{ height: `${Math.max((day.totalDownloads / maxBarValue) * 110, 4)}px` }}
+  1458→                        />
+  1459→                        <div className="text-[10px] text-[#9CA3AF] mt-1.5">
+  1460→                          {day.date.slice(5)}
+  1461→                        </div>
+  1462→                      </div>
+  1463→                    ))}
+  1464→                  </div>
+  1465→                ) : (
+  1466→                  <div className="flex items-center justify-center h-[140px] text-[#9CA3AF] text-xs">
+  1467→                    No data yet — download activity will appear here
+  1468→                  </div>
+  1469→                )}
+  1470→              </div>
+  1471→
+  1472→              {/* Summary Cards */}
+  1473→              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5 mb-3">
+  1474→                <div className="stat-card">
+  1475→                  <div className="text-xs text-[#9CA3AF] font-medium mb-1">7-Day Total</div>
+  1476→                  <div className="text-lg font-bold">
+  1477→                    {analyticsData.last7Days.reduce((s, d) => s + d.totalDownloads, 0)}
+  1478→                  </div>
+  1479→                </div>
+  1480→                <div className="stat-card">
+  1481→                  <div className="text-xs text-[#9CA3AF] font-medium mb-1">Success Rate</div>
+  1482→                  <div className="text-lg font-bold">
+  1483→                    {analyticsData.last7Days.length > 0
+  1484→                      ? `${Math.round(analyticsData.last7Days.reduce((s, d) => s + d.successCount, 0) / Math.max(analyticsData.last7Days.reduce((s, d) => s + d.totalDownloads, 0), 1) * 100)}%`
+  1485→                      : '—'}
+  1486→                  </div>
+  1487→                </div>
+  1488→                <div className="stat-card">
+  1489→                  <div className="text-xs text-[#9CA3AF] font-medium mb-1">Avg Latency</div>
+  1490→                  <div className="text-lg font-bold">
+  1491→                    {analyticsData.last7Days.length > 0
+  1492→                      ? `${Math.round(analyticsData.last7Days.reduce((s, d) => s + d.avgResponseMs, 0) / analyticsData.last7Days.length)}ms`
+  1493→                      : '—'}
+  1494→                  </div>
+  1495→                </div>
+  1496→                <div className="stat-card">
+  1497→                  <div className="text-xs text-[#9CA3AF] font-medium mb-1">Fail Count</div>
+  1498→                  <div className="text-lg font-bold text-red-400">
+  1499→                    {analyticsData.last7Days.reduce((s, d) => s + d.failCount, 0)}
+  1500→                  </div>
+  1501→                </div>
+  1502→              </div>
+  1503→
+  1504→              {/* Downloads by Format */}
+  1505→              <div className="stat-card mb-3">
+  1506→                <h3 className="text-sm font-semibold mb-3">Downloads by Format</h3>
+  1507→                <div className="flex items-center gap-5 justify-center">
+  1508→                  {[
+  1509→                    { label: 'MP4', color: '#FE2C55', pct: 65 },
+  1510→                    { label: 'MP3', color: '#38BDF8', pct: 25 },
+  1511→                    { label: 'Cover', color: '#4ADE80', pct: 10 },
+  1512→                  ].map((item) => (
+  1513→                    <div key={item.label} className="flex items-center gap-2">
+  1514→                      <div className="w-3 h-3 rounded-full" style={{ backgroundColor: item.color }} />
+  1515→                      <span className="text-xs font-medium">{item.label}</span>
+  1516→                      <span className="text-xs text-[#9CA3AF]">{item.pct}%</span>
+  1517→                    </div>
+  1518→                  ))}
+  1519→                </div>
+  1520→                <div className="mt-3 flex items-center justify-center">
+  1521→                  <svg width="110" height="110" viewBox="0 0 110 110">
+  1522→                    <circle cx="55" cy="55" r="45" fill="none" stroke="#FE2C55" strokeWidth="14"
+  1523→                      strokeDasharray={`${2 * Math.PI * 45 * 0.65} ${2 * Math.PI * 45 * 0.35}`}
+  1524→                      strokeDashoffset="0" transform="rotate(-90 55 55)" />
+  1525→                    <circle cx="55" cy="55" r="45" fill="none" stroke="#38BDF8" strokeWidth="14"
+  1526→                      strokeDasharray={`${2 * Math.PI * 45 * 0.25} ${2 * Math.PI * 45 * 0.75}`}
+  1527→                      strokeDashoffset={`${-2 * Math.PI * 45 * 0.65}`} transform="rotate(-90 55 55)" />
+  1528→                    <circle cx="55" cy="55" r="45" fill="none" stroke="#4ADE80" strokeWidth="14"
+  1529→                      strokeDasharray={`${2 * Math.PI * 45 * 0.10} ${2 * Math.PI * 45 * 0.90}`}
+  1530→                      strokeDashoffset={`${-2 * Math.PI * 45 * 0.90}`} transform="rotate(-90 55 55)" />
+  1531→                  </svg>
+  1532→                </div>
+  1533→              </div>
+  1534→
+  1535→              {/* Platforms Breakdown */}
+  1536→              <div className="stat-card mb-3">
+  1537→                <h3 className="text-sm font-semibold mb-2">Platforms</h3>
+  1538→                <div className="flex items-center gap-4">
+  1539→                  <div className="flex items-center gap-2">
+  1540→                    <Smartphone size={13} className="text-[#FE2C55]" />
+  1541→                    <span className="text-xs font-medium">Mobile</span>
+  1542→                    <span className="text-xs text-[#9CA3AF]">~70%</span>
+  1543→                  </div>
+  1544→                  <div className="flex items-center gap-2">
+  1545→                    <Monitor size={13} className="text-[#38BDF8]" />
+  1546→                    <span className="text-xs font-medium">Desktop</span>
+  1547→                    <span className="text-xs text-[#9CA3AF]">~30%</span>
+  1548→                  </div>
+  1549→                </div>
+  1550→              </div>
+  1551→
+  1552→              {/* Weekly Sparkline */}
+  1553→              <div className="stat-card">
+  1554→                <h3 className="text-sm font-semibold mb-2">Weekly Trend</h3>
+  1555→                {analyticsData.last7Days.length > 0 ? (
+  1556→                  <svg width="100%" height="50" viewBox="0 0 200 50" preserveAspectRatio="none">
+  1557→                    <polyline
+  1558→                      fill="none"
+  1559→                      stroke="#FE2C55"
+  1560→                      strokeWidth="2"
+  1561→                      strokeLinecap="round"
+  1562→                      strokeLinejoin="round"
+  1563→                      points={analyticsData.last7Days
+  1564→                        .reverse()
+  1565→                        .map((d, i) => `${(i / (analyticsData.last7Days.length - 1)) * 200},${50 - (d.totalDownloads / maxBarValue) * 40}`)
+  1566→                        .join(' ')}
+  1567→                    />
+  1568→                  </svg>
+  1569→                ) : (
+  1570→                  <div className="text-xs text-[#9CA3AF] text-center py-3">No data yet</div>
+  1571→                )}
+  1572→              </div>
+  1573→            </motion.div>
+  1574→          )}
+  1575→
+  1576→          {/* ===== Settings Tab ===== */}
+  1577→          {activeTab === 'settings' && (
+  1578→            <motion.div
+  1579→              initial={{ opacity: 0 }}
+  1580→              animate={{ opacity: 1 }}
+  1581→              transition={{ duration: 0.25 }}
+  1582→              className="space-y-3"
+  1583→            >
+  1584→              <h2 className="text-lg font-bold mb-3">Settings</h2>
+  1585→
+  1586→              {/* Site Settings */}
+  1587→              <div className="settings-section">
+  1588→                <button onClick={() => toggleSettingsSection('site')} className="settings-toggle-btn">
+  1589→                  <div className="flex items-center gap-2">
+  1590→                    <Globe size={13} className="text-[#9CA3AF]" />
+  1591→                    <span className="font-semibold text-sm">Site Settings</span>
+  1592→                  </div>
+  1593→                  {openSettingsSections.has('site') ? <ChevronUp size={13} className="text-[#9CA3AF]" /> : <ChevronDown size={13} className="text-[#9CA3AF]" />}
+  1594→                </button>
+  1595→                <AnimatePresence>
+  1596→                  {openSettingsSections.has('site') && (
+  1597→                    <motion.div initial={{ height: 0, opacity: 0 }} animate={{ height: 'auto', opacity: 1 }} exit={{ height: 0, opacity: 0 }} transition={{ duration: 0.2 }} className="overflow-hidden">
+  1598→                      <div className="mt-3 space-y-2.5">
+  1599→                        <div>
+  1600→                          <label className="text-xs text-[#9CA3AF] mb-1">Site Name</label>
+  1601→                          <input type="text" value={settingsValues.siteName} onChange={(e) => setSettingsValues(prev => ({ ...prev, siteName: e.target.value }))} className="w-full bg-[#1a1a1a] border border-[#333] rounded-[10px] px-3 py-2 text-sm outline-none input-focus-ring" />
+  1602→                        </div>
+  1603→                        <div>
+  1604→                          <label className="text-xs text-[#9CA3AF] mb-1">Site URL</label>
+  1605→                          <input type="text" value={settingsValues.siteUrl} onChange={(e) => setSettingsValues(prev => ({ ...prev, siteUrl: e.target.value }))} className="w-full bg-[#1a1a1a] border border-[#333] rounded-[10px] px-3 py-2 text-sm outline-none input-focus-ring" />
+  1606→                        </div>
+  1607→                        <div className="flex items-center justify-between">
+  1608→                          <div><div className="text-sm font-medium">Maintenance Mode</div><div className="text-xs text-[#9CA3AF]">Disable site for public access</div></div>
+  1609→                          <Switch checked={settingsValues.maintenanceMode} onCheckedChange={(val) => setSettingsValues(prev => ({ ...prev, maintenanceMode: val }))} />
+  1610→                        </div>
+  1611→                      </div>
+  1612→                    </motion.div>
+  1613→                  )}
+  1614→                </AnimatePresence>
+  1615→              </div>
+  1616→
+  1617→              {/* SEO Settings */}
+  1618→              <div className="settings-section">
+  1619→                <button onClick={() => toggleSettingsSection('seo')} className="settings-toggle-btn">
+  1620→                  <div className="flex items-center gap-2"><Search size={13} className="text-[#9CA3AF]" /><span className="font-semibold text-sm">SEO Settings</span></div>
+  1621→                  {openSettingsSections.has('seo') ? <ChevronUp size={13} className="text-[#9CA3AF]" /> : <ChevronDown size={13} className="text-[#9CA3AF]" />}
+  1622→                </button>
+  1623→                <AnimatePresence>
+  1624→                  {openSettingsSections.has('seo') && (
+  1625→                    <motion.div initial={{ height: 0, opacity: 0 }} animate={{ height: 'auto', opacity: 1 }} exit={{ height: 0, opacity: 0 }} transition={{ duration: 0.2 }} className="overflow-hidden">
+  1626→                      <div className="mt-3 space-y-2.5">
+  1627→                        <div><label className="text-xs text-[#9CA3AF] mb-1">Meta Title</label><input type="text" value={settingsValues.metaTitle} onChange={(e) => setSettingsValues(prev => ({ ...prev, metaTitle: e.target.value }))} className="w-full bg-[#1a1a1a] border border-[#333] rounded-[10px] px-3 py-2 text-sm outline-none input-focus-ring" /></div>
+  1628→                        <div><label className="text-xs text-[#9CA3AF] mb-1">Meta Description</label><textarea value={settingsValues.metaDescription} onChange={(e) => setSettingsValues(prev => ({ ...prev, metaDescription: e.target.value }))} className="w-full bg-[#1a1a1a] border border-[#333] rounded-[10px] px-3 py-2 text-sm outline-none input-focus-ring resize-none" rows={2} /></div>
+  1629→                        <div><label className="text-xs text-[#9CA3AF] mb-1">OG Image URL</label><input type="text" value={settingsValues.ogImageUrl} onChange={(e) => setSettingsValues(prev => ({ ...prev, ogImageUrl: e.target.value }))} className="w-full bg-[#1a1a1a] border border-[#333] rounded-[10px] px-3 py-2 text-sm outline-none input-focus-ring" placeholder="https://..." /></div>
+  1630→                        <div><label className="text-xs text-[#9CA3AF] mb-1">Robots Directive</label>
+  1631→                          <Select value={settingsValues.robotsDirective} onValueChange={(val) => setSettingsValues(prev => ({ ...prev, robotsDirective: val }))}>
+  1632→                            <SelectTrigger className="w-full bg-[#1a1a1a] border-[#333]"><SelectValue /></SelectTrigger>
+  1633→                            <SelectContent className="bg-[#1a1a1a] border-[#333]">
+  1634→                              <SelectItem value="index, follow">Index, Follow</SelectItem><SelectItem value="noindex, follow">NoIndex, Follow</SelectItem><SelectItem value="index, nofollow">Index, NoFollow</SelectItem><SelectItem value="noindex, nofollow">NoIndex, NoFollow</SelectItem>
+  1635→                            </SelectContent>
+  1636→                          </Select>
+  1637→                        </div>
+  1638→                      </div>
+  1639→                    </motion.div>
+  1640→                  )}
+  1641→                </AnimatePresence>
+  1642→              </div>
+  1643→
+  1644→              {/* API Keys */}
+  1645→              <div className="settings-section">
+  1646→                <button onClick={() => toggleSettingsSection('apikeys')} className="settings-toggle-btn">
+  1647→                  <div className="flex items-center gap-2"><Key size={13} className="text-[#9CA3AF]" /><span className="font-semibold text-sm">API Keys</span></div>
+  1648→                  {openSettingsSections.has('apikeys') ? <ChevronUp size={13} className="text-[#9CA3AF]" /> : <ChevronDown size={13} className="text-[#9CA3AF]" />}
+  1649→                </button>
+  1650→                <AnimatePresence>
+  1651→                  {openSettingsSections.has('apikeys') && (
+  1652→                    <motion.div initial={{ height: 0, opacity: 0 }} animate={{ height: 'auto', opacity: 1 }} exit={{ height: 0, opacity: 0 }} transition={{ duration: 0.2 }} className="overflow-hidden">
+  1653→                      <div className="mt-3 space-y-1.5">
+  1654→                        {['TIKHUB_API_KEY', 'RAPIDAPI_KEY', 'PROVIDER_NAME'].map((key) => (
+  1655→                          <div key={key} className="flex items-center gap-2 p-2 bg-[#1a1a1a] rounded-[8px]">
+  1656→                            <Key size={11} className="text-[#666]" /><span className="text-xs font-medium">{key}</span><span className="text-[10px] text-[#9CA3AF] ml-auto">Set via env var</span><Lock size={9} className="text-[#666]" />
+  1657→                          </div>
+  1658→                        ))}
+  1659→                        <p className="text-xs text-[#9CA3AF] mt-1">API keys are configured via environment variables and cannot be edited here.</p>
+  1660→                      </div>
+  1661→                    </motion.div>
+  1662→                  )}
+  1663→                </AnimatePresence>
+  1664→              </div>
+  1665→
+  1666→              {/* Branding */}
+  1667→              <div className="settings-section">
+  1668→                <button onClick={() => toggleSettingsSection('branding')} className="settings-toggle-btn">
+  1669→                  <div className="flex items-center gap-2"><Palette size={13} className="text-[#9CA3AF]" /><span className="font-semibold text-sm">Branding</span></div>
+  1670→                  {openSettingsSections.has('branding') ? <ChevronUp size={13} className="text-[#9CA3AF]" /> : <ChevronDown size={13} className="text-[#9CA3AF]" />}
+  1671→                </button>
+  1672→                <AnimatePresence>
+  1673→                  {openSettingsSections.has('branding') && (
+  1674→                    <motion.div initial={{ height: 0, opacity: 0 }} animate={{ height: 'auto', opacity: 1 }} exit={{ height: 0, opacity: 0 }} transition={{ duration: 0.2 }} className="overflow-hidden">
+  1675→                      <div className="mt-3 space-y-2.5">
+  1676→                        <div><label className="text-xs text-[#9CA3AF] mb-1">Logo Text</label><input type="text" value={settingsValues.logoText} onChange={(e) => setSettingsValues(prev => ({ ...prev, logoText: e.target.value }))} className="w-full bg-[#1a1a1a] border border-[#333] rounded-[10px] px-3 py-2 text-sm outline-none input-focus-ring" /></div>
+  1677→                        <div><label className="text-xs text-[#9CA3AF] mb-1">Primary Color</label><div className="flex items-center gap-2"><input type="text" value={settingsValues.primaryColor} onChange={(e) => setSettingsValues(prev => ({ ...prev, primaryColor: e.target.value }))} className="w-full bg-[#1a1a1a] border border-[#333] rounded-[10px] px-3 py-2 text-sm outline-none input-focus-ring" /><div className="color-preview" style={{ backgroundColor: settingsValues.primaryColor }} /></div></div>
+  1678→                        <div><label className="text-xs text-[#9CA3AF] mb-1">Accent Color</label><div className="flex items-center gap-2"><input type="text" value={settingsValues.accentColor} onChange={(e) => setSettingsValues(prev => ({ ...prev, accentColor: e.target.value }))} className="w-full bg-[#1a1a1a] border border-[#333] rounded-[10px] px-3 py-2 text-sm outline-none input-focus-ring" /><div className="color-preview" style={{ backgroundColor: settingsValues.accentColor }} /></div></div>
+  1679→                      </div>
+  1680→                    </motion.div>
+  1681→                  )}
+  1682→                </AnimatePresence>
+  1683→              </div>
+  1684→
+  1685→              {/* Security */}
+  1686→              <div className="settings-section">
+  1687→                <button onClick={() => toggleSettingsSection('security')} className="settings-toggle-btn">
+  1688→                  <div className="flex items-center gap-2"><Shield size={13} className="text-[#9CA3AF]" /><span className="font-semibold text-sm">Security</span></div>
+  1689→                  {openSettingsSections.has('security') ? <ChevronUp size={13} className="text-[#9CA3AF]" /> : <ChevronDown size={13} className="text-[#9CA3AF]" />}
+  1690→                </button>
+  1691→                <AnimatePresence>
+  1692→                  {openSettingsSections.has('security') && (
+  1693→                    <motion.div initial={{ height: 0, opacity: 0 }} animate={{ height: 'auto', opacity: 1 }} exit={{ height: 0, opacity: 0 }} transition={{ duration: 0.2 }} className="overflow-hidden">
+  1694→                      <div className="mt-3 space-y-2.5">
+  1695→                        <div><label className="text-xs text-[#9CA3AF] mb-1">Rate Limit (per IP)</label><input type="text" value={settingsValues.rateLimit} onChange={(e) => setSettingsValues(prev => ({ ...prev, rateLimit: e.target.value }))} className="w-full bg-[#1a1a1a] border border-[#333] rounded-[10px] px-3 py-2 text-sm outline-none input-focus-ring" /></div>
+  1696→                        <div><label className="text-xs text-[#9CA3AF] mb-1">CORS Origins</label><input type="text" value={settingsValues.corsOrigins} onChange={(e) => setSettingsValues(prev => ({ ...prev, corsOrigins: e.target.value }))} className="w-full bg-[#1a1a1a] border border-[#333] rounded-[10px] px-3 py-2 text-sm outline-none input-focus-ring" /></div>
+  1697→                        <div className="p-2 bg-[#1a1a1a] rounded-[8px]"><div className="text-xs text-[#9CA3AF]">Admin Password</div><div className="text-xs font-medium mt-0.5">Set via NEXT_PUBLIC_ADMIN_PASSWORD env var</div></div>
+  1698→                      </div>
+  1699→                    </motion.div>
+  1700→                  )}
+  1701→                </AnimatePresence>
+  1702→              </div>
+  1703→
+  1704→              {/* Downloads */}
+  1705→              <div className="settings-section">
+  1706→                <button onClick={() => toggleSettingsSection('downloads')} className="settings-toggle-btn">
+  1707→                  <div className="flex items-center gap-2"><Download size={13} className="text-[#9CA3AF]" /><span className="font-semibold text-sm">Downloads</span></div>
+  1708→                  {openSettingsSections.has('downloads') ? <ChevronUp size={13} className="text-[#9CA3AF]" /> : <ChevronDown size={13} className="text-[#9CA3AF]" />}
+  1709→                </button>
+  1710→                <AnimatePresence>
+  1711→                  {openSettingsSections.has('downloads') && (
+  1712→                    <motion.div initial={{ height: 0, opacity: 0 }} animate={{ height: 'auto', opacity: 1 }} exit={{ height: 0, opacity: 0 }} transition={{ duration: 0.2 }} className="overflow-hidden">
+  1713→                      <div className="mt-3 space-y-2.5">
+  1714→                        <div><label className="text-xs text-[#9CA3AF] mb-1">Max File Size</label><input type="text" value={settingsValues.maxFileSize} onChange={(e) => setSettingsValues(prev => ({ ...prev, maxFileSize: e.target.value }))} className="w-full bg-[#1a1a1a] border border-[#333] rounded-[10px] px-3 py-2 text-sm outline-none input-focus-ring" /></div>
+  1715→                        <div><label className="text-xs text-[#9CA3AF] mb-1">Allowed Formats</label><input type="text" value={settingsValues.allowedFormats} onChange={(e) => setSettingsValues(prev => ({ ...prev, allowedFormats: e.target.value }))} className="w-full bg-[#1a1a1a] border border-[#333] rounded-[10px] px-3 py-2 text-sm outline-none input-focus-ring" /></div>
+  1716→                        <div><label className="text-xs text-[#9CA3AF] mb-1">Concurrent Downloads</label><input type="number" min={1} max={10} value={settingsValues.concurrentDownloads} onChange={(e) => setSettingsValues(prev => ({ ...prev, concurrentDownloads: parseInt(e.target.value) || 3 }))} className="w-[60px] bg-[#1a1a1a] border border-[#333] rounded-[8px] px-2 py-1.5 text-sm text-center outline-none input-focus-ring" /></div>
+  1717→                      </div>
+  1718→                    </motion.div>
+  1719→                  )}
+  1720→                </AnimatePresence>
+  1721→              </div>
+  1722→
+  1723→              {/* Maintenance */}
+  1724→              <div className="settings-section">
+  1725→                <button onClick={() => toggleSettingsSection('maintenance')} className="settings-toggle-btn">
+  1726→                  <div className="flex items-center gap-2"><Wrench size={13} className="text-[#9CA3AF]" /><span className="font-semibold text-sm">Maintenance</span></div>
+  1727→                  {openSettingsSections.has('maintenance') ? <ChevronUp size={13} className="text-[#9CA3AF]" /> : <ChevronDown size={13} className="text-[#9CA3AF]" />}
+  1728→                </button>
+  1729→                <AnimatePresence>
+  1730→                  {openSettingsSections.has('maintenance') && (
+  1731→                    <motion.div initial={{ height: 0, opacity: 0 }} animate={{ height: 'auto', opacity: 1 }} exit={{ height: 0, opacity: 0 }} transition={{ duration: 0.2 }} className="overflow-hidden">
+  1732→                      <div className="mt-3 space-y-2.5">
+  1733→                        <div className="flex items-center justify-between">
+  1734→                          <div><div className="text-sm font-medium">Maintenance Mode</div><div className="text-xs text-[#9CA3AF]">Disable site for public access</div></div>
+  1735→                          <Switch checked={settingsValues.maintenanceMode} onCheckedChange={(val) => setSettingsValues(prev => ({ ...prev, maintenanceMode: val }))} />
+  1736→                        </div>
+  1737→                        <div className="flex gap-2">
+  1738→                          <button onClick={handleClearCache} className="px-3 py-1.5 bg-white/5 hover:bg-white/10 rounded-[10px] text-xs font-medium flex items-center gap-1.5 transition-colors duration-150 border border-white/10"><Trash2 size={11} /> Clear Cache</button>
+  1739→                          <button onClick={() => toast.info('Analytics reset requires database operation')} className="px-3 py-1.5 bg-white/5 hover:bg-white/10 rounded-[10px] text-xs font-medium flex items-center gap-1.5 transition-colors duration-150 border border-white/10"><RefreshCw size={11} /> Reset Analytics</button>
+  1740→                        </div>
+  1741→                      </div>
+  1742→                    </motion.div>
+  1743→                  )}
+  1744→                </AnimatePresence>
+  1745→              </div>
+  1746→
+  1747→              <motion.button
+  1748→                whileHover={{ scale: 1.02, y: -1 }}
+  1749→                whileTap={{ scale: 0.98 }}
+  1750→                onClick={handleSaveSettings}
+  1751→                disabled={isSaving}
+  1752→                className="save-btn flex items-center justify-center gap-2"
+  1753→              >
+  1754→                {isSaving ? <RefreshCw className="animate-spin" size={14} /> : <Shield size={14} />}
+  1755→                {isSaving ? 'Saving...' : 'Save Settings'}
+  1756→              </motion.button>
+  1757→            </motion.div>
+  1758→          )}
+  1759→
+  1760→          {/* ===== Platforms Tab (Coming Soon) ===== */}
+  1761→          {activeTab === 'platforms' && (
+  1762→            <motion.div
+  1763→              initial={{ opacity: 0 }}
+  1764→              animate={{ opacity: 1 }}
+  1765→              transition={{ duration: 0.25 }}
+  1766→            >
+  1767→              <div className="flex items-center justify-between mb-4">
+  1768→                <h2 className="text-lg font-bold">Platforms Manager</h2>
+  1769→                <div className="px-3 py-1.5 rounded-full text-xs font-semibold bg-[#FE2C55]/15 text-[#FE2C55] border border-[#FE2C55]/20">
+  1770→                  Coming Soon
+  1771→                </div>
+  1772→              </div>
+  1773→
+  1774→              <p className="text-sm text-[#9CA3AF] mb-4">
+  1775→                This section will be active after NovaDL Engine integration. Currently only TikTok is enabled for downloads. The UI architecture is designed to support additional platforms without redesigning.
+  1776→              </p>
+  1777→
+  1778→              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+  1779→                {FUTURE_PLATFORMS.map((platform) => (
+  1780→                  <div key={platform.name} className={`platform-grid-item ${platform.enabled ? 'enabled' : 'coming-soon'}`}>
+  1781→                    <div className="w-8 h-8 rounded-lg flex items-center justify-center text-xs font-bold"
+  1782→                      style={{ backgroundColor: platform.enabled ? 'rgba(254,44,85,0.15)' : 'rgba(255,255,255,0.05)' }}>
+  1783→                      {platform.icon}
+  1784→                    </div>
+  1785→                    <div className="flex-1">
+  1786→                      <div className="text-sm font-medium">{platform.name}</div>
+  1787→                      <div className="text-xs text-[#9CA3AF]">{platform.enabled ? 'Enabled — Downloads active' : 'Coming Soon — Not yet available'}</div>
+  1788→                    </div>
+  1789→                    {platform.enabled ? (
+  1790→                      <Check size={14} className="text-[#25F4EE]" />
+  1791→                    ) : (
+  1792→                      <AlertCircle size={14} className="text-[#9CA3AF]" />
+  1793→                    )}
+  1794→                  </div>
+  1795→                ))}
+  1796→              </div>
+  1797→
+  1798→              <div className="mt-4 stat-card">
+  1799→                <div className="text-sm font-semibold mb-2">Future NovaDL Compatibility</div>
+  1800→                <p className="text-xs text-[#9CA3AF]">
+  1801→                  When NovaDL Engine is integrated, each platform will have its own provider configuration, download endpoint, and feature flags. The current architecture supports multiple providers, provider priority, and platform management without requiring UI redesign. 21+ platforms are planned for future support.
+  1802→                </p>
+  1803→              </div>
+  1804→            </motion.div>
+  1805→          )}
+  1806→        </div>
+  1807→      </main>
+  1808→    </div>
+  1809→  );
+  1810→};
+  1811→
+  1812→export default AdminDashboard;
+  1813→

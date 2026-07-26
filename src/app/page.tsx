@@ -471,7 +471,7 @@ const TikTokDownloader = () => {
                 initial={{ opacity: 0, y: 10 }}
                 animate={{ opacity: 1, y: 0 }}
                 transition={{ duration: 0.4 }}
-                className="badge-pulse inline-flex items-center gap-2 px-4 py-1.5 rounded-full text-sm font-semibold mb-6 mt-4"
+                className="badge-pulse inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold mb-6 mt-4"
                 style={{
                   background: 'rgba(56, 189, 248, 0.15)',
                   color: '#ffffff',
@@ -486,11 +486,11 @@ const TikTokDownloader = () => {
                 initial={{ opacity: 0, y: 20 }}
                 animate={{ opacity: 1, y: 0 }}
                 transition={{ duration: 0.5, delay: 0.1 }}
-                className="text-[clamp(28px,4vw,40px)] font-extrabold tracking-tight leading-[1.1] mb-5"
+                className="text-[clamp(32px,4.5vw,46px)] font-extrabold tracking-tight leading-[1.1] mb-5"
               >
                 <span className="text-white">TikTok Video</span>
                 <br />
-                <span className="text-[#FE2C55]">Without Watermark</span>
+                <span className="text-[clamp(24px,3vw,34px)] text-[#FE2C55]">Without Watermark</span>
               </motion.h1>
 
               {/* Description */}
@@ -503,21 +503,19 @@ const TikTokDownloader = () => {
                 The fastest and most reliable way to download TikTok videos in HD quality, completely free, with no watermarks, no signup, and no limits.
               </motion.p>
 
-              {/* Platform buttons — future-ready */}
+              {/* Platform indicator — TikTok only visible to users; others kept internally for future NovaDL */}
               <motion.div
                 initial={{ opacity: 0 }}
                 animate={{ opacity: 1 }}
                 transition={{ delay: 0.2 }}
-                className="flex flex-wrap justify-center gap-2 mb-6"
+                className="flex justify-center gap-2 mb-6"
               >
-                {PLATFORMS.slice(0, 5).map((platform) => (
+                {PLATFORMS.filter(p => p.active).map((platform) => (
                   <span
                     key={platform.name}
-                    className={`platform-btn ${platform.active ? 'active' : 'coming-soon'}`}
+                    className="platform-btn active"
                   >
-                    {platform.active ? '✓' : ''}
-                    {platform.name}
-                    {!platform.active && <span className="text-[10px] ml-1 opacity-60">Soon</span>}
+                    ✓ {platform.name}
                   </span>
                 ))}
               </motion.div>
@@ -596,23 +594,23 @@ const TikTokDownloader = () => {
                 )}
               </AnimatePresence>
 
-              {/* Feature tags — colored: Red, Sky Blue, Green */}
+              {/* Feature tags — colored: Red, Sky Blue, Green (slightly smaller, reduced opacity) */}
               <motion.div
                 initial={{ opacity: 0 }}
                 animate={{ opacity: 1 }}
                 transition={{ delay: 0.4 }}
                 className="mt-5 flex flex-wrap justify-center gap-4"
               >
-                <span className="flex items-center gap-1.5 text-sm font-medium">
-                  <Play size={14} className="text-[#FE2C55]" />
+                <span className="flex items-center gap-1.5 text-xs font-medium opacity-75">
+                  <Play size={13} className="text-[#FE2C55]" />
                   <span className="text-[#FE2C55]">MP4 HD</span>
                 </span>
-                <span className="flex items-center gap-1.5 text-sm font-medium">
-                  <Music size={14} className="text-[#38BDF8]" />
+                <span className="flex items-center gap-1.5 text-xs font-medium opacity-75">
+                  <Music size={13} className="text-[#38BDF8]" />
                   <span className="text-[#38BDF8]">MP3 Audio</span>
                 </span>
-                <span className="flex items-center gap-1.5 text-sm font-medium">
-                  <ImageIcon size={14} className="text-[#4ADE80]" />
+                <span className="flex items-center gap-1.5 text-xs font-medium opacity-75">
+                  <ImageIcon size={13} className="text-[#4ADE80]" />
                   <span className="text-[#4ADE80]">Cover Image</span>
                 </span>
               </motion.div>

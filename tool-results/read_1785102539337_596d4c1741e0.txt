@@ -1,0 +1,387 @@
+  1456→                className="save-btn flex items-center justify-center gap-2"
+  1457→              >
+  1458→                {isSaving ? <RefreshCw className="animate-spin" size={14} /> : <Shield size={14} />}
+  1459→                {isSaving ? 'Saving...' : 'Save All Advertisements'}
+  1460→              </motion.button>
+  1461→            </motion.div>
+  1462→          )}
+  1463→
+  1464→          {/* ===== Analytics Tab ===== */}
+  1465→          {activeTab === 'analytics' && (
+  1466→            <motion.div
+  1467→              initial={{ opacity: 0 }}
+  1468→              animate={{ opacity: 1 }}
+  1469→              transition={{ duration: 0.25 }}
+  1470→            >
+  1471→              <h2 className="text-lg font-bold mb-3">Analytics</h2>
+  1472→
+  1473→              {/* Daily Downloads Bar Chart */}
+  1474→              <div className="stat-card mb-3">
+  1475→                <h3 className="text-sm font-semibold mb-3">Daily Downloads (Last 7 Days)</h3>
+  1476→                {analyticsData.last7Days.length > 0 ? (
+  1477→                  <div className="flex items-end gap-1.5 h-[140px]">
+  1478→                    {analyticsData.last7Days.map((day) => (
+  1479→                      <div key={day.date} className="flex-1 flex flex-col items-center justify-end h-full">
+  1480→                        <div className="text-xs text-[#9CA3AF] mb-1 font-medium">
+  1481→                          {day.totalDownloads}
+  1482→                        </div>
+  1483→                        <div
+  1484→                          className="chart-bar w-full"
+  1485→                          style={{ height: `${Math.max((day.totalDownloads / maxBarValue) * 110, 4)}px` }}
+  1486→                        />
+  1487→                        <div className="text-[10px] text-[#9CA3AF] mt-1.5">
+  1488→                          {day.date.slice(5)}
+  1489→                        </div>
+  1490→                      </div>
+  1491→                    ))}
+  1492→                  </div>
+  1493→                ) : (
+  1494→                  <div className="flex items-center justify-center h-[140px] text-[#9CA3AF] text-xs">
+  1495→                    No data yet — download activity will appear here
+  1496→                  </div>
+  1497→                )}
+  1498→              </div>
+  1499→
+  1500→              {/* Summary Cards */}
+  1501→              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5 mb-3">
+  1502→                <div className="stat-card">
+  1503→                  <div className="text-xs text-[#9CA3AF] font-medium mb-1">7-Day Total</div>
+  1504→                  <div className="text-lg font-bold">
+  1505→                    {analyticsData.last7Days.reduce((s, d) => s + d.totalDownloads, 0)}
+  1506→                  </div>
+  1507→                </div>
+  1508→                <div className="stat-card">
+  1509→                  <div className="text-xs text-[#9CA3AF] font-medium mb-1">Success Rate</div>
+  1510→                  <div className="text-lg font-bold">
+  1511→                    {analyticsData.last7Days.length > 0
+  1512→                      ? `${Math.round(analyticsData.last7Days.reduce((s, d) => s + d.successCount, 0) / Math.max(analyticsData.last7Days.reduce((s, d) => s + d.totalDownloads, 0), 1) * 100)}%`
+  1513→                      : '—'}
+  1514→                  </div>
+  1515→                </div>
+  1516→                <div className="stat-card">
+  1517→                  <div className="text-xs text-[#9CA3AF] font-medium mb-1">Avg Latency</div>
+  1518→                  <div className="text-lg font-bold">
+  1519→                    {analyticsData.last7Days.length > 0
+  1520→                      ? `${Math.round(analyticsData.last7Days.reduce((s, d) => s + d.avgResponseMs, 0) / analyticsData.last7Days.length)}ms`
+  1521→                      : '—'}
+  1522→                  </div>
+  1523→                </div>
+  1524→                <div className="stat-card">
+  1525→                  <div className="text-xs text-[#9CA3AF] font-medium mb-1">Fail Count</div>
+  1526→                  <div className="text-lg font-bold text-red-400">
+  1527→                    {analyticsData.last7Days.reduce((s, d) => s + d.failCount, 0)}
+  1528→                  </div>
+  1529→                </div>
+  1530→              </div>
+  1531→
+  1532→              {/* Downloads by Format */}
+  1533→              <div className="stat-card mb-3">
+  1534→                <h3 className="text-sm font-semibold mb-3">Downloads by Format</h3>
+  1535→                <div className="flex items-center gap-5 justify-center">
+  1536→                  {[
+  1537→                    { label: 'MP4', color: '#FE2C55', pct: 65 },
+  1538→                    { label: 'MP3', color: '#38BDF8', pct: 25 },
+  1539→                    { label: 'Cover', color: '#4ADE80', pct: 10 },
+  1540→                  ].map((item) => (
+  1541→                    <div key={item.label} className="flex items-center gap-2">
+  1542→                      <div className="w-3 h-3 rounded-full" style={{ backgroundColor: item.color }} />
+  1543→                      <span className="text-xs font-medium">{item.label}</span>
+  1544→                      <span className="text-xs text-[#9CA3AF]">{item.pct}%</span>
+  1545→                    </div>
+  1546→                  ))}
+  1547→                </div>
+  1548→                <div className="mt-3 flex items-center justify-center">
+  1549→                  <svg width="110" height="110" viewBox="0 0 110 110">
+  1550→                    <circle cx="55" cy="55" r="45" fill="none" stroke="#FE2C55" strokeWidth="14"
+  1551→                      strokeDasharray={`${2 * Math.PI * 45 * 0.65} ${2 * Math.PI * 45 * 0.35}`}
+  1552→                      strokeDashoffset="0" transform="rotate(-90 55 55)" />
+  1553→                    <circle cx="55" cy="55" r="45" fill="none" stroke="#38BDF8" strokeWidth="14"
+  1554→                      strokeDasharray={`${2 * Math.PI * 45 * 0.25} ${2 * Math.PI * 45 * 0.75}`}
+  1555→                      strokeDashoffset={`${-2 * Math.PI * 45 * 0.65}`} transform="rotate(-90 55 55)" />
+  1556→                    <circle cx="55" cy="55" r="45" fill="none" stroke="#4ADE80" strokeWidth="14"
+  1557→                      strokeDasharray={`${2 * Math.PI * 45 * 0.10} ${2 * Math.PI * 45 * 0.90}`}
+  1558→                      strokeDashoffset={`${-2 * Math.PI * 45 * 0.90}`} transform="rotate(-90 55 55)" />
+  1559→                  </svg>
+  1560→                </div>
+  1561→              </div>
+  1562→
+  1563→              {/* Platforms Breakdown */}
+  1564→              <div className="stat-card mb-3">
+  1565→                <h3 className="text-sm font-semibold mb-2">Platforms</h3>
+  1566→                <div className="flex items-center gap-4">
+  1567→                  <div className="flex items-center gap-2">
+  1568→                    <Smartphone size={13} className="text-[#FE2C55]" />
+  1569→                    <span className="text-xs font-medium">Mobile</span>
+  1570→                    <span className="text-xs text-[#9CA3AF]">~70%</span>
+  1571→                  </div>
+  1572→                  <div className="flex items-center gap-2">
+  1573→                    <Monitor size={13} className="text-[#38BDF8]" />
+  1574→                    <span className="text-xs font-medium">Desktop</span>
+  1575→                    <span className="text-xs text-[#9CA3AF]">~30%</span>
+  1576→                  </div>
+  1577→                </div>
+  1578→              </div>
+  1579→
+  1580→              {/* Weekly Sparkline */}
+  1581→              <div className="stat-card">
+  1582→                <h3 className="text-sm font-semibold mb-2">Weekly Trend</h3>
+  1583→                {analyticsData.last7Days.length > 0 ? (
+  1584→                  <svg width="100%" height="50" viewBox="0 0 200 50" preserveAspectRatio="none">
+  1585→                    <polyline
+  1586→                      fill="none"
+  1587→                      stroke="#FE2C55"
+  1588→                      strokeWidth="2"
+  1589→                      strokeLinecap="round"
+  1590→                      strokeLinejoin="round"
+  1591→                      points={analyticsData.last7Days
+  1592→                        .reverse()
+  1593→                        .map((d, i) => `${(i / (analyticsData.last7Days.length - 1)) * 200},${50 - (d.totalDownloads / maxBarValue) * 40}`)
+  1594→                        .join(' ')}
+  1595→                    />
+  1596→                  </svg>
+  1597→                ) : (
+  1598→                  <div className="text-xs text-[#9CA3AF] text-center py-3">No data yet</div>
+  1599→                )}
+  1600→              </div>
+  1601→            </motion.div>
+  1602→          )}
+  1603→
+  1604→          {/* ===== Settings Tab ===== */}
+  1605→          {activeTab === 'settings' && (
+  1606→            <motion.div
+  1607→              initial={{ opacity: 0 }}
+  1608→              animate={{ opacity: 1 }}
+  1609→              transition={{ duration: 0.25 }}
+  1610→              className="space-y-3"
+  1611→            >
+  1612→              <h2 className="text-lg font-bold mb-3">Settings</h2>
+  1613→
+  1614→              {/* Site Settings */}
+  1615→              <div className="settings-section">
+  1616→                <button onClick={() => toggleSettingsSection('site')} className="settings-toggle-btn">
+  1617→                  <div className="flex items-center gap-2">
+  1618→                    <Globe size={13} className="text-[#9CA3AF]" />
+  1619→                    <span className="font-semibold text-sm">Site Settings</span>
+  1620→                  </div>
+  1621→                  {openSettingsSections.has('site') ? <ChevronUp size={13} className="text-[#9CA3AF]" /> : <ChevronDown size={13} className="text-[#9CA3AF]" />}
+  1622→                </button>
+  1623→                <AnimatePresence>
+  1624→                  {openSettingsSections.has('site') && (
+  1625→                    <motion.div initial={{ height: 0, opacity: 0 }} animate={{ height: 'auto', opacity: 1 }} exit={{ height: 0, opacity: 0 }} transition={{ duration: 0.2 }} className="overflow-hidden">
+  1626→                      <div className="mt-3 space-y-2.5">
+  1627→                        <div>
+  1628→                          <label className="text-xs text-[#9CA3AF] mb-1">Site Name</label>
+  1629→                          <input type="text" value={settingsValues.siteName} onChange={(e) => setSettingsValues(prev => ({ ...prev, siteName: e.target.value }))} className="w-full bg-[#1a1a1a] border border-[#333] rounded-[10px] px-3 py-2 text-sm outline-none input-focus-ring" />
+  1630→                        </div>
+  1631→                        <div>
+  1632→                          <label className="text-xs text-[#9CA3AF] mb-1">Site URL</label>
+  1633→                          <input type="text" value={settingsValues.siteUrl} onChange={(e) => setSettingsValues(prev => ({ ...prev, siteUrl: e.target.value }))} className="w-full bg-[#1a1a1a] border border-[#333] rounded-[10px] px-3 py-2 text-sm outline-none input-focus-ring" />
+  1634→                        </div>
+  1635→                        <div className="flex items-center justify-between">
+  1636→                          <div><div className="text-sm font-medium">Maintenance Mode</div><div className="text-xs text-[#9CA3AF]">Disable site for public access</div></div>
+  1637→                          <Switch checked={settingsValues.maintenanceMode} onCheckedChange={(val) => setSettingsValues(prev => ({ ...prev, maintenanceMode: val }))} />
+  1638→                        </div>
+  1639→                      </div>
+  1640→                    </motion.div>
+  1641→                  )}
+  1642→                </AnimatePresence>
+  1643→              </div>
+  1644→
+  1645→              {/* SEO Settings */}
+  1646→              <div className="settings-section">
+  1647→                <button onClick={() => toggleSettingsSection('seo')} className="settings-toggle-btn">
+  1648→                  <div className="flex items-center gap-2"><Search size={13} className="text-[#9CA3AF]" /><span className="font-semibold text-sm">SEO Settings</span></div>
+  1649→                  {openSettingsSections.has('seo') ? <ChevronUp size={13} className="text-[#9CA3AF]" /> : <ChevronDown size={13} className="text-[#9CA3AF]" />}
+  1650→                </button>
+  1651→                <AnimatePresence>
+  1652→                  {openSettingsSections.has('seo') && (
+  1653→                    <motion.div initial={{ height: 0, opacity: 0 }} animate={{ height: 'auto', opacity: 1 }} exit={{ height: 0, opacity: 0 }} transition={{ duration: 0.2 }} className="overflow-hidden">
+  1654→                      <div className="mt-3 space-y-2.5">
+  1655→                        <div><label className="text-xs text-[#9CA3AF] mb-1">Meta Title</label><input type="text" value={settingsValues.metaTitle} onChange={(e) => setSettingsValues(prev => ({ ...prev, metaTitle: e.target.value }))} className="w-full bg-[#1a1a1a] border border-[#333] rounded-[10px] px-3 py-2 text-sm outline-none input-focus-ring" /></div>
+  1656→                        <div><label className="text-xs text-[#9CA3AF] mb-1">Meta Description</label><textarea value={settingsValues.metaDescription} onChange={(e) => setSettingsValues(prev => ({ ...prev, metaDescription: e.target.value }))} className="w-full bg-[#1a1a1a] border border-[#333] rounded-[10px] px-3 py-2 text-sm outline-none input-focus-ring resize-none" rows={2} /></div>
+  1657→                        <div><label className="text-xs text-[#9CA3AF] mb-1">OG Image URL</label><input type="text" value={settingsValues.ogImageUrl} onChange={(e) => setSettingsValues(prev => ({ ...prev, ogImageUrl: e.target.value }))} className="w-full bg-[#1a1a1a] border border-[#333] rounded-[10px] px-3 py-2 text-sm outline-none input-focus-ring" placeholder="https://..." /></div>
+  1658→                        <div><label className="text-xs text-[#9CA3AF] mb-1">Robots Directive</label>
+  1659→                          <Select value={settingsValues.robotsDirective} onValueChange={(val) => setSettingsValues(prev => ({ ...prev, robotsDirective: val }))}>
+  1660→                            <SelectTrigger className="w-full bg-[#1a1a1a] border-[#333]"><SelectValue /></SelectTrigger>
+  1661→                            <SelectContent className="bg-[#1a1a1a] border-[#333]">
+  1662→                              <SelectItem value="index, follow">Index, Follow</SelectItem><SelectItem value="noindex, follow">NoIndex, Follow</SelectItem><SelectItem value="index, nofollow">Index, NoFollow</SelectItem><SelectItem value="noindex, nofollow">NoIndex, NoFollow</SelectItem>
+  1663→                            </SelectContent>
+  1664→                          </Select>
+  1665→                        </div>
+  1666→                      </div>
+  1667→                    </motion.div>
+  1668→                  )}
+  1669→                </AnimatePresence>
+  1670→              </div>
+  1671→
+  1672→              {/* API Keys */}
+  1673→              <div className="settings-section">
+  1674→                <button onClick={() => toggleSettingsSection('apikeys')} className="settings-toggle-btn">
+  1675→                  <div className="flex items-center gap-2"><Key size={13} className="text-[#9CA3AF]" /><span className="font-semibold text-sm">API Keys</span></div>
+  1676→                  {openSettingsSections.has('apikeys') ? <ChevronUp size={13} className="text-[#9CA3AF]" /> : <ChevronDown size={13} className="text-[#9CA3AF]" />}
+  1677→                </button>
+  1678→                <AnimatePresence>
+  1679→                  {openSettingsSections.has('apikeys') && (
+  1680→                    <motion.div initial={{ height: 0, opacity: 0 }} animate={{ height: 'auto', opacity: 1 }} exit={{ height: 0, opacity: 0 }} transition={{ duration: 0.2 }} className="overflow-hidden">
+  1681→                      <div className="mt-3 space-y-1.5">
+  1682→                        {['TIKHUB_API_KEY', 'RAPIDAPI_KEY', 'PROVIDER_NAME'].map((key) => (
+  1683→                          <div key={key} className="flex items-center gap-2 p-2 bg-[#1a1a1a] rounded-[8px]">
+  1684→                            <Key size={11} className="text-[#666]" /><span className="text-xs font-medium">{key}</span><span className="text-[10px] text-[#9CA3AF] ml-auto">Set via env var</span><Lock size={9} className="text-[#666]" />
+  1685→                          </div>
+  1686→                        ))}
+  1687→                        <p className="text-xs text-[#9CA3AF] mt-1">API keys are configured via environment variables and cannot be edited here.</p>
+  1688→                      </div>
+  1689→                    </motion.div>
+  1690→                  )}
+  1691→                </AnimatePresence>
+  1692→              </div>
+  1693→
+  1694→              {/* Branding */}
+  1695→              <div className="settings-section">
+  1696→                <button onClick={() => toggleSettingsSection('branding')} className="settings-toggle-btn">
+  1697→                  <div className="flex items-center gap-2"><Palette size={13} className="text-[#9CA3AF]" /><span className="font-semibold text-sm">Branding</span></div>
+  1698→                  {openSettingsSections.has('branding') ? <ChevronUp size={13} className="text-[#9CA3AF]" /> : <ChevronDown size={13} className="text-[#9CA3AF]" />}
+  1699→                </button>
+  1700→                <AnimatePresence>
+  1701→                  {openSettingsSections.has('branding') && (
+  1702→                    <motion.div initial={{ height: 0, opacity: 0 }} animate={{ height: 'auto', opacity: 1 }} exit={{ height: 0, opacity: 0 }} transition={{ duration: 0.2 }} className="overflow-hidden">
+  1703→                      <div className="mt-3 space-y-2.5">
+  1704→                        <div><label className="text-xs text-[#9CA3AF] mb-1">Logo Text</label><input type="text" value={settingsValues.logoText} onChange={(e) => setSettingsValues(prev => ({ ...prev, logoText: e.target.value }))} className="w-full bg-[#1a1a1a] border border-[#333] rounded-[10px] px-3 py-2 text-sm outline-none input-focus-ring" /></div>
+  1705→                        <div><label className="text-xs text-[#9CA3AF] mb-1">Primary Color</label><div className="flex items-center gap-2"><input type="text" value={settingsValues.primaryColor} onChange={(e) => setSettingsValues(prev => ({ ...prev, primaryColor: e.target.value }))} className="w-full bg-[#1a1a1a] border border-[#333] rounded-[10px] px-3 py-2 text-sm outline-none input-focus-ring" /><div className="color-preview" style={{ backgroundColor: settingsValues.primaryColor }} /></div></div>
+  1706→                        <div><label className="text-xs text-[#9CA3AF] mb-1">Accent Color</label><div className="flex items-center gap-2"><input type="text" value={settingsValues.accentColor} onChange={(e) => setSettingsValues(prev => ({ ...prev, accentColor: e.target.value }))} className="w-full bg-[#1a1a1a] border border-[#333] rounded-[10px] px-3 py-2 text-sm outline-none input-focus-ring" /><div className="color-preview" style={{ backgroundColor: settingsValues.accentColor }} /></div></div>
+  1707→                      </div>
+  1708→                    </motion.div>
+  1709→                  )}
+  1710→                </AnimatePresence>
+  1711→              </div>
+  1712→
+  1713→              {/* Security */}
+  1714→              <div className="settings-section">
+  1715→                <button onClick={() => toggleSettingsSection('security')} className="settings-toggle-btn">
+  1716→                  <div className="flex items-center gap-2"><Shield size={13} className="text-[#9CA3AF]" /><span className="font-semibold text-sm">Security</span></div>
+  1717→                  {openSettingsSections.has('security') ? <ChevronUp size={13} className="text-[#9CA3AF]" /> : <ChevronDown size={13} className="text-[#9CA3AF]" />}
+  1718→                </button>
+  1719→                <AnimatePresence>
+  1720→                  {openSettingsSections.has('security') && (
+  1721→                    <motion.div initial={{ height: 0, opacity: 0 }} animate={{ height: 'auto', opacity: 1 }} exit={{ height: 0, opacity: 0 }} transition={{ duration: 0.2 }} className="overflow-hidden">
+  1722→                      <div className="mt-3 space-y-2.5">
+  1723→                        <div><label className="text-xs text-[#9CA3AF] mb-1">Rate Limit (per IP)</label><input type="text" value={settingsValues.rateLimit} onChange={(e) => setSettingsValues(prev => ({ ...prev, rateLimit: e.target.value }))} className="w-full bg-[#1a1a1a] border border-[#333] rounded-[10px] px-3 py-2 text-sm outline-none input-focus-ring" /></div>
+  1724→                        <div><label className="text-xs text-[#9CA3AF] mb-1">CORS Origins</label><input type="text" value={settingsValues.corsOrigins} onChange={(e) => setSettingsValues(prev => ({ ...prev, corsOrigins: e.target.value }))} className="w-full bg-[#1a1a1a] border border-[#333] rounded-[10px] px-3 py-2 text-sm outline-none input-focus-ring" /></div>
+  1725→                        <div className="p-2 bg-[#1a1a1a] rounded-[8px]"><div className="text-xs text-[#9CA3AF]">Admin Password</div><div className="text-xs font-medium mt-0.5">Set via NEXT_PUBLIC_ADMIN_PASSWORD env var</div></div>
+  1726→                      </div>
+  1727→                    </motion.div>
+  1728→                  )}
+  1729→                </AnimatePresence>
+  1730→              </div>
+  1731→
+  1732→              {/* Downloads */}
+  1733→              <div className="settings-section">
+  1734→                <button onClick={() => toggleSettingsSection('downloads')} className="settings-toggle-btn">
+  1735→                  <div className="flex items-center gap-2"><Download size={13} className="text-[#9CA3AF]" /><span className="font-semibold text-sm">Downloads</span></div>
+  1736→                  {openSettingsSections.has('downloads') ? <ChevronUp size={13} className="text-[#9CA3AF]" /> : <ChevronDown size={13} className="text-[#9CA3AF]" />}
+  1737→                </button>
+  1738→                <AnimatePresence>
+  1739→                  {openSettingsSections.has('downloads') && (
+  1740→                    <motion.div initial={{ height: 0, opacity: 0 }} animate={{ height: 'auto', opacity: 1 }} exit={{ height: 0, opacity: 0 }} transition={{ duration: 0.2 }} className="overflow-hidden">
+  1741→                      <div className="mt-3 space-y-2.5">
+  1742→                        <div><label className="text-xs text-[#9CA3AF] mb-1">Max File Size</label><input type="text" value={settingsValues.maxFileSize} onChange={(e) => setSettingsValues(prev => ({ ...prev, maxFileSize: e.target.value }))} className="w-full bg-[#1a1a1a] border border-[#333] rounded-[10px] px-3 py-2 text-sm outline-none input-focus-ring" /></div>
+  1743→                        <div><label className="text-xs text-[#9CA3AF] mb-1">Allowed Formats</label><input type="text" value={settingsValues.allowedFormats} onChange={(e) => setSettingsValues(prev => ({ ...prev, allowedFormats: e.target.value }))} className="w-full bg-[#1a1a1a] border border-[#333] rounded-[10px] px-3 py-2 text-sm outline-none input-focus-ring" /></div>
+  1744→                        <div><label className="text-xs text-[#9CA3AF] mb-1">Concurrent Downloads</label><input type="number" min={1} max={10} value={settingsValues.concurrentDownloads} onChange={(e) => setSettingsValues(prev => ({ ...prev, concurrentDownloads: parseInt(e.target.value) || 3 }))} className="w-[60px] bg-[#1a1a1a] border border-[#333] rounded-[8px] px-2 py-1.5 text-sm text-center outline-none input-focus-ring" /></div>
+  1745→                      </div>
+  1746→                    </motion.div>
+  1747→                  )}
+  1748→                </AnimatePresence>
+  1749→              </div>
+  1750→
+  1751→              {/* Maintenance */}
+  1752→              <div className="settings-section">
+  1753→                <button onClick={() => toggleSettingsSection('maintenance')} className="settings-toggle-btn">
+  1754→                  <div className="flex items-center gap-2"><Wrench size={13} className="text-[#9CA3AF]" /><span className="font-semibold text-sm">Maintenance</span></div>
+  1755→                  {openSettingsSections.has('maintenance') ? <ChevronUp size={13} className="text-[#9CA3AF]" /> : <ChevronDown size={13} className="text-[#9CA3AF]" />}
+  1756→                </button>
+  1757→                <AnimatePresence>
+  1758→                  {openSettingsSections.has('maintenance') && (
+  1759→                    <motion.div initial={{ height: 0, opacity: 0 }} animate={{ height: 'auto', opacity: 1 }} exit={{ height: 0, opacity: 0 }} transition={{ duration: 0.2 }} className="overflow-hidden">
+  1760→                      <div className="mt-3 space-y-2.5">
+  1761→                        <div className="flex items-center justify-between">
+  1762→                          <div><div className="text-sm font-medium">Maintenance Mode</div><div className="text-xs text-[#9CA3AF]">Disable site for public access</div></div>
+  1763→                          <Switch checked={settingsValues.maintenanceMode} onCheckedChange={(val) => setSettingsValues(prev => ({ ...prev, maintenanceMode: val }))} />
+  1764→                        </div>
+  1765→                        <div className="flex gap-2">
+  1766→                          <button onClick={handleClearCache} className="px-3 py-1.5 bg-white/5 hover:bg-white/10 rounded-[10px] text-xs font-medium flex items-center gap-1.5 transition-colors duration-150 border border-white/10"><Trash2 size={11} /> Clear Cache</button>
+  1767→                          <button onClick={() => toast.info('Analytics reset requires database operation')} className="px-3 py-1.5 bg-white/5 hover:bg-white/10 rounded-[10px] text-xs font-medium flex items-center gap-1.5 transition-colors duration-150 border border-white/10"><RefreshCw size={11} /> Reset Analytics</button>
+  1768→                        </div>
+  1769→                      </div>
+  1770→                    </motion.div>
+  1771→                  )}
+  1772→                </AnimatePresence>
+  1773→              </div>
+  1774→
+  1775→              <motion.button
+  1776→                whileHover={{ scale: 1.02, y: -1 }}
+  1777→                whileTap={{ scale: 0.98 }}
+  1778→                onClick={handleSaveSettings}
+  1779→                disabled={isSaving}
+  1780→                className="save-btn flex items-center justify-center gap-2"
+  1781→              >
+  1782→                {isSaving ? <RefreshCw className="animate-spin" size={14} /> : <Shield size={14} />}
+  1783→                {isSaving ? 'Saving...' : 'Save Settings'}
+  1784→              </motion.button>
+  1785→            </motion.div>
+  1786→          )}
+  1787→
+  1788→          {/* ===== Platforms Tab (Coming Soon) ===== */}
+  1789→          {activeTab === 'platforms' && (
+  1790→            <motion.div
+  1791→              initial={{ opacity: 0 }}
+  1792→              animate={{ opacity: 1 }}
+  1793→              transition={{ duration: 0.25 }}
+  1794→            >
+  1795→              <div className="flex items-center justify-between mb-4">
+  1796→                <h2 className="text-lg font-bold">Platforms Manager</h2>
+  1797→                <div className="px-3 py-1.5 rounded-full text-xs font-semibold bg-[#FE2C55]/15 text-[#FE2C55] border border-[#FE2C55]/20">
+  1798→                  Coming Soon
+  1799→                </div>
+  1800→              </div>
+  1801→
+  1802→              <p className="text-sm text-[#9CA3AF] mb-4">
+  1803→                This section will be active after NovaDL Engine integration. Currently only TikTok is enabled for downloads. The UI architecture is designed to support additional platforms without redesigning.
+  1804→              </p>
+  1805→
+  1806→              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+  1807→                {FUTURE_PLATFORMS.map((platform) => (
+  1808→                  <div key={platform.name} className={`platform-grid-item ${platform.enabled ? 'enabled' : 'coming-soon'}`}>
+  1809→                    <div className="w-8 h-8 rounded-lg flex items-center justify-center text-xs font-bold"
+  1810→                      style={{ backgroundColor: platform.enabled ? 'rgba(254,44,85,0.15)' : 'rgba(255,255,255,0.05)' }}>
+  1811→                      {platform.icon}
+  1812→                    </div>
+  1813→                    <div className="flex-1">
+  1814→                      <div className="text-sm font-medium">{platform.name}</div>
+  1815→                      <div className="text-xs text-[#9CA3AF]">{platform.enabled ? 'Enabled — Downloads active' : 'Coming Soon — Not yet available'}</div>
+  1816→                    </div>
+  1817→                    {platform.enabled ? (
+  1818→                      <Check size={14} className="text-[#25F4EE]" />
+  1819→                    ) : (
+  1820→                      <AlertCircle size={14} className="text-[#9CA3AF]" />
+  1821→                    )}
+  1822→                  </div>
+  1823→                ))}
+  1824→              </div>
+  1825→
+  1826→              <div className="mt-4 stat-card">
+  1827→                <div className="text-sm font-semibold mb-2">Future NovaDL Compatibility</div>
+  1828→                <p className="text-xs text-[#9CA3AF]">
+  1829→                  When NovaDL Engine is integrated, each platform will have its own provider configuration, download endpoint, and feature flags. The current architecture supports multiple providers, provider priority, and platform management without requiring UI redesign. 21+ platforms are planned for future support.
+  1830→                </p>
+  1831→              </div>
+  1832→            </motion.div>
+  1833→          )}
+  1834→        </div>
+  1835→      </main>
+  1836→    </div>
+  1837→  );
+  1838→};
+  1839→
+  1840→export default AdminDashboard;
+
+[showing lines 1456-1840 of 1841; use offset=1841 with limit to continue reading]

@@ -72,11 +72,12 @@ export async function POST(request: Request) {
       });
     }
 
-    // Upsert AdPlacement records
+    // Upsert AdPlacement records — collect results with IDs
+    const savedAds: Array<{ id: string; name: string; template: string; enabled: boolean; type: string; placement: string; position: string; dimensions: string; adCode: string; description: string; priority: number }> = [];
     if (body.ads && Array.isArray(body.ads)) {
       for (const adData of body.ads) {
-        if (adData.id) {
-          await db.adPlacement.update({
+        if (adData.id && typeof adData.id === 'string' && adData.id.startsWith('cl')) {
+          const updated = await db.adPlacement.update({
             where: { id: adData.id },
             data: {
               name: adData.name ?? 'Untitled Ad',
@@ -91,8 +92,14 @@ export async function POST(request: Request) {
               priority: adData.priority ?? 1,
             },
           });
+          savedAds.push({
+            id: updated.id, name: updated.name, template: updated.template,
+            enabled: updated.enabled, type: updated.type, placement: updated.placement,
+            position: updated.position, dimensions: updated.dimensions,
+            adCode: updated.adCode, description: updated.description, priority: updated.priority,
+          });
         } else {
-          await db.adPlacement.create({
+          const created = await db.adPlacement.create({
             data: {
               name: adData.name ?? 'Untitled Ad',
               template: adData.template ?? 'medium_rectangle',
@@ -105,6 +112,12 @@ export async function POST(request: Request) {
               description: adData.description ?? '',
               priority: adData.priority ?? 1,
             },
+          });
+          savedAds.push({
+            id: created.id, name: created.name, template: created.template,
+            enabled: created.enabled, type: created.type, placement: created.placement,
+            position: created.position, dimensions: created.dimensions,
+            adCode: created.adCode, description: created.description, priority: created.priority,
           });
         }
       }
@@ -140,6 +153,7 @@ export async function POST(request: Request) {
         popupTitle: interstitialConfig.popupTitle,
         popupDescription: interstitialConfig.popupDescription,
       },
+      ads: savedAds,
     });
   } catch (error) {
     console.error('Failed to update config:', error);
