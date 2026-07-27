@@ -1,0 +1,227 @@
+/**
+ * NovaDL Structured Logging — Production Security & Infrastructure
+ *
+ * Every download request generates a structured log entry containing:
+ * - Request ID (for correlation)
+ * - Timestamp
+ * - Platform
+ * - Provider
+ * - Execution time
+ * - Status (success/error)
+ * - Error code (if error)
+ * - IP hash (NEVER raw IP — hashed via SHA-256 for privacy)
+ * - User Agent
+ *
+ * Logs are written to:
+ * 1. Database (DownloadLog Prisma model) — for analytics dashboard
+ *    - IP is stored as a hash (never raw IP)
+ *    - requestId stored for log correlation
+ * 2. Console (structured JSON) — for debugging and monitoring
+ *    - IP is stored as a hash (never raw IP)
+ *    - Full structured format with all fields
+ *
+ * Privacy compliance:
+ * - Raw IP addresses are NEVER stored anywhere (GDPR requirement)
+ * - SHA-256 hash with server-side salt makes IPs irreversible
+ * - Same IP always produces the same hash (for rate limiting & unique visitor counting)
+ */
+
+import { NovaDLErrorCode } from './errors';
+import { db } from '@/lib/db';
+import { hashIp } from '@/lib/privacy';
+
+// ============================================================================
+// LOG ENTRY STRUCTURE
+// ============================================================================
+
+export interface DownloadLogEntry {
+  /** Unique request identifier */
+  requestId: string;
+
+  /** Timestamp of the request */
+  timestamp: Date;
+
+  /** Platform identifier */
+  platform: string;
+
+  /** Provider that handled the request */
+  provider: string;
+
+  /** Original URL submitted by the user */
+  url: string;
+
+  /** Request outcome */
+  status: 'success' | 'error';
+
+  /** Total execution time in milliseconds */
+  executionTime: number;
+
+  /** Error code (if status is "error") */
+  error?: NovaDLErrorCode;
+
+  /** Original error message (if status is "error") */
+  errorMessage?: string;
+
+  /** User IP address (will be hashed before storage) */
+  ipAddress?: string;
+
+  /** User agent string (for device analytics) */
+  userAgent?: string;
+
+  /** Actual video/content ID from the provider result */
+  videoId?: string;
+
+  /** Content title from the provider result */
+  videoTitle?: string;
+}
+
+// ============================================================================
+// DOWNLOAD STATS
+// ============================================================================
+
+export interface DownloadStats {
+  totalDownloads: number;
+  successCount: number;
+  failCount: number;
+  avgResponseMs: number;
+  byPlatform: Record<string, { total: number; success: number; fail: number }>;
+  byProvider: Record<string, { total: number; success: number; avgResponseMs: number }>;
+}
+
+// ============================================================================
+// DOWNLOAD LOGGER CLASS
+// ============================================================================
+
+export class DownloadLogger {
+  /**
+   * Log a download request to both the database and console.
+   *
+   * ⚠️  IP addresses are hashed before storage — raw IPs are NEVER stored.
+   *
+   * Database: writes to DownloadLog Prisma model.
+   * Console: outputs structured JSON log for debugging.
+   */
+  async log(entry: DownloadLogEntry): Promise<void> {
+    // Hash the IP address — NEVER store raw IPs
+    const hashedIp = entry.ipAddress ? hashIp(entry.ipAddress) : null;
+
+    // 1. Structured console log (always)
+    console.log(JSON.stringify({
+      type: 'download_log',
+      requestId: entry.requestId,
+      timestamp: entry.timestamp.toISOString(),
+      platform: entry.platform,
+      provider: entry.provider,
+      url: entry.url.length > 100 ? entry.url.slice(0, 100) + '...' : entry.url,
+      status: entry.status,
+      executionTime: entry.executionTime,
+      error: entry.error,
+      errorMessage: entry.errorMessage,
+      ipHash: hashedIp || 'N/A',
+      userAgent: entry.userAgent ? entry.userAgent.slice(0, 100) : 'N/A',
+      videoId: entry.videoId || null,
+      videoTitle: entry.videoTitle || null,
+    }));
+
+    // 2. Database log (write to DownloadLog table)
+    try {
+      await db.downloadLog.create({
+        data: {
+          videoId: entry.videoId || null,
+          videoTitle: entry.videoTitle || `[${entry.platform}] ${entry.url.slice(0, 50)}`,
+          provider: entry.provider,
+          platform: entry.platform,
+          success: entry.status === 'success',
+          responseTime: entry.executionTime,
+          error: entry.errorMessage || (entry.error ? String(entry.error) : null),
+          ipAddress: hashedIp,  // Store hash, NEVER raw IP
+          requestId: entry.requestId,
+        },
+      });
+    } catch (dbError) {
+      // DB write failure should never block or crash the system
+      console.error('[Logger] Failed to write to DownloadLog DB:', dbError);
+    }
+  }
+
+  /**
+   * Query recent logs (for analytics and admin dashboard).
+   */
+  async getRecentLogs(limit: number = 50): Promise<any[]> {
+    try {
+      return await db.downloadLog.findMany({
+        take: limit,
+        orderBy: { createdAt: 'desc' },
+      });
+    } catch (dbError) {
+      console.error('[Logger] Failed to query recent logs:', dbError);
+      return [];
+    }
+  }
+
+  /**
+   * Get aggregated statistics for a time range.
+   */
+  async getStats(from: Date, to: Date): Promise<DownloadStats> {
+    try {
+      const logs = await db.downloadLog.findMany({
+        where: {
+          createdAt: { gte: from, lte: to },
+        },
+      });
+
+      const totalDownloads = logs.length;
+      const successCount = logs.filter(l => l.success).length;
+      const failCount = totalDownloads - successCount;
+      const avgResponseMs = logs.length > 0
+        ? Math.round(logs.reduce((sum, l) => sum + (l.responseTime || 0), 0) / logs.length)
+        : 0;
+
+      // Group by provider
+      const byProvider: Record<string, { total: number; success: number; avgResponseMs: number }> = {};
+      for (const log of logs) {
+        const provider = log.provider || 'unknown';
+        if (!byProvider[provider]) byProvider[provider] = { total: 0, success: 0, avgResponseMs: 0 };
+        byProvider[provider].total++;
+        if (log.success) byProvider[provider].success++;
+        byProvider[provider].avgResponseMs += log.responseTime || 0;
+      }
+      for (const provider of Object.keys(byProvider)) {
+        const entry = byProvider[provider];
+        entry.avgResponseMs = entry.total > 0 ? Math.round(entry.avgResponseMs / entry.total) : 0;
+      }
+
+      return {
+        totalDownloads,
+        successCount,
+        failCount,
+        avgResponseMs,
+        byPlatform: { tiktok: { total: totalDownloads, success: successCount, fail: failCount } },
+        byProvider,
+      };
+    } catch (dbError) {
+      console.error('[Logger] Failed to compute stats:', dbError);
+      return {
+        totalDownloads: 0,
+        successCount: 0,
+        failCount: 0,
+        avgResponseMs: 0,
+        byPlatform: {},
+        byProvider: {},
+      };
+    }
+  }
+}
+
+// ============================================================================
+// GLOBAL LOGGER SINGLETON
+// ============================================================================
+
+let globalLogger: DownloadLogger | null = null;
+
+export function getLogger(): DownloadLogger {
+  if (!globalLogger) {
+    globalLogger = new DownloadLogger();
+  }
+  return globalLogger;
+}

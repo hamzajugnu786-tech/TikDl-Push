@@ -9,6 +9,7 @@ import {
   Smartphone, Globe, CheckCircle, ExternalLink,
 } from 'lucide-react';
 import { Toaster, toast } from 'sonner';
+import { sanitizeAdHtml } from '@/lib/sanitize';
 
 interface VideoInfo {
   id: string;
@@ -382,12 +383,13 @@ const TikTokDownloader = () => {
     : 1;
   const strokeDashoffset = circumference * (1 - progress);
 
-  // Helper: render ad slot
+  // Helper: render ad slot — sanitized to prevent XSS
   const renderAdSlot = (ad: LandingAdSlot, className?: string) => {
     if (ad.adCode) {
+      const safeHtml = sanitizeAdHtml(ad.adCode);
       return (
         <div key={ad.id} className={className || 'ad-slot-inline'}>
-          <div dangerouslySetInnerHTML={{ __html: ad.adCode }} />
+          <div dangerouslySetInnerHTML={{ __html: safeHtml }} />
         </div>
       );
     }
@@ -992,11 +994,12 @@ const TikTokDownloader = () => {
                 const maxW = Math.min(dw, 380);
                 const maxH = Math.min(dh, 280);
                 if (landingAds.interstitialAd?.adCode) {
+                  const safeInterstitialHtml = sanitizeAdHtml(landingAds.interstitialAd.adCode);
                   return (
                     <div
                       className="mx-auto mb-4 overflow-hidden rounded-lg"
                       style={{ maxWidth: maxW, height: maxH }}
-                      dangerouslySetInnerHTML={{ __html: landingAds.interstitialAd.adCode }}
+                      dangerouslySetInnerHTML={{ __html: safeInterstitialHtml }}
                     />
                   );
                 }

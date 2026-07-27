@@ -11,6 +11,7 @@ import {
   Code, MoveUp, MoveDown, Edit3, Check, AlertCircle
 } from 'lucide-react';
 import { Toaster, toast } from 'sonner';
+import { sanitizeAdHtml } from '@/lib/sanitize';
 import { Switch } from '@/components/ui/switch';
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
@@ -186,24 +187,38 @@ function PlacementMockup({ placementId }: { placementId: string }) {
 
 // ===== Admin Dashboard =====
 const AdminDashboard = () => {
-  const ADMIN_PASSWORD = process.env.NEXT_PUBLIC_ADMIN_PASSWORD || 'admin123';
-
-  // Initialize to false to avoid hydration mismatch — sessionStorage is undefined during SSR
+  // Server-side authentication — HttpOnly cookie verified via /api/admin/auth/verify
+  // Password is NEVER exposed to browser JavaScript (no NEXT_PUBLIC_ADMIN_PASSWORD)
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [mounted, setMounted] = useState(false);
 
-  // After mount, check sessionStorage for existing session (client-only)
+  // After mount, check server-side auth status via HttpOnly cookie (client-only)
   useEffect(() => {
     setMounted(true);
-    try {
-      const session = sessionStorage.getItem('tikdl_admin_session');
-      if (session === 'authenticated') {
-        setIsAuthenticated(true);
+    const checkAuth = async () => {
+      try {
+        const res = await fetch('/api/admin/auth/verify');
+        const data = await res.json();
+        if (data.authenticated) {
+          setIsAuthenticated(true);
+        }
+      } catch {
+        // Auth verification failed — stay unauthenticated
       }
-    } catch {
-      // sessionStorage not available
-    }
+    };
+    checkAuth();
   }, []);
+  // Helper: handle 401 responses from admin API routes
+  // If auth expires mid-session, kick user back to login
+  const handleApiResponse = async (res: Response): Promise<any> => {
+    if (res.status === 401) {
+      setIsAuthenticated(false);
+      setLoginError('Session expired. Please log in again.');
+      return null;
+    }
+    return res.json();
+  };
+
   const [isLoading, setIsLoading] = useState(false);
   const [loginPassword, setLoginPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
@@ -287,7 +302,8 @@ const AdminDashboard = () => {
     const fetchConfig = async () => {
       try {
         const res = await fetch('/api/admin/config');
-        const data = await res.json();
+        const data = await handleApiResponse(res);
+        if (!data) return;
         if (data.success) {
           if (data.interstitial) {
             setInterstitialConfig({
@@ -358,7 +374,8 @@ const AdminDashboard = () => {
     const fetchStats = async () => {
       try {
         const res = await fetch('/api/analytics');
-        const data = await res.json();
+        const data = await handleApiResponse(res);
+        if (!data) return;
         if (data.success) {
           setStats({
             totalDownloads: data.summary.totalDownloads || 0,
@@ -382,28 +399,38 @@ const AdminDashboard = () => {
     }
   }, [isAuthenticated]);
 
-  const handleLogin = (e: React.FormEvent) => {
+  const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoginError('');
     setIsLoading(true);
-    // Simulate brief loading for UX
-    setTimeout(() => {
-      if (loginPassword === ADMIN_PASSWORD) {
+    try {
+      const res = await fetch('/api/admin/auth/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ password: loginPassword }),
+      });
+      const data = await res.json();
+      if (data.success) {
         setIsAuthenticated(true);
-        sessionStorage.setItem('tikdl_admin_session', 'authenticated');
         toast.success('Admin access granted');
       } else {
-        setLoginError('Invalid password. Please try again.');
+        setLoginError(data.error || 'Invalid password. Please try again.');
         setLoginShake(true);
         setTimeout(() => setLoginShake(false), 600);
       }
-      setIsLoading(false);
-    }, 400);
+    } catch {
+      setLoginError('Connection error. Please try again.');
+    }
+    setIsLoading(false);
   };
 
-  const handleLogout = () => {
+  const handleLogout = async () => {
+    try {
+      await fetch('/api/admin/auth/logout', { method: 'POST' });
+    } catch {
+      // Logout API call failed — clear local state anyway
+    }
     setIsAuthenticated(false);
-    sessionStorage.removeItem('tikdl_admin_session');
     setLoginPassword('');
     toast.success('Logged out');
   };
@@ -778,7 +805,7 @@ const AdminDashboard = () => {
             {/* Footer */}
             <div className="mt-6 text-center">
               <p className="text-[10px] text-[#666]">
-                Session persists in this browser • Password set via environment variable
+                Secure server-side authentication • HttpOnly cookie session
               </p>
             </div>
           </div>
@@ -1350,7 +1377,7 @@ const AdminDashboard = () => {
                       </div>
                       {ad.adCode ? (
                         <div className="rounded-[8px] overflow-hidden" style={{ maxWidth: Math.min(dim.w, 380), minHeight: Math.min(dim.h, 280) }}>
-                          <div dangerouslySetInnerHTML={{ __html: ad.adCode }} />
+                          <div dangerouslySetInnerHTML={{ __html: sanitizeAdHtml(ad.adCode) }} />
                         </div>
                       ) : (
                         <div
@@ -1664,7 +1691,7 @@ const AdminDashboard = () => {
                       strokeWidth="2"
                       strokeLinecap="round"
                       strokeLinejoin="round"
-                      points={analyticsData.last7Days
+                      points={[...analyticsData.last7Days]
                         .reverse()
                         .map((d, i) => `${(i / (analyticsData.last7Days.length - 1)) * 200},${50 - (d.totalDownloads / maxBarValue) * 40}`)
                         .join(' ')}
@@ -1798,7 +1825,7 @@ const AdminDashboard = () => {
                       <div className="mt-3 space-y-2.5">
                         <div><label className="text-xs text-[#9CA3AF] mb-1">Rate Limit (per IP)</label><input type="text" value={settingsValues.rateLimit} onChange={(e) => setSettingsValues(prev => ({ ...prev, rateLimit: e.target.value }))} className="w-full bg-[#1a1a1a] border border-[#333] rounded-[10px] px-3 py-2 text-sm outline-none input-focus-ring" /></div>
                         <div><label className="text-xs text-[#9CA3AF] mb-1">CORS Origins</label><input type="text" value={settingsValues.corsOrigins} onChange={(e) => setSettingsValues(prev => ({ ...prev, corsOrigins: e.target.value }))} className="w-full bg-[#1a1a1a] border border-[#333] rounded-[10px] px-3 py-2 text-sm outline-none input-focus-ring" /></div>
-                        <div className="p-2 bg-[#1a1a1a] rounded-[8px]"><div className="text-xs text-[#9CA3AF]">Admin Password</div><div className="text-xs font-medium mt-0.5">Set via NEXT_PUBLIC_ADMIN_PASSWORD env var</div></div>
+                        <div className="p-2 bg-[#1a1a1a] rounded-[8px]"><div className="text-xs text-[#9CA3AF]">Admin Password</div><div className="text-xs font-medium mt-0.5">Set via ADMIN_PASSWORD env var (server-side only)</div></div>
                       </div>
                     </motion.div>
                   )}

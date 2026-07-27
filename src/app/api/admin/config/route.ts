@@ -1,13 +1,20 @@
 import { NextResponse } from 'next/server';
 import { db } from '@/lib/db';
+import { requireAuth } from '@/lib/auth';
+import { sanitizeAdHtmlServer } from '@/lib/sanitize';
 
 export async function GET() {
+  // Authentication guard — unauthenticated users receive 401
+  const authError = await requireAuth();
+  if (authError) return authError;
+
   try {
-    const interstitialConfig = await db.interstitialConfig.findFirst();
-    const adPlacements = await db.adPlacement.findMany({
-      orderBy: { priority: 'asc' },
-    });
-    const settings = await db.settings.findMany();
+    // Parallelise independent DB queries for better performance
+    const [interstitialConfig, adPlacements, settings] = await Promise.all([
+      db.interstitialConfig.findFirst(),
+      db.adPlacement.findMany({ orderBy: { priority: 'asc' } }),
+      db.settings.findMany(),
+    ]);
 
     return NextResponse.json({
       success: true,
@@ -46,6 +53,10 @@ export async function GET() {
 }
 
 export async function POST(request: Request) {
+  // Authentication guard — unauthenticated users receive 401
+  const authError = await requireAuth();
+  if (authError) return authError;
+
   try {
     const body = await request.json();
 
@@ -96,7 +107,7 @@ export async function POST(request: Request) {
               placement: adData.placement ?? 'interstitial_popup',
               position: adData.position ?? 'center',
               dimensions: adData.dimensions ?? '300x250',
-              adCode: adData.adCode ?? '',
+              adCode: sanitizeAdHtmlServer(adData.adCode ?? ''),  // Server-side defense-in-depth
               description: adData.description ?? '',
               priority: adData.priority ?? 1,
             },
@@ -118,7 +129,7 @@ export async function POST(request: Request) {
               placement: adData.placement ?? 'interstitial_popup',
               position: adData.position ?? 'center',
               dimensions: adData.dimensions ?? '300x250',
-              adCode: adData.adCode ?? '',
+              adCode: sanitizeAdHtmlServer(adData.adCode ?? ''),  // Server-side defense-in-depth
               description: adData.description ?? '',
               priority: adData.priority ?? 1,
             },
@@ -133,9 +144,10 @@ export async function POST(request: Request) {
       }
     }
 
-    // Delete ad placements
+    // Delete ad placements — validate each ID is a string before DB lookup
     if (body.deleteAds && Array.isArray(body.deleteAds)) {
       for (const adId of body.deleteAds) {
+        if (typeof adId !== 'string' || !adId.trim()) continue; // Skip invalid IDs
         // Verify the ad exists before deleting to avoid Prisma errors
         const exists = await db.adPlacement.findUnique({ where: { id: adId } });
         if (exists) {

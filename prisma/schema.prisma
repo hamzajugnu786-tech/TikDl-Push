@@ -21,16 +21,6 @@ model User {
   updatedAt DateTime @updatedAt
 }
 
-model Post {
-  id        String   @id @default(cuid())
-  title     String
-  content   String?
-  published Boolean  @default(false)
-  authorId  String
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-}
-
 model InterstitialConfig {
   id                String   @id @default(cuid())
   enabled           Boolean  @default(true)
@@ -56,6 +46,8 @@ model AdPlacement {
   priority    Int      @default(1)
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
+
+  @@index([placement, enabled])     // Most common ad query pattern
 }
 
 model DownloadLog {
@@ -63,11 +55,18 @@ model DownloadLog {
   videoId       String?
   videoTitle    String?
   provider      String?
+  platform      String   @default("tiktok")
   success       Boolean  @default(false)
   responseTime  Int?
   error         String?
+  /// PRIVACY: Must be SHA-256 hash. NEVER store raw IPs (GDPR).
   ipAddress     String?
+  requestId     String?
   createdAt     DateTime @default(now())
+
+  @@index([createdAt])              // Date-range queries & analytics
+  @@index([createdAt, success])     // Compound for success-rate analytics
+  @@index([provider])              // Grouping/filtering by provider
 }
 
 model Analytics {
@@ -85,6 +84,7 @@ model Analytics {
 model ProviderStatus {
   id            String   @id @default(cuid())
   name          String   @unique
+  platform      String   @default("tiktok")
   active        Boolean  @default(true)
   successRate   Float    @default(0.0)
   avgResponseMs Int      @default(0)

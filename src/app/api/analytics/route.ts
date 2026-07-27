@@ -1,7 +1,12 @@
 import { NextResponse } from 'next/server';
 import { db } from '@/lib/db';
+import { requireAuth } from '@/lib/auth';
 
 export async function GET() {
+  // Authentication guard — analytics are admin-only data
+  const authError = await requireAuth();
+  if (authError) return authError;
+
   try {
     const today = new Date();
     today.setHours(0, 0, 0, 0);
@@ -9,18 +14,24 @@ export async function GET() {
     const sevenDaysAgo = new Date(today);
     sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
 
-    // Today's analytics
-    const todayAnalytics = await db.analytics.findUnique({
-      where: { date: today },
-    });
+    // Parallelise independent DB queries for better performance
+    const [todayAnalytics, last7Days, providerStatuses, recentLogs, todayLogCount] =
+      await Promise.all([
+        db.analytics.findUnique({ where: { date: today } }),
+        db.analytics.findMany({
+          where: { date: { gte: sevenDaysAgo } },
+          orderBy: { date: 'desc' },
+        }),
+        db.providerStatus.findMany(),
+        db.downloadLog.findMany({
+          take: 50,
+          orderBy: { createdAt: 'desc' },
+        }),
+        db.downloadLog.count({
+          where: { createdAt: { gte: today } },
+        }),
+      ]);
 
-    // Last 7 days analytics
-    const last7Days = await db.analytics.findMany({
-      where: { date: { gte: sevenDaysAgo } },
-      orderBy: { date: 'desc' },
-    });
-
-    // Total downloads from all analytics records
     const totalDownloads = last7Days.reduce(
       (sum, day) => sum + day.totalDownloads,
       0
@@ -34,7 +45,6 @@ export async function GET() {
       0
     );
 
-    // Average response time across available days
     const daysWithResponseData = last7Days.filter(
       (d) => d.avgResponseMs > 0
     );
@@ -47,22 +57,6 @@ export async function GET() {
             ) / daysWithResponseData.length
           )
         : 0;
-
-    // Provider status
-    const providerStatuses = await db.providerStatus.findMany();
-
-    // Recent download logs (last 50)
-    const recentLogs = await db.downloadLog.findMany({
-      take: 50,
-      orderBy: { createdAt: 'desc' },
-    });
-
-    // Today's download logs count
-    const todayLogCount = await db.downloadLog.count({
-      where: {
-        createdAt: { gte: today },
-      },
-    });
 
     return NextResponse.json({
       success: true,
@@ -101,6 +95,7 @@ export async function GET() {
       },
       providers: providerStatuses.map((p) => ({
         name: p.name,
+        platform: p.platform,
         active: p.active,
         successRate: p.successRate,
         avgResponseMs: p.avgResponseMs,
@@ -111,6 +106,7 @@ export async function GET() {
         videoId: l.videoId,
         videoTitle: l.videoTitle,
         provider: l.provider,
+        platform: l.platform,
         success: l.success,
         responseTime: l.responseTime,
         error: l.error,
