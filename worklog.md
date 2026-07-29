@@ -29,3 +29,26 @@ Stage Summary:
 - Contains 40+ structured test cases covering all requested features
 - Includes complete deployment checklist with 51 tasks
 - No source code modifications made (documentation only)
+
+---
+Task ID: 7
+Agent: Main Agent
+Task: Vercel deployment diagnostics audit — diagnose broken homepage, disconnected database, TypeError: Invalid URL
+
+Work Log:
+- Searched entire codebase for all URL construction patterns: new URL(), URLSearchParams, metadataBase, NEXT_PUBLIC_APP_URL, APP_URL, BASE_URL, SITE_URL, origin, request.nextUrl
+- Found only 1 new URL() call in application code: src/app/layout.tsx:16 (hardcoded "https://tikdl.app" — safe)
+- Found DATABASE_URL and DATABASE_AUTH_TOKEN usage in src/lib/db.ts
+- Inspected @libsql/core internal URI parser — uses custom regex parser, NOT new URL() for parsing
+- Found @libsql/core uri.js:103 uses new URL() in encodeBaseUrl() — this is the likely source of TypeError: Invalid URL
+- Analyzed @prisma/adapter-libsql — PrismaLibSQL is a factory, constructor only stores config, createClient() called lazily on connect()
+- Identified output: "standalone" in next.config.ts as the primary cause of broken homepage on Vercel
+- Confirmed no NEXT_PUBLIC_APP_URL, APP_URL, BASE_URL, SITE_URL, request.nextUrl, URLSearchParams usage anywhere
+- Confirmed no middleware.ts file exists
+- Produced comprehensive diagnosis report saved to /home/z/my-project/download/vercel-deployment-diagnostics.md
+
+Stage Summary:
+- Root cause 1 (TypeError: Invalid URL): DATABASE_URL=libsql://... is invalid for Prisma's SQLite provider, or DATABASE_URL is not set on Vercel
+- Root cause 2 (Broken homepage): output: "standalone" in next.config.ts causes Vercel to serve incomplete build output
+- Root cause 3 (Database disconnected): DATABASE_URL and DATABASE_AUTH_TOKEN not configured in Vercel environment variables
+- Priority fixes: Remove output: "standalone", set Vercel env vars, add URL validation guard in db.ts
