@@ -458,7 +458,7 @@ const TikTokDownloader = () => {
             <div className="max-w-xl mx-auto text-center">
               {/* Badge — soft sky blue background, white text, light blue border */}
               <motion.div
-                initial={{ opacity: 0, y: 10 }}
+                initial={false}
                 animate={{ opacity: 1, y: 0 }}
                 transition={{ duration: 0.4 }}
                 className="badge-pulse inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold mb-6 mt-4"
@@ -473,7 +473,7 @@ const TikTokDownloader = () => {
 
               {/* Hero heading — reduced "Without Watermark" size */}
               <motion.h1
-                initial={{ opacity: 0, y: 20 }}
+                initial={false}
                 animate={{ opacity: 1, y: 0 }}
                 transition={{ duration: 0.5, delay: 0.1 }}
                 className="text-[clamp(32px,4.5vw,46px)] font-extrabold tracking-tight leading-[1.1] mb-5"
@@ -485,7 +485,7 @@ const TikTokDownloader = () => {
 
               {/* Description */}
               <motion.p
-                initial={{ opacity: 0, y: 10 }}
+                initial={false}
                 animate={{ opacity: 1, y: 0 }}
                 transition={{ duration: 0.5, delay: 0.15 }}
                 className="text-sm text-[#9CA3AF] leading-relaxed max-w-[400px] mx-auto mb-8"
@@ -497,7 +497,7 @@ const TikTokDownloader = () => {
 
               {/* Input + Button */}
               <motion.div
-                initial={{ opacity: 0, y: 10 }}
+                initial={false}
                 animate={{ opacity: 1, y: 0 }}
                 transition={{ duration: 0.5, delay: 0.25 }}
               >
@@ -571,7 +571,7 @@ const TikTokDownloader = () => {
 
               {/* Feature tags — colored: Red, Sky Blue, Green (slightly smaller, reduced opacity) */}
               <motion.div
-                initial={{ opacity: 0 }}
+                initial={false}
                 animate={{ opacity: 1 }}
                 transition={{ delay: 0.4 }}
                 className="mt-5 flex flex-wrap justify-center gap-4"
@@ -756,7 +756,7 @@ const TikTokDownloader = () => {
           <section id="features" className="py-10 sm:py-14 px-4 sm:px-6 bg-[#0a0a0a]">
             <div className="max-w-5xl mx-auto">
               <motion.div
-                initial={{ opacity: 0, y: 20 }}
+                initial={false}
                 whileInView={{ opacity: 1, y: 0 }}
                 viewport={{ once: true }}
                 transition={{ duration: 0.4 }}
@@ -774,7 +774,7 @@ const TikTokDownloader = () => {
                 {FEATURES.map((feature, index) => (
                   <motion.div
                     key={feature.title}
-                    initial={{ opacity: 0, y: 16 }}
+                    initial={false}
                     whileInView={{ opacity: 1, y: 0 }}
                     viewport={{ once: true }}
                     transition={{ duration: 0.35, delay: index * 0.08 }}
@@ -808,7 +808,7 @@ const TikTokDownloader = () => {
           <section id="faq" className="py-10 sm:py-14 px-4 sm:px-6 bg-[#121212]">
             <div className="max-w-3xl mx-auto">
               <motion.div
-                initial={{ opacity: 0, y: 20 }}
+                initial={false}
                 whileInView={{ opacity: 1, y: 0 }}
                 viewport={{ once: true }}
                 transition={{ duration: 0.4 }}
@@ -826,7 +826,7 @@ const TikTokDownloader = () => {
                 {FAQ_ITEMS.map((item, index) => (
                   <motion.div
                     key={index}
-                    initial={{ opacity: 0, y: 10 }}
+                    initial={false}
                     whileInView={{ opacity: 1, y: 0 }}
                     viewport={{ once: true }}
                     transition={{ duration: 0.3, delay: index * 0.05 }}
