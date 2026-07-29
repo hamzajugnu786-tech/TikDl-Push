@@ -174,7 +174,7 @@ export async function GET() {
         offline: providersTotal - providersOnline,
       },
     });
-  } catch {
+  } catch (error) {
     // DB connectivity failed — system is offline
     const memoryUsage = process.memoryUsage();
     return NextResponse.json(
@@ -200,6 +200,11 @@ export async function GET() {
           online: 0,
           offline: 0,
         },
+        error: error instanceof Error ? {
+          name: error.name,
+          message: error.message,
+          stack: error.stack,
+        } : String(error),
       },
       { status: 503 }
     );
