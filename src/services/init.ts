@@ -1,20 +1,20 @@
 /**
- * NovaDL Initialization — Phase 1
+ * NovaDL Initialization — Integrated with Real NovaDL Engine
  *
  * Bootstraps the NovaDL service layer on application startup:
- * 1. Register all providers (currently TikTok only)
- * 2. Load provider configuration from DB Settings
- * 3. The DownloadService, PlatformDetector, and Logger are
- *    auto-initialized via their singleton getters.
+ * 1. Initialize the real NovaDL engine (native extractors → TikHub → RapidAPI)
+ * 2. Register old provider adapters as fallback
+ * 3. Load provider configuration from DB Settings
  *
- * This module is called ONCE at startup, typically from the
- * download API route or a Next.js middleware.
+ * Provider priority order:
+ *   Native TikTok Extractor (priority 1) → TikHub (priority 10) → RapidAPI (priority 15)
  *
- * ⚠️  The old providers/ directory is NOT removed yet.
- *     It remains active until Step 8 (API route switch) is verified.
- *     After that, the old providers are deprecated and removed in cleanup.
+ * The engine handles all extraction logic internally with its own
+ * fallback chain. The old provider registry is kept as a secondary
+ * fallback if the engine itself fails to initialize.
  */
 
+import { getEngine, isEngineInitialized } from './engine-bridge';
 import { registerTikTokProviders } from './providers/adapters/tiktok';
 import { getRegistry } from './providers/registry';
 
@@ -22,37 +22,50 @@ let initialized = false;
 
 /**
  * Initialize the NovaDL service layer.
- * Registers providers and loads DB configuration.
+ *
+ * 1. Initialize the real NovaDL engine (with native extractors)
+ * 2. Register old provider adapters as fallback
+ * 3. Load DB configuration
  *
  * This should be called once, early in the application lifecycle.
  * It's safe to call multiple times — subsequent calls are no-ops.
  */
 export async function initializeNovaDL(): Promise<void> {
   if (initialized) {
-    console.log('[NovaDL] Already initialized. Skipping.');
     return;
   }
 
-  console.log('[NovaDL] Initializing service layer...');
+  console.log('[NovaDL] Initializing service layer with real NovaDL engine...');
 
-  // Step 1: Register all providers
-  // Currently TikTok only. Future platforms register here too.
+  // Step 1: Initialize the real NovaDL engine
+  try {
+    const engine = await getEngine();
+    const providers = engine.getProviders();
+    console.log(`[NovaDL] Engine initialized with ${providers.length} providers:`);
+    for (const p of providers) {
+      console.log(`[NovaDL]   - ${p.id} (priority: ${p.priority}, platforms: ${p.platforms.join(', ')})`);
+    }
+  } catch (error) {
+    console.error('[NovaDL] Engine initialization failed:', error);
+    console.warn('[NovaDL] Falling back to old provider registry only');
+  }
+
+  // Step 2: Register old provider adapters as fallback
   registerTikTokProviders();
 
-  // Step 2: Load provider configuration from DB
-  // This reads the Settings table and may reorder/disable providers.
+  // Step 3: Load provider configuration from DB
   const registry = getRegistry();
   await registry.loadFromConfig();
 
-  // Step 3: Log registration summary
+  // Step 4: Log registration summary
   const platforms = registry.getAllPlatforms();
   for (const platform of platforms) {
     const providers = registry.getProviders(platform);
-    console.log(`[NovaDL] Platform "${platform}": ${providers.map(p => p.name).join(' → ')} (primary → fallback chain)`);
+    console.log(`[NovaDL] Fallback registry for "${platform}": ${providers.map(p => p.name).join(' → ')}`);
   }
 
   initialized = true;
-  console.log('[NovaDL] Initialization complete.');
+  console.log('[NovaDL] Initialization complete. Engine ready:', isEngineInitialized());
 }
 
 /**

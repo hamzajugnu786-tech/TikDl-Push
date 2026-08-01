@@ -60,6 +60,9 @@ export type { VideoInfo, DownloadApiResponse } from '@/lib/result-to-display';
 // Initialization
 export { initializeNovaDL, isNovaDLInitialized, resetNovaDL } from './init';
 
+// Engine bridge (real NovaDL engine integration)
+export { extractWithEngine, isEngineInitialized, resetEngine } from './engine-bridge';
+
 // TikTok provider adapters
 export { TikTokTikHubAdapter } from './providers/adapters/tiktok/tikhub';
 export { TikTokRapidAPIAdapter } from './providers/adapters/tiktok/rapidapi';

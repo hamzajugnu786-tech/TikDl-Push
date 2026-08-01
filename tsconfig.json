@@ -1,6 +1,6 @@
 {
   "compilerOptions": {
-    "target": "ES2017",
+    "target": "ES2022",
     "lib": [
       "dom",
       "dom.iterable",
@@ -41,6 +41,8 @@
     "skills",
     "tests",
     "tiktok-project",
-    "scripts"
+    "scripts",
+    "NovaDl-Push",
+    "novadl-engine"
   ]
 }

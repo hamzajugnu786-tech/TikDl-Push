@@ -1,20 +1,20 @@
 /**
- * NovaDL Download Service — Phase 1
+ * NovaDL Download Service — Integrated with Real NovaDL Engine
  *
  * The UI communicates ONLY with DownloadService.
  * Never directly with providers.
  *
- * Current flow (OLD):
- *   Frontend → API → getProvider() → Provider
+ * Flow (NEW — with real engine):
+ *   Frontend → API → DownloadService → NovaDLEngine (native extractors → TikHub → RapidAPI)
  *
- * New flow (Phase 1):
- *   Frontend → API → DownloadService → Provider Registry → Provider
+ * Fallback (if engine fails):
+ *   Frontend → API → DownloadService → Provider Registry → Old Adapters
  *
  * DownloadService handles:
  * 1. Platform detection (PlatformDetector.identify())
  * 2. URL validation per-platform rules
- * 3. Provider chain resolution (registry.getProviders())
- * 4. Execution with retry + fallback
+ * 3. Try the real NovaDL engine first (native extractors → TikHub → RapidAPI)
+ * 4. Fall back to old provider registry if engine fails
  * 5. Error standardisation (NovaDLError)
  * 6. Logging (DownloadLogger)
  * 7. Returns unified ServiceResult
@@ -25,6 +25,7 @@ import { PlatformDetector } from './platform-detector';
 import { getLogger } from './logger';
 import { NovaDLError, NovaDLErrorCode, generateRequestId } from './errors';
 import { ServiceResult, NovaDLErrorInfo } from './types';
+import { extractWithEngine, isEngineInitialized } from './engine-bridge';
 
 // ============================================================================
 // DOWNLOAD SERVICE CLASS
@@ -40,8 +41,8 @@ export class DownloadService {
    * Process:
    * 1. Detect platform from URL
    * 2. Validate URL against platform rules
-   * 3. Check if platform is supported and has providers
-   * 4. Try primary provider, fallback to next if primary fails
+   * 3. Try the real NovaDL engine (native extractors → TikHub → RapidAPI)
+   * 4. If engine fails, fall back to old provider registry
    * 5. Log the request (success or error)
    * 6. Return unified ServiceResult
    */
@@ -53,7 +54,6 @@ export class DownloadService {
     const platformInfo = PlatformDetector.identify(url);
 
     if (platformInfo.platform === 'unknown') {
-      // Unsupported URL — return error immediately
       const errorInfo: NovaDLErrorInfo = {
         code: NovaDLErrorCode.UNSUPPORTED_PLATFORM,
         message: 'This platform is not supported yet',
@@ -61,7 +61,6 @@ export class DownloadService {
         requestId,
       };
 
-      // Log the failed request
       await this.logger.log({
         requestId,
         timestamp: new Date(),
@@ -119,7 +118,93 @@ export class DownloadService {
       };
     }
 
-    // Step 3: Check if platform has registered providers
+    // Step 3: Try the real NovaDL engine first
+    if (isEngineInitialized()) {
+      try {
+        const result = await extractWithEngine(platformInfo.canonicalUrl, platformInfo.platform);
+        const duration = Date.now() - startTime;
+
+        // Log successful request
+        await this.logger.log({
+          requestId,
+          timestamp: new Date(),
+          platform: platformInfo.platform,
+          provider: result.metadata.videoId ? 'novadl-engine' : 'novadl-engine',
+          url,
+          status: 'success',
+          executionTime: duration,
+          ipAddress: options?.ipAddress,
+          userAgent: options?.userAgent,
+          videoId: result.metadata.videoId,
+          videoTitle: result.title,
+        });
+
+        return {
+          success: true,
+          data: result,
+          provider: 'novadl-engine',
+          platform: platformInfo.platform,
+          duration,
+          requestId,
+        };
+      } catch (engineError) {
+        // Engine failed — log and fall through to old provider registry
+        const engineErrorMsg = engineError instanceof Error ? engineError.message : String(engineError);
+        console.warn(`[DownloadService] NovaDL engine failed: ${engineErrorMsg}. Falling back to provider registry.`);
+
+        // If the error is a content-level error (private/deleted), don't retry with other providers
+        if (engineError instanceof NovaDLError) {
+          const noRetryCodes = [
+            NovaDLErrorCode.PRIVATE_CONTENT,
+            NovaDLErrorCode.DELETED_CONTENT,
+            NovaDLErrorCode.AGE_RESTRICTED,
+            NovaDLErrorCode.GEO_BLOCKED,
+            NovaDLErrorCode.AUTH_REQUIRED,
+            NovaDLErrorCode.INVALID_URL,
+            NovaDLErrorCode.UNSUPPORTED_PLATFORM,
+          ];
+
+          if (noRetryCodes.includes(engineError.code)) {
+            // Content-level error — return immediately
+            const duration = Date.now() - startTime;
+            const errorInfo: NovaDLErrorInfo = {
+              code: engineError.code,
+              message: engineError.message,
+              platform: platformInfo.platform,
+              provider: 'novadl-engine',
+              requestId,
+            };
+
+            await this.logger.log({
+              requestId,
+              timestamp: new Date(),
+              platform: platformInfo.platform,
+              provider: 'novadl-engine',
+              url,
+              status: 'error',
+              executionTime: duration,
+              error: engineError.code,
+              errorMessage: engineError.message,
+              ipAddress: options?.ipAddress,
+              userAgent: options?.userAgent,
+            });
+
+            return {
+              success: false,
+              error: errorInfo,
+              provider: 'novadl-engine',
+              platform: platformInfo.platform,
+              duration,
+              requestId,
+            };
+          }
+        }
+
+        // Transient error — fall through to old provider registry
+      }
+    }
+
+    // Step 4: Fallback to old provider registry
     const providers = this.registry.getProviders(platformInfo.platform);
 
     if (providers.length === 0) {
@@ -154,7 +239,7 @@ export class DownloadService {
       };
     }
 
-    // Step 4: Try providers in order (primary → fallback)
+    // Try providers in order (primary → fallback)
     let lastError: NovaDLError | null = null;
     let lastProviderName = 'none';
 
@@ -206,14 +291,12 @@ export class DownloadService {
               err.code === NovaDLErrorCode.INVALID_URL ||
               err.code === NovaDLErrorCode.UNSUPPORTED_PLATFORM
             ) {
-              // These errors should not fall through to the fallback provider
-              // They represent content-level issues that won't be resolved by trying another provider
-              break; // Break retry loop, but continue to fallback provider for provider-level errors
+              break;
             }
 
             // Retry on transient errors (DOWNLOAD_FAILED, PROVIDER_OFFLINE, RATE_LIMITED)
             if (attempt < 3) {
-              await new Promise(r => setTimeout(r, 800 * attempt)); // Exponential backoff
+              await new Promise(r => setTimeout(r, 800 * attempt));
             }
           } else {
             // Handle unknown errors
@@ -232,7 +315,6 @@ export class DownloadService {
         }
       }
 
-      // Primary provider exhausted all retries — try fallback provider
       console.warn(`[DownloadService] Provider "${provider.name}" failed after 3 attempts, trying next provider`);
     }
 
@@ -255,7 +337,6 @@ export class DownloadService {
         requestId,
       };
 
-    // Log failed request
     await this.logger.log({
       requestId,
       timestamp: new Date(),

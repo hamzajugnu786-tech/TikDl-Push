@@ -109,6 +109,7 @@ const nextConfig: NextConfig = {
     ignoreBuildErrors: false,
   },
   reactStrictMode: true,
+  serverExternalPackages: ['playwright', 'ioredis', 'pino', 'prom-client'],
   images: {
     remotePatterns: [
       {
