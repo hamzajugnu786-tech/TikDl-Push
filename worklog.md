@@ -31,7 +31,37 @@ Stage Summary:
 - No source code modifications made (documentation only)
 
 ---
-Task ID: 7
+Task ID: 8
+Agent: Super Z (main)
+Task: Integrate real NovaDL engine into TikDL project
+
+Work Log:
+- Cloned NovaDL private repository (NovaDl-Push) using provided PAT
+- Analyzed NovaDL engine architecture: NovaDLEngine, ProviderRegistry, native extractors, provider scoring, circuit breaker, browser fallback
+- Analyzed TikDL's existing service layer: DownloadService, ProviderRegistry, TikHub/RapidAPI adapters, NovaDLResult format
+- Copied NovaDL engine source into src/engine/ directory (98 files)
+- Created engine-bridge.ts that wraps NovaDLEngine.extract() → NovaDLResult conversion
+- Updated DownloadService to try real engine first, then fall back to old provider registry
+- Updated initializeNovaDL() to bootstrap the real engine on startup
+- Provider priority: Native TikTok (1) → TikHub (10) → RapidAPI (15)
+- Removed .js extensions from all engine imports (bundler resolution)
+- Created type stubs for fastify, playwright, @opentelemetry/* (not needed in TikDL)
+- Fixed z.record() to use 2 args (Zod v4 compat)
+- Fixed dynamic imports for optional deps (playwright, opentelemetry) using variable-based imports
+- Fixed PropertyKey[] → (string | number)[] cast in config loader
+- Installed required dependencies: uuid, eventemitter3, zod, pino, ioredis, prom-client
+- Updated tsconfig.json: target ES2022, exclude NovaDl-Push and novadl-engine dirs
+- Updated next.config.ts: add serverExternalPackages for optional deps
+- Added NovaDl-Push/ and novadl-engine/ to .gitignore
+- Build succeeds with all routes functional
+- Committed and pushed to GitHub (commit 8740940)
+
+Stage Summary:
+- Real NovaDL engine fully integrated into TikDL
+- Frontend response format unchanged — zero UI modifications required
+- Native TikTok extractor now highest-priority provider (parses embedded JSON from page HTML)
+- TikHub and RapidAPI remain as fallback providers
+- Build successful, all routes functional
 Agent: Main Agent
 Task: Vercel deployment diagnostics audit — diagnose broken homepage, disconnected database, TypeError: Invalid URL
 
