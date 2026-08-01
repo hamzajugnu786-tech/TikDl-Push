@@ -66,7 +66,7 @@ const securityHeaders = [
     key: 'Content-Security-Policy',
     value: [
       "default-src 'self'",
-      "script-src 'self' 'unsafe-eval'",  // unsafe-eval needed for some ad embeds
+      "script-src 'self' 'unsafe-inline' 'unsafe-eval'",  // unsafe-inline required for Next.js RSC hydration; unsafe-eval for ad embeds
       "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",  // Tailwind + Google Fonts
       "img-src 'self' data: https:",  // TikTok images from various CDN hosts
       "font-src 'self' https://fonts.gstatic.com",
