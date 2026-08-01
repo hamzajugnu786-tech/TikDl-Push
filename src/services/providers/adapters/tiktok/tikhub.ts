@@ -61,8 +61,10 @@ export class TikTokTikHubAdapter implements NovaDLProvider {
     }
 
     try {
+      // TikHub API v3 endpoint — accepts share_url (full TikTok URL)
+      // Old endpoint /api/v1/tiktok/web/fetch_one_video was removed by TikHub.
       const response = await fetch(
-        `${this.baseUrl}/api/v1/tiktok/web/fetch_one_video?url=${encodeURIComponent(inputUrl)}&web_request=0`,
+        `${this.baseUrl}/api/v1/tiktok/app/v3/fetch_one_video_by_share_url?share_url=${encodeURIComponent(inputUrl)}`,
         {
           headers: {
             'Authorization': `Bearer ${apiKey}`,
@@ -77,6 +79,9 @@ export class TikTokTikHubAdapter implements NovaDLProvider {
       }
 
       const result = await response.json();
+
+      // TikHub v3 response: { data: { aweme_id, desc, author, video, statistics, ... } }
+      // The video object is directly in result.data (not nested under result.data.video)
       const videoData: TikHubVideoData = result.data?.video || result.data;
 
       if (!videoData) {
@@ -106,7 +111,7 @@ export class TikTokTikHubAdapter implements NovaDLProvider {
 
     try {
       const response = await fetch(
-        `${this.baseUrl}/api/v1/tiktok/web/fetch_one_video?url=https://www.tiktok.com/@tiktok/video/7100000000000000000&web_request=0`,
+        `${this.baseUrl}/api/v1/tiktok/app/v3/fetch_one_video_by_share_url?share_url=${encodeURIComponent('https://www.tiktok.com/@tiktok/video/7100000000000000000')}`,
         {
           headers: {
             'Authorization': `Bearer ${apiKey}`,
