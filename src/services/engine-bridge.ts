@@ -47,11 +47,11 @@ export async function getEngine(): Promise<NovaDLEngine> {
 
     const config = {
       server: {
-        port: 0,
+        port: 3001,  // Engine runs embedded; Zod requires >=1 (port 0 is invalid)
         host: '0.0.0.0',
         logLevel: 'warn' as const,
         debug: false,
-        cors: { enabled: false, origins: [] },
+        cors: { enabled: false, origins: [] as string[] },
       },
       providers: [
         {
@@ -64,6 +64,7 @@ export async function getEngine(): Promise<NovaDLEngine> {
           maxRetries: 2,
           platforms: ['tiktok', 'instagram', 'threads', 'snapchat_spotlight', 'likee', 'lemon8'] as EnginePlatform[],
           apiKey: tikhubApiKey,
+          baseUrl: 'https://tikhub.io/api/v1',
         },
         {
           id: 'rapidapi',
@@ -75,6 +76,7 @@ export async function getEngine(): Promise<NovaDLEngine> {
           maxRetries: 2,
           platforms: ['tiktok', 'instagram', 'youtube', 'youtube_shorts', 'facebook', 'x_twitter', 'pinterest', 'reddit', 'vimeo', 'lemon8'] as EnginePlatform[],
           apiKey: rapidApiKey,
+          baseUrl: 'https://tiktok-video-no-watermark2.p.rapidapi.com',
         },
       ],
       cache: {
