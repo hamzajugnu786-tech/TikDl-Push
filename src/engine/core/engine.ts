@@ -177,7 +177,11 @@ export class NovaDLEngine {
     if (!config) {
       this._config = loadConfig();
     } else {
-      const loadedDefaults = loadConfig();
+      // Load defaults + env vars WITHOUT validation.
+      // Validation is deferred to the final merged result below.
+      // This prevents env vars like NOVA_SERVER_PORT=0 (set by hosting
+      // platforms) from throwing before the caller's overrides can replace them.
+      const loadedDefaults = loadConfig({ skipValidation: true });
       const mergedRaw: Record<string, unknown> = deepMerge(
         JSON.parse(JSON.stringify(loadedDefaults)) as Record<string, unknown>,
         JSON.parse(JSON.stringify(config)) as Record<string, unknown>,
