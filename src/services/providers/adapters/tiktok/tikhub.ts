@@ -80,9 +80,10 @@ export class TikTokTikHubAdapter implements NovaDLProvider {
 
       const result = await response.json();
 
-      // TikHub v3 response: { data: { aweme_id, desc, author, video, statistics, ... } }
-      // The video object is directly in result.data (not nested under result.data.video)
-      const videoData: TikHubVideoData = result.data?.video || result.data;
+      // TikHub v3 response: { code, msg, data: { aweme_id, desc, author, video: { play_addr, ... }, statistics, cover, ... } }
+      // result.data is the full aweme object. Do NOT use result.data.video —
+      // that is only the nested video sub-object and loses desc/author/cover/statistics.
+      const videoData: TikHubVideoData = result.data;
 
       if (!videoData) {
         throw new NovaDLError(
