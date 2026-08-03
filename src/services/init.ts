@@ -40,14 +40,17 @@ export async function initializeNovaDL(): Promise<void> {
   // Step 1: Initialize the real NovaDL engine
   try {
     const engine = await getEngine();
-    const providers = engine.getProviders();
-    console.log(`[NovaDL] Engine initialized with ${providers.length} providers:`);
-    for (const p of providers) {
-      console.log(`[NovaDL]   - ${p.id} (priority: ${p.priority}, platforms: ${p.platforms.join(', ')})`);
+    if (engine) {
+      const providers = engine.getProviders();
+      console.log(`[NovaDL] Engine initialized with ${providers.length} providers:`);
+      for (const p of providers) {
+        console.log(`[NovaDL]   - ${p.id} (priority: ${p.priority}, platforms: ${p.platforms.join(', ')})`);
+      }
+    } else {
+      console.info('[NovaDL] Engine unavailable — using provider registry (TikHub → RapidAPI)');
     }
   } catch (error) {
-    console.error('[NovaDL] Engine initialization failed:', error);
-    console.warn('[NovaDL] Falling back to old provider registry only');
+    console.warn('[NovaDL] Engine initialization error, using provider registry fallback');
   }
 
   // Step 2: Register old provider adapters as fallback

@@ -76,9 +76,7 @@ export async function POST(request: NextRequest) {
     // URL sanitization (preserved from old route)
     const sanitizedUrl = url.trim().slice(0, 500);
 
-    // [DEBUG] Incoming URL
-    console.log('[DEBUG-1] Incoming TikTok URL:', sanitizedUrl);
-
+    // Delegate to DownloadService
     // ⚠️  BACKWARD COMPATIBILITY: In Phase 1, the frontend still only accepts
     //     TikTok URLs. The PlatformDetector detects all platforms, but for
     //     backward compatibility, we validate that the URL is TikTok before
@@ -104,9 +102,6 @@ export async function POST(request: NextRequest) {
 
     // Convert ServiceResult into frontend-expected API response
     const apiResponse = serviceResultToApiResponse(serviceResult);
-
-    // [DEBUG] Final API response
-    console.log('[DEBUG-5] Final API response:', JSON.stringify(apiResponse).slice(0, 800));
 
     // Determine HTTP status code based on result
     if (apiResponse.success) {

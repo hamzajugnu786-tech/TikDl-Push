@@ -25,14 +25,16 @@ import { NovaDLError, NovaDLErrorCode, generateRequestId } from './errors';
 
 let engineInstance: NovaDLEngine | null = null;
 let engineInitializing = false;
+let engineInitFailed = false;
 
 /**
  * Get or create the NovaDL engine singleton.
- * The engine is created with a minimal config that works
- * within TikDL's Next.js server environment.
+ * Returns null if the engine cannot be initialized (e.g. incompatible
+ * host environment like Vercel serverless). Never throws.
  */
-export async function getEngine(): Promise<NovaDLEngine> {
+export async function getEngine(): Promise<NovaDLEngine | null> {
   if (engineInstance) return engineInstance;
+  if (engineInitFailed) return null;
   if (engineInitializing) {
     // Wait for concurrent initialization to finish
     await new Promise((resolve) => setTimeout(resolve, 100));
@@ -121,18 +123,12 @@ export async function getEngine(): Promise<NovaDLEngine> {
     console.log('[EngineBridge] NovaDL engine initialized successfully');
     console.log(`[EngineBridge] Registered providers: ${engine.getProviders().map(p => p.id).join(', ')}`);
 
-    // [DEBUG] Engine provider details
-    const providers = engine.getProviders();
-    for (const p of providers) {
-      console.log(`[DEBUG-INIT] Provider: id=${p.id} priority=${p.priority} platforms=${p.platforms?.join(',') || 'N/A'} enabled=${p.enabled}`);
-    }
-    console.log('[DEBUG-INIT] TIKHUB_API_KEY present:', !!process.env.TIKHUB_API_KEY, 'length:', process.env.TIKHUB_API_KEY?.length ?? 0);
-    console.log('[DEBUG-INIT] RAPIDAPI_KEY present:', !!process.env.RAPIDAPI_KEY, 'length:', process.env.RAPIDAPI_KEY?.length ?? 0);
-
     return engine;
   } catch (error) {
-    console.error('[EngineBridge] Failed to initialize NovaDL engine:', error);
-    throw error;
+    const msg = error instanceof Error ? error.message : String(error);
+    console.info(`[EngineBridge] NovaDL engine unavailable (${msg.slice(0, 120)}). Using provider registry fallback.`);
+    engineInitFailed = true;
+    return null;
   } finally {
     engineInitializing = false;
   }
@@ -145,6 +141,10 @@ export async function getEngine(): Promise<NovaDLEngine> {
 export async function extractWithEngine(url: string, platform: string): Promise<NovaDLResult> {
   const requestId = generateRequestId();
   const engine = await getEngine();
+
+  if (!engine) {
+    throw new NovaDLError(NovaDLErrorCode.PROVIDER_OFFLINE, 'NovaDL engine not available', platform, requestId);
+  }
 
   try {
     const request: ExtractionRequest = {
@@ -162,48 +162,8 @@ export async function extractWithEngine(url: string, platform: string): Promise<
 
     const result = await engine.extract(request);
 
-    // [DEBUG] NovaDL engine extraction result
-    console.log('[DEBUG-3] NovaDL ExtractionResult:', JSON.stringify({
-      id: result.id,
-      provider: result.provider,
-      platform: result.platform,
-      mediaCount: result.media.length,
-      mediaTypes: result.media.map(m => m.type),
-      metadata: {
-        title: result.metadata.title,
-        author: result.metadata.author,
-        authorId: result.metadata.authorId,
-        duration: result.metadata.duration,
-        viewCount: result.metadata.viewCount,
-        likeCount: result.metadata.likeCount,
-      },
-      coversCount: result.covers?.length ?? 0,
-      thumbnailsCount: result.thumbnails?.length ?? 0,
-      firstCoverUrl: result.covers?.[0]?.url?.slice(0, 80),
-      firstThumbUrl: result.thumbnails?.[0]?.url?.slice(0, 80),
-      firstVideoUrl: result.media.find(m => m.type === 'video')?.url?.slice(0, 80),
-      firstAudioUrl: result.media.find(m => m.type === 'audio')?.url?.slice(0, 80),
-    }).slice(0, 800));
-
     // Convert ExtractionResult → NovaDLResult
     const novaDLResult = engineResultToNovaDLResult(result, platform);
-
-    // [DEBUG] NovaDLResult after bridge conversion
-    console.log('[DEBUG-3b] NovaDLResult after bridge conversion:', JSON.stringify({
-      success: novaDLResult.success,
-      platform: novaDLResult.platform,
-      title: novaDLResult.title,
-      author: novaDLResult.author,
-      thumbnail: novaDLResult.thumbnail?.slice(0, 80),
-      duration: novaDLResult.duration,
-      formatsCount: novaDLResult.formats.length,
-      formats: novaDLResult.formats.map(f => ({ type: f.type, url: f.url?.slice(0, 80), quality: f.quality })),
-      audioCount: novaDLResult.audio.length,
-      audio: novaDLResult.audio.map(a => ({ url: a.url?.slice(0, 80), format: a.format })),
-      imagesCount: novaDLResult.images.length,
-      images: novaDLResult.images.map(i => ({ type: i.type, url: i.url?.slice(0, 80) })),
-      metadata: novaDLResult.metadata,
-    }).slice(0, 1200));
 
     return novaDLResult;
   } catch (error) {
@@ -403,4 +363,5 @@ export function isEngineInitialized(): boolean {
 export function resetEngine(): void {
   engineInstance = null;
   engineInitializing = false;
+  engineInitFailed = false;
 }

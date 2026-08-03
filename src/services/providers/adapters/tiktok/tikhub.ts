@@ -74,19 +74,11 @@ export class TikTokTikHubAdapter implements NovaDLProvider {
         }
       );
 
-      // [DEBUG] TikHub HTTP status
-      console.log('[DEBUG-2a] TikHub adapter HTTP status:', response.status, response.statusText);
-
       if (!response.ok) {
-        const errBody = await response.text().catch(() => '');
-        console.log('[DEBUG-2a] TikHub error body (first 500):', errBody.slice(0, 500));
         throw mapHttpError(response.status, this.platform, requestId, this.name);
       }
 
       const result = await response.json();
-
-      // [DEBUG] TikHub response body
-      console.log('[DEBUG-2a] TikHub response body (first 500):', JSON.stringify(result).slice(0, 500));
 
       // TikHub v3 response: { data: { aweme_id, desc, author, video, statistics, ... } }
       // The video object is directly in result.data (not nested under result.data.video)
