@@ -254,6 +254,27 @@ const TikTokDownloader = () => {
 
       const result = await response.json();
 
+      // ──── STAGE E: Frontend fetch() response ────
+      console.log('[TRACE-E] Frontend received result.success:', result.success);
+      console.log('[TRACE-E] Frontend received result.provider:', result.provider);
+      console.log('[TRACE-E] typeof result.data:', typeof result.data);
+      if (result.data) {
+        console.log('[TRACE-E] result.data keys:', Object.keys(result.data));
+        console.log('[TRACE-E] result.data.title:', result.data.title);
+        console.log('[TRACE-E] result.data.author:', result.data.author);
+        console.log('[TRACE-E] result.data.avatar:', result.data.avatar);
+        console.log('[TRACE-E] result.data.thumbnail:', result.data.thumbnail);
+        console.log('[TRACE-E] result.data.duration:', result.data.duration);
+        console.log('[TRACE-E] result.data.views:', result.data.views);
+        console.log('[TRACE-E] result.data.likes:', result.data.likes);
+        console.log('[TRACE-E] result.data.noWatermarkUrl:', result.data.noWatermarkUrl);
+        console.log('[TRACE-E] result.data.withWatermarkUrl:', result.data.withWatermarkUrl);
+        console.log('[TRACE-E] result.data.audioUrl:', result.data.audioUrl);
+        console.log('[TRACE-E] result.data.cover:', result.data.cover);
+      } else {
+        console.log('[TRACE-E] result.data is NULL/UNDEFINED — full result:', JSON.stringify(result).slice(0, 500));
+      }
+
       if (!result.success) {
         throw new Error(result.error || 'Failed to fetch video info');
       }

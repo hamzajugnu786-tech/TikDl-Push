@@ -80,6 +80,34 @@ export class TikTokTikHubAdapter implements NovaDLProvider {
 
       const result = await response.json();
 
+      // ──── PHASE 1: RAW TIKHUB RESPONSE CAPTURE ────
+      console.log('[TRACE-A] TikHub raw response keys:', Object.keys(result));
+      console.log('[TRACE-A] result.code:', result.code, 'result.msg:', result.msg);
+      console.log('[TRACE-A] typeof result.data:', typeof result.data);
+      if (result.data) {
+        console.log('[TRACE-A] result.data keys:', Object.keys(result.data));
+        // Print nested structure to detect wrapping
+        if (result.data.author) console.log('[TRACE-A] result.data.author keys:', Object.keys(result.data.author));
+        if (result.data.statistics) console.log('[TRACE-A] result.data.statistics keys:', Object.keys(result.data.statistics));
+        if (result.data.stats) console.log('[TRACE-A] result.data.stats keys:', Object.keys(result.data.stats));
+        if (result.data.video) console.log('[TRACE-A] result.data.video keys:', Object.keys(result.data.video));
+        if (result.data.cover) console.log('[TRACE-A] result.data.cover type:', typeof result.data.cover, 'value:', JSON.stringify(result.data.cover).slice(0, 200));
+        if (result.data.origin_cover) console.log('[TRACE-A] result.data.origin_cover type:', typeof result.data.origin_cover, 'value:', JSON.stringify(result.data.origin_cover).slice(0, 200));
+        // Check for aweme wrapping: some endpoints wrap in result.data.aweme_detail or result.data.video
+        if (result.data.aweme_detail) console.log('[TRACE-A] result.data.aweme_detail keys:', Object.keys(result.data.aweme_detail));
+        // Print key fields to verify they exist
+        console.log('[TRACE-A] result.data.id:', result.data.id);
+        console.log('[TRACE-A] result.data.aweme_id:', result.data.aweme_id);
+        console.log('[TRACE-A] result.data.desc:', (result.data.desc || '').slice(0, 80));
+        console.log('[TRACE-A] result.data.title:', (result.data.title || '').slice(0, 80));
+        console.log('[TRACE-A] result.data.author?.unique_id:', result.data.author?.unique_id);
+        console.log('[TRACE-A] result.data.author?.nickname:', result.data.author?.nickname);
+        console.log('[TRACE-A] result.data.author?.avatar:', typeof result.data.author?.avatar, JSON.stringify(result.data.author?.avatar).slice(0, 200));
+        console.log('[TRACE-A] result.data.author?.avatar_larger:', typeof result.data.author?.avatar_larger, JSON.stringify(result.data.author?.avatar_larger).slice(0, 200));
+      } else {
+        console.log('[TRACE-A] result.data is NULL/UNDEFINED — full result:', JSON.stringify(result).slice(0, 500));
+      }
+
       // TikHub v3 response: { code, msg, data: { aweme_id, desc, author, video: { play_addr, ... }, statistics, cover, ... } }
       // result.data is the full aweme object. Do NOT use result.data.video —
       // that is only the nested video sub-object and loses desc/author/cover/statistics.
@@ -226,7 +254,7 @@ export class TikTokTikHubAdapter implements NovaDLProvider {
       shares: videoData.statistics?.share_count ? formatCount(videoData.statistics.share_count) : undefined,
     };
 
-    return {
+    const novaDLResult = {
       success: true,
       message: `Successfully fetched TikTok video from ${this.name}`,
       platform: this.platform,
@@ -240,5 +268,20 @@ export class TikTokTikHubAdapter implements NovaDLProvider {
       images,
       metadata,
     };
+
+    // ──── PHASE 2: STAGE B — NovaDLResult after normalization ────
+    console.log('[TRACE-B] NovaDLResult.title:', title);
+    console.log('[TRACE-B] NovaDLResult.author:', author);
+    console.log('[TRACE-B] NovaDLResult.authorAvatar:', authorAvatar ? authorAvatar.slice(0, 80) : '(empty)');
+    console.log('[TRACE-B] NovaDLResult.thumbnail:', thumbnail ? thumbnail.slice(0, 80) : '(empty)');
+    console.log('[TRACE-B] NovaDLResult.duration:', duration);
+    console.log('[TRACE-B] NovaDLResult.formats count:', formats.length, 'types:', formats.map(f => f.type));
+    console.log('[TRACE-B] NovaDLResult.audio count:', audio.length);
+    console.log('[TRACE-B] NovaDLResult.images count:', images.length, 'types:', images.map(i => i.type));
+    console.log('[TRACE-B] NovaDLResult.metadata:', JSON.stringify(metadata));
+    console.log('[TRACE-B] noWatermarkUrl:', noWatermarkUrl ? noWatermarkUrl.slice(0, 80) : '(empty)');
+    console.log('[TRACE-B] withWatermarkUrl:', withWatermarkUrl ? withWatermarkUrl.slice(0, 80) : '(empty)');
+
+    return novaDLResult;
   }
 }
