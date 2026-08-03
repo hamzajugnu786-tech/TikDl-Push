@@ -120,6 +120,8 @@ export class DownloadService {
 
     // Step 3: Try the real NovaDL engine first
     if (isEngineInitialized()) {
+      // [DEBUG] Engine path taken
+      console.log('[DEBUG-DL] DownloadService: engine IS initialized, trying NovaDLEngine first');
       try {
         const result = await extractWithEngine(platformInfo.canonicalUrl, platformInfo.platform);
         const duration = Date.now() - startTime;
@@ -151,6 +153,9 @@ export class DownloadService {
         // Engine failed — log and fall through to old provider registry
         const engineErrorMsg = engineError instanceof Error ? engineError.message : String(engineError);
         console.warn(`[DownloadService] NovaDL engine failed: ${engineErrorMsg}. Falling back to provider registry.`);
+        // [DEBUG] Engine failure detail
+        console.log('[DEBUG-DL] Engine error type:', engineError instanceof NovaDLError ? `NovaDLError(${engineError.code})` : engineError?.constructor?.name || 'unknown');
+        console.log('[DEBUG-DL] Engine error message:', engineErrorMsg);
 
         // If the error is a content-level error (private/deleted), don't retry with other providers
         if (engineError instanceof NovaDLError) {
@@ -205,7 +210,10 @@ export class DownloadService {
     }
 
     // Step 4: Fallback to old provider registry
+    // [DEBUG] Fallback path
+    console.log('[DEBUG-DL] Entering fallback provider registry path. Engine initialized?', isEngineInitialized());
     const providers = this.registry.getProviders(platformInfo.platform);
+    console.log('[DEBUG-DL] Fallback providers:', providers.map(p => p.name));
 
     if (providers.length === 0) {
       const errorInfo: NovaDLErrorInfo = {

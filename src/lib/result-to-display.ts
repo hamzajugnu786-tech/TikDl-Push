@@ -77,7 +77,7 @@ export function adaptResultForDisplay(result: NovaDLResult): VideoInfo {
   const cover = result.images.find(i => i.type === NovaDLImageType.COVER);
   const thumbnail = result.images.find(i => i.type === NovaDLImageType.THUMBNAIL);
 
-  return {
+  const videoInfo: VideoInfo = {
     id: result.metadata.videoId || String(Date.now()),
     title: result.title,
     author: result.author,
@@ -91,6 +91,24 @@ export function adaptResultForDisplay(result: NovaDLResult): VideoInfo {
     audioUrl: audio?.url || '',
     cover: cover?.url || result.thumbnail,
   };
+
+  // [DEBUG] result-to-display output
+  console.log('[DEBUG-4] result-to-display VideoInfo:', JSON.stringify({
+    id: videoInfo.id,
+    title: videoInfo.title,
+    author: videoInfo.author,
+    avatar: videoInfo.avatar?.slice(0, 80),
+    thumbnail: videoInfo.thumbnail?.slice(0, 80),
+    duration: videoInfo.duration,
+    views: videoInfo.views,
+    likes: videoInfo.likes,
+    noWatermarkUrl: videoInfo.noWatermarkUrl?.slice(0, 80),
+    withWatermarkUrl: videoInfo.withWatermarkUrl?.slice(0, 80),
+    audioUrl: videoInfo.audioUrl?.slice(0, 80),
+    cover: videoInfo.cover?.slice(0, 80),
+  }));
+
+  return videoInfo;
 }
 
 // ============================================================================

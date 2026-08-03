@@ -181,6 +181,10 @@ export class TikHubProvider extends BaseProvider {
         this.config.timeout,
       );
 
+      // [DEBUG] TikHub engine provider response
+      console.log('[DEBUG-2b] TikHub engine provider response code:', apiResponse.code, 'msg:', apiResponse.msg);
+      console.log('[DEBUG-2b] TikHub engine response data (first 500):', JSON.stringify(apiResponse.data).slice(0, 500));
+
       if (apiResponse.code !== 200 || !apiResponse.data) {
         throw new ProviderError(
           `TikHub API returned error: ${apiResponse.msg} (code: ${apiResponse.code})`,

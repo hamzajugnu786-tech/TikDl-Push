@@ -167,16 +167,22 @@ export class TikTokNativeExtractor extends BaseProvider {
     }
 
     try {
+      // [DEBUG] Native extractor attempt
+      console.log('[DEBUG-NATIVE] TikTok Native Extractor: fetching page for', request.url.slice(0, 80));
       const html = await this.withTimeout(
         this._fetchPage(request.url),
         this.config.timeout,
       );
 
       const result = this._parseEmbeddedJson(html, request.url);
+      // [DEBUG] Native extraction success
+      console.log('[DEBUG-NATIVE] TikTok Native Extractor: PARSE SUCCESS — media count:', result.media.length, 'covers:', result.covers?.length ?? 0, 'title:', result.metadata.title?.slice(0, 50));
       this.recordSuccess(Date.now() - startTime);
       return result;
     } catch (error) {
       const latency = Date.now() - startTime;
+      // [DEBUG] Native extraction failure
+      console.log('[DEBUG-NATIVE] TikTok Native Extractor: FAILED —', error instanceof Error ? error.message.slice(0, 200) : String(error).slice(0, 200));
       const providerError = ProviderError.fromUnknown(this.id, error, platform);
       this.recordFailure(providerError.message, latency);
       throw providerError;
