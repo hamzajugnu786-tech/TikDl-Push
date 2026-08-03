@@ -4,6 +4,12 @@
  * Wraps the TikHub API download logic into the NovaDLProvider interface.
  * Uses shared provider utilities (mapHttpError, createOfflineHealth, wrapProviderError)
  * to eliminate code duplication across adapters.
+ *
+ * CRITICAL FIX: Handles multiple TikHub response formats:
+ *   - Some endpoints wrap data in result.data.aweme_detail
+ *   - Some endpoints return data directly in result.data
+ *   - URL fields can be objects with url_list OR plain strings
+ *   - Stats field can be "statistics" or "stats"
  */
 
 import { NovaDLProvider, ProviderCapabilities, ProviderHealth } from '../../types';
@@ -12,33 +18,103 @@ import { NovaDLError, NovaDLErrorCode, generateRequestId } from '../../../errors
 import { mapHttpError, createOfflineHealth, wrapProviderError } from '../../../provider-utils';
 import { formatCount } from '@/lib/format';
 
+// ============================================================================
+// URL EXTRACTION HELPER
+// ============================================================================
+
+/**
+ * Extract a URL from a TikHub response field.
+ * Handles BOTH formats:
+ *   - Object with url_list: { url_list: ["https://..."] }
+ *   - Plain string: "https://..."
+ *   - Object that IS a string (type coercion edge case)
+ */
+function extractUrl(field: unknown): string {
+  if (!field) return '';
+  if (typeof field === 'string') return field;
+  if (typeof field === 'object' && field !== null) {
+    const obj = field as Record<string, unknown>;
+    if (Array.isArray(obj.url_list) && obj.url_list.length > 0 && typeof obj.url_list[0] === 'string') {
+      return obj.url_list[0];
+    }
+    // Some TikHub formats use "url" instead of "url_list"
+    if (typeof obj.url === 'string') return obj.url;
+  }
+  return '';
+}
+
+// ============================================================================
+// TIKHUB RESPONSE TYPES (permissive — handles both formats)
+// ============================================================================
+
 /** TikTok-specific response structure from TikHub API */
 interface TikHubVideoData {
   id?: string;
   aweme_id?: string;
   desc?: string;
   title?: string;
+  create_time?: number;
   author?: {
+    uid?: string;
     unique_id?: string;
     nickname?: string;
-    avatar_larger?: { url_list?: string[] };
-    avatar?: { url_list?: string[] };
+    // Avatar can be { url_list: string[] } OR plain string
+    avatar_larger?: unknown;
+    avatar?: unknown;
+    avatar_medium?: unknown;
+    signature?: string;
   };
-  cover?: { url_list?: string[] };
-  origin_cover?: { url_list?: string[] };
+  // Cover can be { url_list: string[] } OR plain string
+  cover?: unknown;
+  origin_cover?: unknown;
+  dynamic_cover?: unknown;
   video?: {
     duration?: number;
-    play_addr?: { url_list?: string[] };
-    download_addr?: { url_list?: string[] };
-    play_addr_265?: { url_list?: string[] };
+    // These can be { url_list: string[] } OR plain string
+    play_addr?: unknown;
+    download_addr?: unknown;
+    play_addr_265?: unknown;
+    width?: number;
+    height?: number;
+    ratio?: string;
+    format?: string;
+    codec?: string;
+    bitrate?: number;
+    cover?: unknown;
+    origin_cover?: unknown;
+    dynamic_cover?: unknown;
   };
+  music?: {
+    id?: string;
+    title?: string;
+    author?: string;
+    play_url?: unknown;  // Can be string or { url_list: string[] }
+    cover_medium?: unknown;
+    duration?: number;
+  };
+  // Stats can be "statistics" or "stats" depending on API version
   statistics?: {
     play_count?: number;
     digg_count?: number;
     comment_count?: number;
     share_count?: number;
+    collect_count?: number;
   };
+  stats?: {
+    play_count?: number;
+    digg_count?: number;
+    comment_count?: number;
+    share_count?: number;
+    collect_count?: number;
+  };
+  share_url?: string;
+  // Some endpoints wrap the aweme data inside aweme_detail
+  aweme_detail?: TikHubVideoData;
 }
+
+// ============================================================================
+// ADAPTER CLASS
+// ============================================================================
 
 export class TikTokTikHubAdapter implements NovaDLProvider {
   name = 'tikhub';
@@ -62,7 +138,6 @@ export class TikTokTikHubAdapter implements NovaDLProvider {
 
     try {
       // TikHub API v3 endpoint — accepts share_url (full TikTok URL)
-      // Old endpoint /api/v1/tiktok/web/fetch_one_video was removed by TikHub.
       const response = await fetch(
         `${this.baseUrl}/api/v1/tiktok/app/v3/fetch_one_video_by_share_url?share_url=${encodeURIComponent(inputUrl)}`,
         {
@@ -80,38 +155,53 @@ export class TikTokTikHubAdapter implements NovaDLProvider {
 
       const result = await response.json();
 
-      // ──── PHASE 1: RAW TIKHUB RESPONSE CAPTURE ────
-      console.log('[TRACE-A] TikHub raw response keys:', Object.keys(result));
-      console.log('[TRACE-A] result.code:', result.code, 'result.msg:', result.msg);
-      console.log('[TRACE-A] typeof result.data:', typeof result.data);
-      if (result.data) {
-        console.log('[TRACE-A] result.data keys:', Object.keys(result.data));
-        // Print nested structure to detect wrapping
-        if (result.data.author) console.log('[TRACE-A] result.data.author keys:', Object.keys(result.data.author));
-        if (result.data.statistics) console.log('[TRACE-A] result.data.statistics keys:', Object.keys(result.data.statistics));
-        if (result.data.stats) console.log('[TRACE-A] result.data.stats keys:', Object.keys(result.data.stats));
-        if (result.data.video) console.log('[TRACE-A] result.data.video keys:', Object.keys(result.data.video));
-        if (result.data.cover) console.log('[TRACE-A] result.data.cover type:', typeof result.data.cover, 'value:', JSON.stringify(result.data.cover).slice(0, 200));
-        if (result.data.origin_cover) console.log('[TRACE-A] result.data.origin_cover type:', typeof result.data.origin_cover, 'value:', JSON.stringify(result.data.origin_cover).slice(0, 200));
-        // Check for aweme wrapping: some endpoints wrap in result.data.aweme_detail or result.data.video
-        if (result.data.aweme_detail) console.log('[TRACE-A] result.data.aweme_detail keys:', Object.keys(result.data.aweme_detail));
-        // Print key fields to verify they exist
-        console.log('[TRACE-A] result.data.id:', result.data.id);
-        console.log('[TRACE-A] result.data.aweme_id:', result.data.aweme_id);
-        console.log('[TRACE-A] result.data.desc:', (result.data.desc || '').slice(0, 80));
-        console.log('[TRACE-A] result.data.title:', (result.data.title || '').slice(0, 80));
-        console.log('[TRACE-A] result.data.author?.unique_id:', result.data.author?.unique_id);
-        console.log('[TRACE-A] result.data.author?.nickname:', result.data.author?.nickname);
-        console.log('[TRACE-A] result.data.author?.avatar:', typeof result.data.author?.avatar, JSON.stringify(result.data.author?.avatar).slice(0, 200));
-        console.log('[TRACE-A] result.data.author?.avatar_larger:', typeof result.data.author?.avatar_larger, JSON.stringify(result.data.author?.avatar_larger).slice(0, 200));
-      } else {
-        console.log('[TRACE-A] result.data is NULL/UNDEFINED — full result:', JSON.stringify(result).slice(0, 500));
+      // ──── UNWRAP: Handle multiple TikHub response formats ────
+      // Format 1: { code, msg, data: { aweme_id, desc, author, ... } }
+      //   → result.data IS the aweme object
+      // Format 2: { code, msg, data: { aweme_detail: { aweme_id, desc, ... } } }
+      //   → result.data.aweme_detail IS the aweme object
+      // Format 3: { code, msg, data: null } with data at another path
+      //   → Try result.videoData, result.data as fallbacks
+      const rawData = result.data;
+      let videoData: TikHubVideoData | null = null;
+
+      if (rawData && typeof rawData === 'object') {
+        // Check if data is wrapped in aweme_detail
+        if (rawData.aweme_detail && typeof rawData.aweme_detail === 'object') {
+          console.log('[TikHub] Unwrapped response from result.data.aweme_detail');
+          videoData = rawData.aweme_detail;
+        } else if (rawData.aweme_id || rawData.desc || rawData.author || rawData.video) {
+          // Data is the aweme object directly (has recognizable aweme fields)
+          console.log('[TikHub] Using result.data directly as aweme object');
+          videoData = rawData;
+        } else if (rawData.data && typeof rawData.data === 'object') {
+          // Double-nested: result.data.data (some API versions)
+          console.log('[TikHub] Unwrapped response from result.data.data');
+          videoData = rawData.data;
+        }
       }
 
-      // TikHub v3 response: { code, msg, data: { aweme_id, desc, author, video: { play_addr, ... }, statistics, cover, ... } }
-      // result.data is the full aweme object. Do NOT use result.data.video —
-      // that is only the nested video sub-object and loses desc/author/cover/statistics.
-      const videoData: TikHubVideoData = result.data;
+      // Fallback: try other common paths (like RapidAPI adapter does)
+      if (!videoData) {
+        videoData = result.videoData || result.data || result;
+      }
+
+      // ──── DIAGNOSTIC: Log the unwrapped data structure ────
+      if (videoData) {
+        console.log('[TikHub] videoData keys:', Object.keys(videoData).join(', '));
+        console.log('[TikHub] videoData.aweme_id:', videoData.aweme_id);
+        console.log('[TikHub] videoData.desc:', (videoData.desc || '').slice(0, 80));
+        console.log('[TikHub] videoData.author:', videoData.author ? `uid=${videoData.author.unique_id} nick=${videoData.author.nickname}` : '(missing)');
+        console.log('[TikHub] videoData.statistics:', videoData.statistics ? 'present' : 'missing');
+        console.log('[TikHub] videoData.stats:', videoData.stats ? 'present' : 'missing');
+        console.log('[TikHub] videoData.cover type:', typeof videoData.cover);
+        console.log('[TikHub] videoData.video:', videoData.video ? 'present' : 'missing');
+        if (videoData.video) {
+          const videoObj = videoData.video as Record<string, unknown>;
+          if (videoObj.play_addr !== undefined) console.log('[TikHub] videoData.video.play_addr type:', typeof videoObj.play_addr);
+          if (videoObj.download_addr !== undefined) console.log('[TikHub] videoData.video.download_addr type:', typeof videoObj.download_addr);
+        }
+      }
 
       if (!videoData) {
         throw new NovaDLError(
@@ -140,7 +230,7 @@ export class TikTokTikHubAdapter implements NovaDLProvider {
 
     try {
       const response = await fetch(
-        `${this.baseUrl}/api/v1/tiktok/app/v3/fetch_one_video_by_share_url?share_url=${encodeURIComponent('https://www.tiktok.com/@tiktok/video/7100000000000000000')}`,
+        `${this.baseUrl}/api/v1/tiktok/app/v3/fetch_one_video_by_share_url?share_url=${encodeURIComponent('https://www.tiktok.com/@tiktok/videoBogus/video/7100000000000000000')}`,
         {
           headers: {
             'Authorization': `Bearer ${apiKey}`,
@@ -197,18 +287,39 @@ export class TikTokTikHubAdapter implements NovaDLProvider {
   }
 
   private toNovaDLResult(videoData: TikHubVideoData): NovaDLResult {
-    const id = videoData.id || String(videoData.aweme_id || Date.now());
+    const id = videoData.id || videoData.aweme_id || String(Date.now());
     const title = videoData.desc || videoData.title || 'TikTok Video';
     const author = videoData.author?.unique_id || videoData.author?.nickname || '@unknown';
-    const authorAvatar = videoData.author?.avatar_larger?.url_list?.[0] || videoData.author?.avatar?.url_list?.[0] || '';
-    const thumbnail = videoData.cover?.url_list?.[0] || videoData.origin_cover?.url_list?.[0] || '';
+
+    // Extract avatar — handles both { url_list: string[] } and plain string
+    const authorAvatar =
+      extractUrl(videoData.author?.avatar_larger) ||
+      extractUrl(videoData.author?.avatar) ||
+      extractUrl(videoData.author?.avatar_medium) ||
+      '';
+
+    // Extract thumbnail/cover — handles both formats
+    const thumbnail =
+      extractUrl(videoData.cover) ||
+      extractUrl(videoData.origin_cover) ||
+      extractUrl(videoData.video?.cover) ||
+      extractUrl(videoData.video?.origin_cover) ||
+      '';
+
+    // Duration — TikTok API returns duration in milliseconds
     const duration = videoData.video?.duration
-      ? `${Math.floor(videoData.video.duration / 60)}:${String(Math.floor(videoData.video.duration % 60)).padStart(2, '0')}`
+      ? `${Math.floor(videoData.video.duration / 1000 / 60)}:${String(Math.floor((videoData.video.duration / 1000) % 60)).padStart(2, '0')}`
       : '0:00';
 
+    // ──── Video formats ────
     const formats: NovaDLFormat[] = [];
 
-    const noWatermarkUrl = videoData.video?.play_addr?.url_list?.[0] || videoData.video?.download_addr?.url_list?.[0] || '';
+    // download_addr is typically no-watermark, play_addr may have watermark
+    // Priority: download_addr (no watermark) > play_addr (may have watermark)
+    const noWatermarkUrl =
+      extractUrl(videoData.video?.download_addr) ||
+      extractUrl(videoData.video?.play_addr) ||
+      '';
     if (noWatermarkUrl) {
       formats.push({
         type: NovaDLFormatType.VIDEO_NO_WATERMARK,
@@ -219,7 +330,10 @@ export class TikTokTikHubAdapter implements NovaDLProvider {
       });
     }
 
-    const withWatermarkUrl = videoData.video?.play_addr_265?.url_list?.[0] || videoData.video?.play_addr?.url_list?.[0] || '';
+    const withWatermarkUrl =
+      extractUrl(videoData.video?.play_addr_265) ||
+      extractUrl(videoData.video?.play_addr) ||
+      '';
     if (withWatermarkUrl && withWatermarkUrl !== noWatermarkUrl) {
       formats.push({
         type: NovaDLFormatType.VIDEO_WITH_WATERMARK,
@@ -230,31 +344,56 @@ export class TikTokTikHubAdapter implements NovaDLProvider {
       });
     }
 
-    const audio: NovaDLAudio[] = noWatermarkUrl ? [{
-      url: noWatermarkUrl,
+    // ──── Audio ────
+    // Use music.play_url if available, NOT the video URL
+    const audioUrl = extractUrl(videoData.music?.play_url);
+    const audio: NovaDLAudio[] = audioUrl ? [{
+      url: audioUrl,
       format: 'mp3',
       extension: 'mp3',
       label: 'MP3 Audio',
     }] : [];
 
+    // ──── Images ────
     const images: NovaDLImage[] = [];
-    const coverUrl = videoData.cover?.url_list?.[0] || videoData.origin_cover?.url_list?.[0] || '';
+    const coverUrl =
+      extractUrl(videoData.cover) ||
+      extractUrl(videoData.origin_cover) ||
+      extractUrl(videoData.video?.cover) ||
+      extractUrl(videoData.video?.origin_cover) ||
+      '';
     if (coverUrl) {
       images.push({ url: coverUrl, type: NovaDLImageType.COVER, extension: 'jpg', label: 'Cover Image' });
     }
-    if (thumbnail && thumbnail !== coverUrl) {
+    const dynamicCover = extractUrl(videoData.dynamic_cover) || extractUrl(videoData.video?.dynamic_cover);
+    if (dynamicCover && dynamicCover !== coverUrl) {
+      images.push({ url: dynamicCover, type: NovaDLImageType.THUMBNAIL, extension: 'jpg', label: 'Thumbnail' });
+    } else if (thumbnail && thumbnail !== coverUrl) {
       images.push({ url: thumbnail, type: NovaDLImageType.THUMBNAIL, extension: 'jpg', label: 'Thumbnail' });
     }
 
+    // ──── Statistics ────
+    // Handle both "statistics" and "stats" field names
+    const stats = videoData.statistics || videoData.stats;
     const metadata: NovaDLMetadata = {
       videoId: id,
-      views: videoData.statistics?.play_count ? formatCount(videoData.statistics.play_count) : undefined,
-      likes: videoData.statistics?.digg_count ? formatCount(videoData.statistics.digg_count) : undefined,
-      comments: videoData.statistics?.comment_count ? formatCount(videoData.statistics.comment_count) : undefined,
-      shares: videoData.statistics?.share_count ? formatCount(videoData.statistics.share_count) : undefined,
+      views: stats?.play_count ? formatCount(stats.play_count) : undefined,
+      likes: stats?.digg_count ? formatCount(stats.digg_count) : undefined,
+      comments: stats?.comment_count ? formatCount(stats.comment_count) : undefined,
+      shares: stats?.share_count ? formatCount(stats.share_count) : undefined,
     };
 
-    const novaDLResult = {
+    // ──── DIAGNOSTIC: Log the final NovaDLResult ────
+    console.log('[TikHub→NovaDL] title:', title);
+    console.log('[TikHub→NovaDL] author:', author);
+    console.log('[TikHub→NovaDL] authorAvatar:', authorAvatar ? authorAvatar.slice(0, 80) : '(empty)');
+    console.log('[TikHub→NovaDL] thumbnail:', thumbnail ? thumbnail.slice(0, 80) : '(empty)');
+    console.log('[TikHub→NovaDL] duration:', duration);
+    console.log('[TikHub→NovaDL] formats:', formats.length, 'types:', formats.map(f => f.type));
+    console.log('[TikHub→NovaDL] audio:', audio.length, 'url:', audioUrl ? audioUrl.slice(0, 80) : '(empty)');
+    console.log('[TikHub→NovaDL] noWatermarkUrl:', noWatermarkUrl ? noWatermarkUrl.slice(0, 80) : '(empty)');
+
+    return {
       success: true,
       message: `Successfully fetched TikTok video from ${this.name}`,
       platform: this.platform,
@@ -268,20 +407,5 @@ export class TikTokTikHubAdapter implements NovaDLProvider {
       images,
       metadata,
     };
-
-    // ──── PHASE 2: STAGE B — NovaDLResult after normalization ────
-    console.log('[TRACE-B] NovaDLResult.title:', title);
-    console.log('[TRACE-B] NovaDLResult.author:', author);
-    console.log('[TRACE-B] NovaDLResult.authorAvatar:', authorAvatar ? authorAvatar.slice(0, 80) : '(empty)');
-    console.log('[TRACE-B] NovaDLResult.thumbnail:', thumbnail ? thumbnail.slice(0, 80) : '(empty)');
-    console.log('[TRACE-B] NovaDLResult.duration:', duration);
-    console.log('[TRACE-B] NovaDLResult.formats count:', formats.length, 'types:', formats.map(f => f.type));
-    console.log('[TRACE-B] NovaDLResult.audio count:', audio.length);
-    console.log('[TRACE-B] NovaDLResult.images count:', images.length, 'types:', images.map(i => i.type));
-    console.log('[TRACE-B] NovaDLResult.metadata:', JSON.stringify(metadata));
-    console.log('[TRACE-B] noWatermarkUrl:', noWatermarkUrl ? noWatermarkUrl.slice(0, 80) : '(empty)');
-    console.log('[TRACE-B] withWatermarkUrl:', withWatermarkUrl ? withWatermarkUrl.slice(0, 80) : '(empty)');
-
-    return novaDLResult;
   }
 }
