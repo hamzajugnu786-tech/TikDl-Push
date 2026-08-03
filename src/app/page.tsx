@@ -262,9 +262,7 @@ const TikTokDownloader = () => {
       setVideoInfo(data);
       setHistory(prev => [data, ...prev.slice(0, 4)]);
 
-      toast.success('Video ready!', {
-        description: `Fetched via ${result.provider} in ${result.duration}ms`,
-      });
+      toast.success('Video ready!');
     } catch (err: unknown) {
       const errorMessage = err instanceof Error ? err.message : 'Unable to process this video. Try again.';
       console.error('Download error:', err);
@@ -310,18 +308,17 @@ const TikTokDownloader = () => {
       return;
     }
 
+    // Use backend proxy to ensure Content-Disposition: attachment is set,
+    // forcing the browser to download instead of playing the file inline.
+    const proxyUrl = `/api/proxy?url=${encodeURIComponent(downloadUrl)}&filename=${encodeURIComponent(filename)}`;
     const a = document.createElement('a');
-    a.href = downloadUrl;
+    a.href = proxyUrl;
     a.download = filename;
-    a.target = '_blank';
-    a.rel = 'noopener noreferrer';
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);
 
-    toast.success(`Downloading ${filename}`, {
-      description: 'Your file download has started.',
-    });
+    toast.success(`Downloading ${filename}`);
   }, []);
 
   const getDownloadFilename = useCallback((type: 'video' | 'audio' | 'cover', info: VideoInfo): string => {
@@ -638,7 +635,8 @@ const TikTokDownloader = () => {
                             src={videoInfo.thumbnail}
                             alt={videoInfo.title}
                             className="w-full object-cover"
-                            onError={(e) => { (e.target as HTMLImageElement).src = '/public/icon-512.png'; }}
+                            referrerPolicy="no-referrer"
+                            onError={(e) => { (e.target as HTMLImageElement).src = '/icon-512.png'; }}
                           />
                           <div className="absolute bottom-2 right-2 bg-black/70 px-2 py-1 rounded-lg text-xs flex items-center gap-1">
                             <Clock size={12} /> {videoInfo.duration}
@@ -658,6 +656,7 @@ const TikTokDownloader = () => {
                             src={videoInfo.cover || videoInfo.thumbnail}
                             alt="Cover image"
                             className="w-full object-cover"
+                            referrerPolicy="no-referrer"
                           />
                         </div>
                       )}
@@ -672,6 +671,7 @@ const TikTokDownloader = () => {
                             src={videoInfo.avatar}
                             alt={videoInfo.author}
                             className="w-9 h-9 rounded-full object-cover bg-zinc-800"
+                            referrerPolicy="no-referrer"
                             onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }}
                           />
                         )}
@@ -892,6 +892,7 @@ const TikTokDownloader = () => {
                         src={item.thumbnail}
                         alt={item.title}
                         className="w-12 h-12 rounded-[10px] object-cover bg-zinc-800"
+                        referrerPolicy="no-referrer"
                         onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }}
                       />
                       <div className="flex-1 min-w-0">
