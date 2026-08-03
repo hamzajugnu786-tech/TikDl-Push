@@ -230,7 +230,7 @@ export class TikTokTikHubAdapter implements NovaDLProvider {
 
     try {
       const response = await fetch(
-        `${this.baseUrl}/api/v1/tiktok/app/v3/fetch_one_video_by_share_url?share_url=${encodeURIComponent('https://www.tiktok.com/@tiktok/videoBogus/video/7100000000000000000')}`,
+        `${this.baseUrl}/api/v1/tiktok/app/v3/fetch_one_video_by_share_url?share_url=${encodeURIComponent('https://www.tiktok.com/@tiktok/video/7100000000000000000')}`,
         {
           headers: {
             'Authorization': `Bearer ${apiKey}`,
