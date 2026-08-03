@@ -103,26 +103,6 @@ export async function POST(request: NextRequest) {
     // Convert ServiceResult into frontend-expected API response
     const apiResponse = serviceResultToApiResponse(serviceResult);
 
-    // ──── STAGE D: API Response JSON ────
-    if (apiResponse.success && apiResponse.data) {
-      console.log('[TRACE-D] API response data (VideoInfo):', JSON.stringify({
-        id: apiResponse.data.id,
-        title: apiResponse.data.title,
-        author: apiResponse.data.author,
-        avatar: apiResponse.data.avatar ? apiResponse.data.avatar.slice(0, 80) : '(empty)',
-        thumbnail: apiResponse.data.thumbnail ? apiResponse.data.thumbnail.slice(0, 80) : '(empty)',
-        duration: apiResponse.data.duration,
-        views: apiResponse.data.views,
-        likes: apiResponse.data.likes,
-        noWatermarkUrl: apiResponse.data.noWatermarkUrl ? apiResponse.data.noWatermarkUrl.slice(0, 80) : '(empty)',
-        withWatermarkUrl: apiResponse.data.withWatermarkUrl ? apiResponse.data.withWatermarkUrl.slice(0, 80) : '(empty)',
-        audioUrl: apiResponse.data.audioUrl ? apiResponse.data.audioUrl.slice(0, 80) : '(empty)',
-        cover: apiResponse.data.cover ? apiResponse.data.cover.slice(0, 80) : '(empty)',
-      }));
-    } else {
-      console.log('[TRACE-D] API response is error:', apiResponse.error);
-    }
-
     // Determine HTTP status code based on result
     if (apiResponse.success) {
       // Success — same response shape as old route

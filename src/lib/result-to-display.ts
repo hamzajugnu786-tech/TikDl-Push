@@ -77,23 +77,6 @@ export function adaptResultForDisplay(result: NovaDLResult): VideoInfo {
   const cover = result.images.find(i => i.type === NovaDLImageType.COVER);
   const thumbnail = result.images.find(i => i.type === NovaDLImageType.THUMBNAIL);
 
-  // ──── STAGE C: VideoInfo after mapping ────
-  console.log('[TRACE-C] adaptResultForDisplay input:');
-  console.log('[TRACE-C]   result.title:', result.title);
-  console.log('[TRACE-C]   result.author:', result.author);
-  console.log('[TRACE-C]   result.authorAvatar:', result.authorAvatar || '(undefined)');
-  console.log('[TRACE-C]   result.thumbnail:', result.thumbnail ? result.thumbnail.slice(0, 80) : '(empty)');
-  console.log('[TRACE-C]   result.duration:', result.duration);
-  console.log('[TRACE-C]   result.formats:', result.formats.map(f => `${f.type}=${f.url.slice(0, 60)}`));
-  console.log('[TRACE-C]   result.audio:', result.audio.map(a => `url=${a.url.slice(0, 60)}`));
-  console.log('[TRACE-C]   result.images:', result.images.map(i => `${i.type}=${i.url.slice(0, 60)}`));
-  console.log('[TRACE-C]   result.metadata:', JSON.stringify(result.metadata));
-  console.log('[TRACE-C]   noWatermark found:', !!noWatermark, 'url:', noWatermark?.url?.slice(0, 80));
-  console.log('[TRACE-C]   withWatermark found:', !!withWatermark, 'url:', withWatermark?.url?.slice(0, 80));
-  console.log('[TRACE-C]   audio found:', !!audio, 'url:', audio?.url?.slice(0, 80));
-  console.log('[TRACE-C]   cover found:', !!cover, 'url:', cover?.url?.slice(0, 80));
-  console.log('[TRACE-C]   thumbnail found:', !!thumbnail, 'url:', thumbnail?.url?.slice(0, 80));
-
   const videoInfo: VideoInfo = {
     id: result.metadata.videoId || String(Date.now()),
     title: result.title,
@@ -109,21 +92,14 @@ export function adaptResultForDisplay(result: NovaDLResult): VideoInfo {
     cover: cover?.url || result.thumbnail,
   };
 
-  // ──── STAGE C: Final VideoInfo ────
-  console.log('[TRACE-C] VideoInfo output:', JSON.stringify({
-    id: videoInfo.id,
-    title: videoInfo.title,
-    author: videoInfo.author,
-    avatar: videoInfo.avatar ? videoInfo.avatar.slice(0, 80) : '(empty)',
-    thumbnail: videoInfo.thumbnail ? videoInfo.thumbnail.slice(0, 80) : '(empty)',
-    duration: videoInfo.duration,
-    views: videoInfo.views,
-    likes: videoInfo.likes,
-    noWatermarkUrl: videoInfo.noWatermarkUrl ? videoInfo.noWatermarkUrl.slice(0, 80) : '(empty)',
-    withWatermarkUrl: videoInfo.withWatermarkUrl ? videoInfo.withWatermarkUrl.slice(0, 80) : '(empty)',
-    audioUrl: videoInfo.audioUrl ? videoInfo.audioUrl.slice(0, 80) : '(empty)',
-    cover: videoInfo.cover ? videoInfo.cover.slice(0, 80) : '(empty)',
-  }));
+  // Essential diagnostic: log final VideoInfo summary
+  console.log('[VideoInfo] title=%s author=%s thumbnail=%s duration=%s noWm=%s',
+    videoInfo.title ? '✓' : '✗',
+    videoInfo.author ? '✓' : '✗',
+    videoInfo.thumbnail ? '✓' : '✗',
+    videoInfo.duration,
+    videoInfo.noWatermarkUrl ? '✓' : '✗'
+  );
 
   return videoInfo;
 }
