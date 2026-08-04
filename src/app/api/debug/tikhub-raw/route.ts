@@ -255,6 +255,7 @@ export async function POST(request: NextRequest) {
       trace,
       rawResponseKeys: Object.keys(rawJson),
       rawDataPreview,
+      rawResponseBody: JSON.stringify(rawJson, null, 2).slice(0, 5000),
     });
   } catch (error) {
     return NextResponse.json(
