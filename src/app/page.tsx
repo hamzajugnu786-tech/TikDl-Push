@@ -7,6 +7,7 @@ import {
   Clock, User, Heart, RefreshCw, ClipboardPaste,
   ChevronDown, ChevronUp, Shield, Zap, Infinity,
   Smartphone, Globe, CheckCircle, ExternalLink,
+  Share2,
 } from 'lucide-react';
 import { Toaster, toast } from 'sonner';
 import { sanitizeAdHtml } from '@/lib/sanitize';
@@ -147,7 +148,7 @@ const TikTokDownloader = () => {
   const [selectedImages, setSelectedImages] = useState<Set<number>>(new Set());
   const [showAdPopup, setShowAdPopup] = useState(false);
   const [countdown, setCountdown] = useState(5);
-  const [pendingUrl, setPendingUrl] = useState('');
+  const [pendingUrl, setPendingUrl] = useState(''); // kept for backward compat
   const [openFAQ, setOpenFAQ] = useState<number | null>(null);
   const [autoProceedDone, setAutoProceedDone] = useState(false);
   const [interstitialConfig, setInterstitialConfig] = useState({
@@ -169,6 +170,12 @@ const TikTokDownloader = () => {
   const countdownRef = useRef<number>(5);
   const autoProceedRef = useRef(false);
   const inputRef = useRef<HTMLInputElement>(null);
+  const resultCardRef = useRef<HTMLDivElement>(null);
+  const historyRef = useRef<HTMLElement>(null);
+  // Pending download info for after ad popup
+  const [pendingDownload, setPendingDownload] = useState<{ url: string; filename: string } | null>(null);
+  // Highlight animation state for result card
+  const [resultHighlight, setResultHighlight] = useState(false);
 
   // Fetch interstitial config + landing ads on mount
   useEffect(() => {
@@ -222,37 +229,13 @@ const TikTokDownloader = () => {
     return regex.test(inputUrl.trim());
   };
 
-  const startAdTimer = useCallback((videoUrl: string) => {
-    const duration = interstitialConfig.countdownDuration || 5;
-    setCountdown(duration);
-    setAutoProceedDone(false);
-    autoProceedRef.current = false;
-    setShowAdPopup(true);
-    setPendingUrl(videoUrl);
-    countdownRef.current = duration;
-
-    if (adTimerRef.current) clearInterval(adTimerRef.current);
-
-    adTimerRef.current = setInterval(() => {
-      countdownRef.current -= 1;
-      setCountdown(countdownRef.current);
-
-      if (countdownRef.current <= 0) {
-        if (adTimerRef.current) clearInterval(adTimerRef.current);
-        adTimerRef.current = null;
-      }
-    }, 1000);
-  }, [interstitialConfig.countdownDuration]);
-
-  const proceedAfterAd = useCallback(async () => {
-    setShowAdPopup(false);
-
-    const videoUrl = pendingUrl;
-    if (!videoUrl) return;
-
+  // Fetch video info directly (no ad popup — ads shown on download click)
+  const fetchVideo = useCallback(async (videoUrl: string) => {
     setIsLoading(true);
     setError('');
     setVideoInfo(null);
+    setIsUnavailable(false);
+    setUnavailableReason('');
 
     try {
       const response = await fetch('/api/download', {
@@ -265,7 +248,6 @@ const TikTokDownloader = () => {
 
       if (!result.success) {
         const errMsg = result.error || 'Failed to fetch video info';
-        // Check for unavailable content using NovaDLErrorCode or message keywords
         const unavailableCodes = ['PRIVATE_CONTENT', 'DELETED_CONTENT', 'AGE_RESTRICTED', 'GEO_BLOCKED'];
         const unavailableKeywords = ['private', 'deleted', 'unavailable', 'not available', 'region', 'age-restricted', 'geo'];
         const isUnavail = unavailableCodes.some(c => result.errorCode === c) ||
@@ -295,6 +277,13 @@ const TikTokDownloader = () => {
       setHistory(prev => [data, ...prev.slice(0, 4)]);
 
       toast.success('Video ready!');
+
+      // Scroll to result card after render
+      setTimeout(() => {
+        resultCardRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        setResultHighlight(true);
+        setTimeout(() => setResultHighlight(false), 1500);
+      }, 200);
     } catch (err: unknown) {
       const errorMessage = err instanceof Error ? err.message : 'Unable to process this video. Try again.';
       console.error('Download error:', err);
@@ -304,11 +293,64 @@ const TikTokDownloader = () => {
       setUnavailableReason('');
     } finally {
       setIsLoading(false);
-      setPendingUrl('');
     }
-  }, [pendingUrl]);
+  }, []);
 
-  // Auto-proceed when countdown reaches 0
+  // Auto-fetch from URL parameter (share links: ?v=<tiktok_url>)
+  const hasAutoFetched = useRef(false);
+  useEffect(() => {
+    if (hasAutoFetched.current) return;
+    const params = new URLSearchParams(window.location.search);
+    const sharedUrl = params.get('v');
+    if (sharedUrl && isValidTikTokUrl(sharedUrl)) {
+      hasAutoFetched.current = true;
+      setUrl(sharedUrl);
+      fetchVideo(sharedUrl);
+      // Clean the URL param without reload
+      window.history.replaceState({}, '', window.location.pathname);
+    }
+  }, [fetchVideo]);
+
+  // Show ad popup before download, then auto-download after countdown
+  const startAdTimer = useCallback((downloadUrl: string, filename: string) => {
+    const duration = interstitialConfig.countdownDuration || 5;
+    setCountdown(duration);
+    setAutoProceedDone(false);
+    autoProceedRef.current = false;
+    setShowAdPopup(true);
+    setPendingDownload({ url: downloadUrl, filename });
+    countdownRef.current = duration;
+
+    if (adTimerRef.current) clearInterval(adTimerRef.current);
+
+    adTimerRef.current = setInterval(() => {
+      countdownRef.current -= 1;
+      setCountdown(countdownRef.current);
+
+      if (countdownRef.current <= 0) {
+        if (adTimerRef.current) clearInterval(adTimerRef.current);
+        adTimerRef.current = null;
+      }
+    }, 1000);
+  }, [interstitialConfig.countdownDuration]);
+
+  // Execute the pending download after ad countdown
+  const proceedAfterAd = useCallback(() => {
+    setShowAdPopup(false);
+    if (pendingDownload) {
+      const proxyUrl = `/api/proxy?url=${encodeURIComponent(pendingDownload.url)}&filename=${encodeURIComponent(pendingDownload.filename)}`;
+      const a = document.createElement('a');
+      a.href = proxyUrl;
+      a.download = pendingDownload.filename;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      toast.success(`Downloading ${pendingDownload.filename}`);
+      setPendingDownload(null);
+    }
+  }, [pendingDownload]);
+
+  // Auto-proceed when countdown reaches 0 (auto-download after ad)
   useEffect(() => {
     if (countdown === 0 && showAdPopup && interstitialConfig.autoDownload && !autoProceedRef.current) {
       autoProceedRef.current = true;
@@ -333,8 +375,8 @@ const TikTokDownloader = () => {
       return;
     }
     setError('');
-    startAdTimer(trimmed);
-  }, [url, startAdTimer]);
+    fetchVideo(trimmed);
+  }, [url, fetchVideo]);
 
   const handleDownload = useCallback((downloadUrl: string, filename: string) => {
     if (!downloadUrl || downloadUrl.startsWith('#')) {
@@ -342,18 +384,21 @@ const TikTokDownloader = () => {
       return;
     }
 
-    // Use backend proxy to ensure Content-Disposition: attachment is set,
-    // forcing the browser to download instead of playing the file inline.
-    const proxyUrl = `/api/proxy?url=${encodeURIComponent(downloadUrl)}&filename=${encodeURIComponent(filename)}`;
-    const a = document.createElement('a');
-    a.href = proxyUrl;
-    a.download = filename;
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-
-    toast.success(`Downloading ${filename}`);
-  }, []);
+    // Show ad popup before download, then auto-download after countdown
+    if (interstitialConfig.enabled) {
+      startAdTimer(downloadUrl, filename);
+    } else {
+      // No ad — download directly
+      const proxyUrl = `/api/proxy?url=${encodeURIComponent(downloadUrl)}&filename=${encodeURIComponent(filename)}`;
+      const a = document.createElement('a');
+      a.href = proxyUrl;
+      a.download = filename;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      toast.success(`Downloading ${filename}`);
+    }
+  }, [interstitialConfig.enabled, startAdTimer]);
 
   /** Sanitize filename for Windows/macOS/Linux — preserve Unicode but remove FS-unsafe chars */
   const sanitizeFilename = useCallback((name: string): string => {
@@ -499,14 +544,14 @@ const TikTokDownloader = () => {
         <div className="flex-1 min-w-0">
 
           {/* ===== Hero Section ===== */}
-          <section className="pt-8 sm:pt-10 pb-6 sm:pb-8 px-4 sm:px-6">
+          <section className="pt-6 sm:pt-8 pb-4 sm:pb-5 px-4 sm:px-6">
             <div className="max-w-xl mx-auto text-center">
               {/* Badge — soft sky blue background, white text, light blue border */}
               <motion.div
                 initial={false}
                 animate={{ opacity: 1, y: 0 }}
                 transition={{ duration: 0.4 }}
-                className="badge-pulse inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold mb-6 mt-4"
+                className="badge-pulse inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold mb-3 mt-2"
                 style={{
                   background: 'rgba(56, 189, 248, 0.15)',
                   color: '#ffffff',
@@ -516,26 +561,24 @@ const TikTokDownloader = () => {
                 Free and Unlimited
               </motion.div>
 
-              {/* Hero heading — reduced "Without Watermark" size */}
+              {/* Hero heading */}
               <motion.h1
                 initial={false}
                 animate={{ opacity: 1, y: 0 }}
                 transition={{ duration: 0.5, delay: 0.1 }}
-                className="text-[clamp(32px,4.5vw,46px)] font-extrabold tracking-tight leading-[1.1] mb-5"
+                className="text-[clamp(26px,4vw,40px)] font-extrabold tracking-tight leading-[1.15] mb-3"
               >
-                <span className="text-white">TikTok Video</span>
-                <br />
-                <span className="text-[clamp(24px,3vw,34px)] text-[#FE2C55]">Without Watermark</span>
+                Download TikTok HD Videos <span className="text-[#FE2C55]">Without Watermark</span>
               </motion.h1>
 
-              {/* Description */}
+              {/* Description — compact */}
               <motion.p
                 initial={false}
                 animate={{ opacity: 1, y: 0 }}
                 transition={{ duration: 0.5, delay: 0.15 }}
-                className="text-sm text-[#9CA3AF] leading-relaxed max-w-[400px] mx-auto mb-8"
+                className="text-xs text-[#9CA3AF] leading-relaxed max-w-[400px] mx-auto mb-5"
               >
-                The fastest and most reliable way to download TikTok videos in HD quality, completely free, with no watermarks, no signup, and no limits.
+                Fast, free, no signup, no limits. Save videos, audio & covers in HD quality.
               </motion.p>
 
 
@@ -555,7 +598,7 @@ const TikTokDownloader = () => {
                     onChange={(e) => { setUrl(e.target.value); setError(''); }}
                     placeholder="Paste TikTok link here..."
                     className="w-full h-12 bg-[#1a1a1a] border border-[#333] rounded-[12px] pl-4 pr-10 text-sm placeholder:text-[#666] outline-none input-focus-ring disabled:opacity-50"
-                    disabled={isLoading || showAdPopup}
+                    disabled={isLoading}
                   />
                   {/* Paste/Clear toggle button */}
                   {url ? (
@@ -564,7 +607,7 @@ const TikTokDownloader = () => {
                       onClick={handleClearInput}
                       className="absolute right-2 top-1/2 -translate-y-1/2 w-8 h-8 flex items-center justify-center rounded-lg hover:bg-white/10 transition-colors duration-150"
                       title="Clear input"
-                      disabled={isLoading || showAdPopup}
+                      disabled={isLoading}
                     >
                       <X size={14} className="text-[#888] hover:text-red-400 transition-colors" />
                     </button>
@@ -574,7 +617,7 @@ const TikTokDownloader = () => {
                       onClick={handlePaste}
                       className="absolute right-2 top-1/2 -translate-y-1/2 w-8 h-8 flex items-center justify-center rounded-lg hover:bg-white/10 transition-colors duration-150"
                       title="Paste from clipboard"
-                      disabled={isLoading || showAdPopup}
+                      disabled={isLoading}
                     >
                       <ClipboardPaste size={14} className="text-[#888] hover:text-white transition-colors" />
                     </button>
@@ -585,9 +628,9 @@ const TikTokDownloader = () => {
                 <form onSubmit={handleSubmit} className="mt-2.5">
                   <motion.button
                     type="submit"
-                    disabled={isLoading || showAdPopup}
-                    whileHover={!isLoading && !showAdPopup ? { scale: 1.02, y: -1 } : {}}
-                    whileTap={!isLoading && !showAdPopup ? { scale: 0.98 } : {}}
+                    disabled={isLoading}
+                    whileHover={!isLoading ? { scale: 1.02, y: -1 } : {}}
+                    whileTap={!isLoading ? { scale: 0.98 } : {}}
                     className="w-full h-12 bg-[#FE2C55] hover:bg-[#FE2C55]/95 rounded-[12px] font-bold text-[15px] flex items-center justify-center gap-2 disabled:opacity-60 transition-colors duration-150 shadow-[0_4px_16px_rgba(254,44,85,0.25)]"
                   >
                     {isLoading ? (
@@ -679,7 +722,7 @@ const TikTokDownloader = () => {
                 exit={{ opacity: 0, y: 20 }}
                 className="max-w-4xl mx-auto px-4 sm:px-6 py-6"
               >
-                <div className="glass rounded-[16px] p-4 sm:p-6">
+                <div ref={resultCardRef} className={`glass rounded-[16px] p-4 sm:p-6 transition-all duration-500 ${resultHighlight ? 'ring-2 ring-[#FE2C55]/60' : ''}`}>
                   {/* Photo/Slide post indicator */}
                   {videoInfo.postType === 'images' && (
                     <div className="flex items-center gap-2 mb-4 px-3 py-2 rounded-[10px] bg-[#4ADE80]/10 border border-[#4ADE80]/20">
@@ -922,13 +965,31 @@ const TikTokDownloader = () => {
                         )}
                       </div>
 
-                      {/* Copy URL */}
+                      {/* Copy URL + Share */}
                       <div className="flex gap-2">
                         <button
                           onClick={() => copyToClipboard(videoInfo.noWatermarkUrl, 'Video URL')}
                           className="flex-1 bg-white/5 hover:bg-white/10 py-2 rounded-[10px] text-sm flex items-center justify-center gap-1 transition-colors duration-150"
                         >
                           <ExternalLink size={14} /> Copy URL
+                        </button>
+                        <button
+                          onClick={() => {
+                            // Share a TikDL link that auto-fetches this video
+                            const tikdlShareUrl = `${window.location.origin}?v=${encodeURIComponent(url)}`;
+                            if (navigator.share) {
+                              navigator.share({
+                                title: videoInfo.title,
+                                text: `Download: ${videoInfo.title}`,
+                                url: tikdlShareUrl,
+                              }).catch(() => {});
+                            } else {
+                              copyToClipboard(tikdlShareUrl, 'Share link');
+                            }
+                          }}
+                          className="flex-1 bg-white/5 hover:bg-white/10 py-2 rounded-[10px] text-sm flex items-center justify-center gap-1 transition-colors duration-150"
+                        >
+                          <Share2 size={14} /> Share
                         </button>
                       </div>
                     </div>
@@ -937,6 +998,18 @@ const TikTokDownloader = () => {
               </motion.section>
             )}
           </AnimatePresence>
+
+          {/* Recent Downloads shortcut — below result card */}
+          {videoInfo && history.length > 0 && (
+            <div className="max-w-4xl mx-auto px-4 sm:px-6 mt-1 mb-2 text-center">
+              <button
+                onClick={() => historyRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })}
+                className="text-xs text-gray-500 hover:text-[#FE2C55] transition-colors duration-150 inline-flex items-center gap-1"
+              >
+                Recent Downloads <ChevronDown size={12} />
+              </button>
+            </div>
+          )}
 
           {/* Inline Ad: Between Download Section & Features */}
           {landingAds.inlineAds.filter(a => a.placement === 'between_url_download').length > 0 && videoInfo && (
@@ -1060,7 +1133,7 @@ const TikTokDownloader = () => {
 
           {/* ===== History Section ===== */}
           {history.length > 0 && (
-            <section id="history" className="py-6 sm:py-8 px-4 sm:px-6 bg-[#0a0a0a]">
+            <section id="history" ref={historyRef} className="py-6 sm:py-8 px-4 sm:px-6 bg-[#0a0a0a]">
               <div className="max-w-4xl mx-auto">
                 <div className="flex items-center justify-between mb-3">
                   <h2 className="text-lg font-bold">Recent Downloads</h2>
@@ -1079,6 +1152,11 @@ const TikTokDownloader = () => {
                       onClick={() => {
                         setVideoInfo(item);
                         setActiveTab('video');
+                        setTimeout(() => {
+                          resultCardRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                          setResultHighlight(true);
+                          setTimeout(() => setResultHighlight(false), 1500);
+                        }, 100);
                       }}
                     >
                       <img
