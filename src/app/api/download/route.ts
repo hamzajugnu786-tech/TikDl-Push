@@ -133,13 +133,16 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    // ⚠️  BACKWARD COMPATIBILITY: For private/deleted content, the old route
-    //     returned: "This video is private or has been deleted."
+    // TASK 2: Generic unavailable message — never tell users the video is specifically
+    //   "private" unless TikHub explicitly proves it with a 403 status code.
+    //   Use one generic message for all unavailable cases.
     if (
       serviceResult.error?.code === NovaDLErrorCode.PRIVATE_CONTENT ||
-      serviceResult.error?.code === NovaDLErrorCode.DELETED_CONTENT
+      serviceResult.error?.code === NovaDLErrorCode.DELETED_CONTENT ||
+      serviceResult.error?.code === NovaDLErrorCode.AGE_RESTRICTED ||
+      serviceResult.error?.code === NovaDLErrorCode.GEO_BLOCKED
     ) {
-      apiResponse.error = 'This video is private or has been deleted.';
+      apiResponse.error = 'This video is unavailable. It was removed by the creator or is no longer available on TikTok.';
     }
 
     return NextResponse.json(apiResponse, { status: statusCode });

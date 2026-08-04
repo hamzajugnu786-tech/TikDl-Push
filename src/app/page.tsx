@@ -444,14 +444,14 @@ const TikTokDownloader = () => {
     );
   };
 
-  // Unavailable reason to friendly message
+  // TASK 2: Generic unavailable message — never assume the reason is "private"
+  // Only show specific messages for age-restriction and geo-blocking where
+  // TikHub explicitly indicates those reasons. For everything else, one generic message.
   const getUnavailableMessage = (reason: string): { icon: string; title: string; desc: string } => {
     const r = reason.toLowerCase();
-    if (r.includes('private')) return { icon: '🔒', title: 'This video is private', desc: 'The creator has set this video to private. Only they can view it.' };
-    if (r.includes('deleted') || r.includes('removed')) return { icon: '🗑️', title: 'This video has been removed', desc: 'The creator has deleted this video. It is no longer available on TikTok.' };
     if (r.includes('age') || r.includes('restrict')) return { icon: '🔞', title: 'Age restricted', desc: 'This video is age-restricted and cannot be downloaded through TikDL.' };
     if (r.includes('region') || r.includes('geo') || r.includes('block')) return { icon: '🌍', title: 'Region restricted', desc: 'This video is not available in your region due to geographic restrictions.' };
-    return { icon: '⚠️', title: 'This video is unavailable', desc: 'This TikTok cannot be accessed right now. It may be private, removed, or region-locked.' };
+    return { icon: '⚠️', title: 'This video is unavailable', desc: 'The video was removed by the creator or is no longer available on TikTok.' };
   };
 
   return (

@@ -229,31 +229,27 @@ export class TikTokTikHubAdapter implements NovaDLProvider {
       }
 
       // ──── Detect private/deleted/unavailable content ────
-      // ROOT CAUSE FIX (Bug 2): The previous logic only treated content as unavailable
-      //   when ALL four checks failed (no video, no images, no author, no title).
-      //   But TikHub often returns partial metadata for deleted/private videos
-      //   (e.g., author + title but no video/images). This created "fake metadata"
-      //   results with empty download URLs on the frontend.
+      // REGRESSION FIX: The previous fix (checking only hasVideo || hasImages) was too
+      //   aggressive. The hasVideo variable uses extractUrl() which can return '' (falsy)
+      //   even for valid videos when the URL format is unexpected. The old condition
+      //   (!hasVideo && !hasImages && !hasAuthor && !hasTitle) protected normal videos
+      //   because it required ALL four to be missing.
       //
-      // NEW LOGIC: If there is NO downloadable content (no video URL AND no images),
-      //   the post is unavailable regardless of whether author/title are present.
-      //   A real available post ALWAYS has video URLs or image URLs.
-      const hasVideo = videoData.video && (extractUrl(videoData.video?.play_addr) || extractUrl(videoData.video?.download_addr));
+      // Two-stage detection:
+      //   Stage 1 (pre-extraction): Quick filter for obviously empty responses.
+      //     If NO video section, NO images, AND NO metadata → definitely unavailable.
+      //   Stage 2 (post-extraction): Thorough check after URL extraction.
+      //     If the result has zero formats, zero images, zero audio → unavailable.
+      //     This catches deleted/private videos that return metadata but no media.
+      const hasVideoSection = !!videoData.video;
       const hasImages = (videoData.image_post_info?.images && videoData.image_post_info.images.length > 0) ||
                          (videoData.image_list && videoData.image_list.length > 0);
       const hasAuthor = videoData.author && (videoData.author.unique_id || videoData.author.nickname);
       const hasTitle = videoData.desc || videoData.title;
-      const hasDownloadableContent = hasVideo || hasImages;
 
-      if (!hasDownloadableContent) {
-        // No video or images = content is unavailable (private, deleted, region-locked, etc.)
-        // Author/title metadata alone is NOT sufficient to show a result.
-        console.log('[TikHub] No downloadable content (no video, no images) — treating as private/deleted/unavailable', {
-          hasAuthor: !!hasAuthor,
-          hasTitle: !!hasTitle,
-          hasVideo: !!hasVideo,
-          hasImages: !!hasImages,
-        });
+      // Stage 1: No recognizable content at all → definitely unavailable
+      if (!hasVideoSection && !hasImages && !hasAuthor && !hasTitle) {
+        console.log('[TikHub] No recognizable content — treating as unavailable');
         throw new NovaDLError(
           NovaDLErrorCode.DELETED_CONTENT,
           'This content is unavailable. It may be private, deleted, or region-locked.',
@@ -495,6 +491,23 @@ export class TikTokTikHubAdapter implements NovaDLProvider {
     console.log('[TikHub→NovaDL] isPhotoPost:', isPhotoPost, 'slideImages:', slideImageUrls.length);
     console.log('[TikHub→NovaDL] media_type:', videoData.media_type, 'aweme_type:', videoData.aweme_type);
     console.log('[TikHub→NovaDL] image_post_info.images:', imagePostImages?.length ?? 0, 'image_list:', legacyImageList?.length ?? 0);
+
+    // ──── Stage 2: Post-extraction unavailable check ────
+    // If URL extraction completed but produced NO downloadable content at all
+    // (no video formats, no slide images, no audio), this is a deleted/private
+    // video that returned metadata but no actual media. Return error instead of
+    // a result with empty download buttons (fake metadata).
+    const hasAnyDownload = formats.length > 0 || slideImageUrls.length > 0 || audio.length > 0;
+    if (!hasAnyDownload) {
+      console.log('[TikHub→NovaDL] Post-extraction: no downloadable content (formats=0, slides=0, audio=0) — unavailable');
+      throw new NovaDLError(
+        NovaDLErrorCode.DELETED_CONTENT,
+        'This content is unavailable. It may be private, deleted, or region-locked.',
+        this.platform,
+        generateRequestId(),
+        { provider: this.name }
+      );
+    }
 
     return {
       success: true,

@@ -26,6 +26,10 @@ import { getClientIp, hashIpForRateLimit } from '@/lib/privacy';
 
 export async function POST(request: NextRequest) {
   try {
+    // Diagnostic: Check if ADMIN_PASSWORD is configured
+    const adminPasswordConfigured = !!process.env.ADMIN_PASSWORD;
+    console.log('[Auth/Login] ADMIN_PASSWORD configured:', adminPasswordConfigured, 'NODE_ENV:', process.env.NODE_ENV);
+
     // Rate limit check — production-grade (DB-backed)
     // Use spoofing-resistant IP extraction (takes last IP in XFF chain)
     // ⚠️  Hash IP before rate limit key — raw IPs are NEVER stored anywhere (GDPR)
@@ -33,6 +37,11 @@ export async function POST(request: NextRequest) {
     const rateLimitKey = hashIpForRateLimit(ip);
     const rateLimiter = getLoginRateLimiter();
     const allowed = await rateLimiter.check(rateLimitKey);
+
+    // Diagnostic: Log rate limit status
+    const rlStatus = rateLimiter.getStatus(rateLimitKey);
+    console.log('[Auth/Login] Rate limit:', allowed ? 'allowed' : 'BLOCKED', 'remaining:', rlStatus?.remaining, 'resetIn:', rlStatus ? Math.round((rlStatus.resetTime - Date.now()) / 1000) + 's' : 'n/a');
+
     if (!allowed) {
       return NextResponse.json(
         { success: false, error: 'Too many login attempts. Please try again later.' },
