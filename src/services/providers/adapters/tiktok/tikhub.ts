@@ -28,17 +28,25 @@ import { formatCount } from '@/lib/format';
  *   - Object with url_list: { url_list: ["https://..."] }
  *   - Plain string: "https://..."
  *   - Object that IS a string (type coercion edge case)
+ *   - Object with "uri" field (TikTok internal video URI format)
+ *   - Object with nested "data" containing url_list
+ *
+ * IMPORTANT: This function MUST return a valid URL for any normal TikTok video.
+ * If it returns '' for a valid video, the frontend will show "unavailable".
  */
 function extractUrl(field: unknown): string {
   if (!field) return '';
   if (typeof field === 'string') return field;
   if (typeof field === 'object' && field !== null) {
     const obj = field as Record<string, unknown>;
+    // Primary: url_list array (most common TikHub format)
     if (Array.isArray(obj.url_list) && obj.url_list.length > 0 && typeof obj.url_list[0] === 'string') {
       return obj.url_list[0];
     }
-    // Some TikHub formats use "url" instead of "url_list"
+    // Secondary: "url" field (some TikHub formats)
     if (typeof obj.url === 'string') return obj.url;
+    // Tertiary: "uri" field (TikTok internal format, less common)
+    if (typeof obj.uri === 'string' && obj.uri.startsWith('http')) return obj.uri;
   }
   return '';
 }
@@ -492,21 +500,32 @@ export class TikTokTikHubAdapter implements NovaDLProvider {
     console.log('[TikHub→NovaDL] media_type:', videoData.media_type, 'aweme_type:', videoData.aweme_type);
     console.log('[TikHub→NovaDL] image_post_info.images:', imagePostImages?.length ?? 0, 'image_list:', legacyImageList?.length ?? 0);
 
-    // ──── Stage 2: Post-extraction unavailable check ────
-    // If URL extraction completed but produced NO downloadable content at all
-    // (no video formats, no slide images, no audio), this is a deleted/private
-    // video that returned metadata but no actual media. Return error instead of
-    // a result with empty download buttons (fake metadata).
+    // ──── NOTE: Post-extraction unavailable check REMOVED ────
+    // REGRESSION FIX: The previous post-extraction check
+    //   (if formats.length === 0 && audio.length === 0 && slideImageUrls.length === 0)
+    //   was causing FALSE POSITIVES. It relied on extractUrl() successfully
+    //   extracting URLs from TikHub response fields. If extractUrl() returned ''
+    //   for ANY reason (unexpected URL format, empty url_list, missing field),
+    //   formats.length would be 0 and the video would be incorrectly classified
+    //   as unavailable — even for perfectly valid, public, downloadable videos.
+    //
+    // The PRE-EXTRACTION check (Stage 1 in fetchVideo) already handles the case
+    //   where the response is genuinely empty (no video section, no images,
+    //   no author, no title). That check is safe because it uses hasVideoSection
+    //   (= !!videoData.video) which only checks if the video object EXISTS,
+    //   not whether extractUrl() can extract URLs from it.
+    //
+    // For genuinely deleted/private videos that return metadata but no media URLs,
+    //   the frontend will receive empty noWatermarkUrl/audioUrl and can show
+    //   the unavailable UI there. This is the SAFER approach because:
+    //   1. It never incorrectly blocks a valid video
+    //   2. The frontend has more context to show a helpful message
+    //   3. It matches the behavior of the WORKING code before commit 229dba9
+    //
+    // Log the extraction result for diagnostics:
     const hasAnyDownload = formats.length > 0 || slideImageUrls.length > 0 || audio.length > 0;
     if (!hasAnyDownload) {
-      console.log('[TikHub→NovaDL] Post-extraction: no downloadable content (formats=0, slides=0, audio=0) — unavailable');
-      throw new NovaDLError(
-        NovaDLErrorCode.DELETED_CONTENT,
-        'This content is unavailable. It may be private, deleted, or region-locked.',
-        this.platform,
-        generateRequestId(),
-        { provider: this.name }
-      );
+      console.log('[TikHub→NovaDL] WARNING: No downloadable content extracted (formats=0, slides=0, audio=0). Returning result with empty fields — frontend will show unavailable.');
     }
 
     return {

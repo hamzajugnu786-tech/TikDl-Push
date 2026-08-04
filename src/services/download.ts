@@ -124,29 +124,44 @@ export class DownloadService {
         const result = await extractWithEngine(platformInfo.canonicalUrl, platformInfo.platform);
         const duration = Date.now() - startTime;
 
-        // Log successful request
-        await this.logger.log({
-          requestId,
-          timestamp: new Date(),
-          platform: platformInfo.platform,
-          provider: result.metadata.videoId ? 'novadl-engine' : 'novadl-engine',
-          url,
-          status: 'success',
-          executionTime: duration,
-          ipAddress: options?.ipAddress,
-          userAgent: options?.userAgent,
-          videoId: result.metadata.videoId,
-          videoTitle: result.title,
-        });
+        // REGRESSION FIX: If the engine returned a result but with NO downloadable
+        // content at all (no video formats, no audio, no slide images), this is
+        // effectively a failed extraction. Fall through to the provider registry
+        // (TikHub adapter) which may have better data.
+        // This fixes the case where the native_tiktok extractor returns empty
+        // results but success=true, preventing the TikHub API from being called.
+        const hasAnyMedia = result.formats.length > 0 || result.audio.length > 0 ||
+          (result.metadata.slideImages && result.metadata.slideImages.length > 0);
 
-        return {
-          success: true,
-          data: result,
-          provider: 'novadl-engine',
-          platform: platformInfo.platform,
-          duration,
-          requestId,
-        };
+        if (!hasAnyMedia) {
+          console.warn('[DownloadService] NovaDL engine returned empty result (no formats, no audio, no images). Falling back to provider registry.');
+          // Fall through to Step 4 (provider registry)
+        } else {
+          // Engine returned usable media — use it
+          // Log successful request
+          await this.logger.log({
+            requestId,
+            timestamp: new Date(),
+            platform: platformInfo.platform,
+            provider: result.metadata.videoId ? 'novadl-engine' : 'novadl-engine',
+            url,
+            status: 'success',
+            executionTime: duration,
+            ipAddress: options?.ipAddress,
+            userAgent: options?.userAgent,
+            videoId: result.metadata.videoId,
+            videoTitle: result.title,
+          });
+
+          return {
+            success: true,
+            data: result,
+            provider: 'novadl-engine',
+            platform: platformInfo.platform,
+            duration,
+            requestId,
+          };
+        }
       } catch (engineError) {
         // Engine failed — log and fall through to old provider registry
         const engineErrorMsg = engineError instanceof Error ? engineError.message : String(engineError);

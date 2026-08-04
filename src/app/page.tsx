@@ -235,6 +235,21 @@ const TikTokDownloader = () => {
       }
 
       const data: VideoInfo = result.data;
+
+      // FRONTEND-SIDE UNAVAILABLE DETECTION:
+      // If the API returned success but ALL download URLs are empty,
+      // this is a video that returned metadata but no actual media.
+      // Show unavailable instead of a broken card with empty download buttons.
+      const hasAnyMedia = data.noWatermarkUrl || data.withWatermarkUrl || data.audioUrl ||
+        (data.slideImages && data.slideImages.length > 0);
+      if (!hasAnyMedia) {
+        setIsUnavailable(true);
+        setUnavailableReason('This video is unavailable. The video was removed by the creator or is no longer available on TikTok.');
+        setVideoInfo(null);
+        toast.error('This TikTok isn\'t available');
+        return;
+      }
+
       setVideoInfo(data);
       // Initialize photo/slide state
       if (data.postType === 'images' && data.slideImages && data.slideImages.length > 0) {

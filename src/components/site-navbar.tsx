@@ -1,7 +1,7 @@
 'use client';
 
 import Link from 'next/link';
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { RefreshCw, Menu, X } from 'lucide-react';
 
 interface SiteNavbarProps {
@@ -11,8 +11,9 @@ interface SiteNavbarProps {
 
 export default function SiteNavbar({ isHome = false }: SiteNavbarProps) {
   const [mobileOpen, setMobileOpen] = useState(false);
+  const sidebarRef = useRef<HTMLDivElement>(null);
 
-  // ESC key closes mobile menu
+  // ESC key closes mobile sidebar
   useEffect(() => {
     if (!mobileOpen) return;
     const handleKey = (e: KeyboardEvent) => {
@@ -22,7 +23,7 @@ export default function SiteNavbar({ isHome = false }: SiteNavbarProps) {
     return () => window.removeEventListener('keydown', handleKey);
   }, [mobileOpen]);
 
-  // Lock body scroll when mobile menu is open (overlay covers page)
+  // Lock body scroll when mobile sidebar is open
   useEffect(() => {
     if (mobileOpen) {
       document.body.style.overflow = 'hidden';
@@ -75,34 +76,103 @@ export default function SiteNavbar({ isHome = false }: SiteNavbarProps) {
             className="md:hidden w-9 h-9 flex items-center justify-center rounded-lg hover:bg-white/10 transition-colors duration-150"
             aria-label="Toggle menu"
           >
-            {mobileOpen ? <X size={18} /> : <Menu size={18} />}
+            <Menu size={18} />
           </button>
         </div>
       </nav>
 
-      {/* Mobile full-screen overlay — renders OUTSIDE the nav so it never pushes content */}
-      {mobileOpen && (
-        <div className="fixed inset-0 z-40 md:hidden" onClick={closeMobile}>
-          {/* Dark backdrop */}
-          <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" />
-          {/* Menu panel — slides down from top, covers page */}
-          <div
-            className="absolute top-0 left-0 right-0 bg-black/95 backdrop-blur-xl border-b border-white/10 pt-[52px]"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <div className="max-w-6xl mx-auto px-4 sm:px-6 py-6 flex flex-col gap-4 text-base font-medium text-gray-300">
-              <a href={homeHref('#features')} onClick={closeMobile} className="hover:text-[#FE2C55] transition-colors duration-150 py-2">Features</a>
-              <a href={homeHref('#faq')} onClick={closeMobile} className="hover:text-[#FE2C55] transition-colors duration-150 py-2">FAQ</a>
-              <a href={homeHref('#history')} onClick={closeMobile} className="hover:text-[#FE2C55] transition-colors duration-150 py-2">History</a>
-              <Link href="/about" onClick={closeMobile} className="hover:text-[#FE2C55] transition-colors duration-150 py-2">About</Link>
-              <Link href="/contact" onClick={closeMobile} className="hover:text-[#FE2C55] transition-colors duration-150 py-2">Contact</Link>
-              <Link href="/privacy" onClick={closeMobile} className="hover:text-[#FE2C55] transition-colors duration-150 py-2">Privacy</Link>
-              <Link href="/terms" onClick={closeMobile} className="hover:text-[#FE2C55] transition-colors duration-150 py-2">Terms</Link>
-              <Link href="/dmca" onClick={closeMobile} className="hover:text-[#FE2C55] transition-colors duration-150 py-2">DMCA</Link>
-            </div>
+      {/* Windows 11 style LEFT SIDEBAR — overlay, 280px, slides from left */}
+      {/* Dark backdrop — covers entire page, click to close */}
+      <div
+        className={`fixed inset-0 z-40 md:hidden transition-opacity duration-300 ${mobileOpen ? 'opacity-100 pointer-events-auto' : 'opacity-0 pointer-events-none'}`}
+        style={{ backgroundColor: 'rgba(0, 0, 0, 0.5)' }}
+        onClick={closeMobile}
+      />
+      {/* Sidebar panel — fixed left, 280px, slides in from left */}
+      <div
+        ref={sidebarRef}
+        className={`fixed top-0 left-0 bottom-0 z-50 md:hidden w-[280px] bg-[#1a1a1a]/98 backdrop-blur-xl border-r border-white/10 transition-transform duration-300 ease-out ${mobileOpen ? 'translate-x-0' : '-translate-x-full'}`}
+        onClick={(e) => e.stopPropagation()}
+      >
+        {/* Sidebar header with close button */}
+        <div className="flex items-center justify-between px-5 py-4 border-b border-white/10">
+          <div className="flex items-center gap-2.5">
+            <div className="w-7 h-7 bg-[#FE2C55] rounded-lg flex items-center justify-center text-base font-bold">♪</div>
+            <span className="font-bold text-lg tracking-tighter">TikDL</span>
           </div>
+          <button
+            onClick={closeMobile}
+            className="w-8 h-8 flex items-center justify-center rounded-lg hover:bg-white/10 transition-colors duration-150"
+            aria-label="Close menu"
+          >
+            <X size={16} className="text-gray-400" />
+          </button>
         </div>
-      )}
+
+        {/* Sidebar links */}
+        <div className="px-3 py-4 flex flex-col gap-1">
+          <a
+            href={homeHref('#features')}
+            onClick={closeMobile}
+            className="px-3 py-2.5 rounded-lg text-sm font-medium text-gray-300 hover:text-white hover:bg-white/8 transition-colors duration-150"
+          >
+            Features
+          </a>
+          <a
+            href={homeHref('#faq')}
+            onClick={closeMobile}
+            className="px-3 py-2.5 rounded-lg text-sm font-medium text-gray-300 hover:text-white hover:bg-white/8 transition-colors duration-150"
+          >
+            FAQ
+          </a>
+          <a
+            href={homeHref('#history')}
+            onClick={closeMobile}
+            className="px-3 py-2.5 rounded-lg text-sm font-medium text-gray-300 hover:text-white hover:bg-white/8 transition-colors duration-150"
+          >
+            History
+          </a>
+          <Link
+            href="/about"
+            onClick={closeMobile}
+            className="px-3 py-2.5 rounded-lg text-sm font-medium text-gray-300 hover:text-white hover:bg-white/8 transition-colors duration-150"
+          >
+            About
+          </Link>
+          <Link
+            href="/contact"
+            onClick={closeMobile}
+            className="px-3 py-2.5 rounded-lg text-sm font-medium text-gray-300 hover:text-white hover:bg-white/8 transition-colors duration-150"
+          >
+            Contact
+          </Link>
+
+          {/* Divider */}
+          <div className="my-2 border-t border-white/8" />
+
+          <Link
+            href="/privacy"
+            onClick={closeMobile}
+            className="px-3 py-2.5 rounded-lg text-sm font-medium text-gray-400 hover:text-white hover:bg-white/8 transition-colors duration-150"
+          >
+            Privacy
+          </Link>
+          <Link
+            href="/terms"
+            onClick={closeMobile}
+            className="px-3 py-2.5 rounded-lg text-sm font-medium text-gray-400 hover:text-white hover:bg-white/8 transition-colors duration-150"
+          >
+            Terms
+          </Link>
+          <Link
+            href="/dmca"
+            onClick={closeMobile}
+            className="px-3 py-2.5 rounded-lg text-sm font-medium text-gray-400 hover:text-white hover:bg-white/8 transition-colors duration-150"
+          >
+            DMCA
+          </Link>
+        </div>
+      </div>
     </>
   );
 }
