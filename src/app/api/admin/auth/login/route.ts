@@ -62,8 +62,17 @@ export async function POST(request: NextRequest) {
     const isValid = verifyAdminPassword(password);
 
     if (!isValid) {
+      // Bug 5 fix: Provide a more helpful error message.
+      // If ADMIN_PASSWORD is not configured in production, all logins will fail.
+      // Include a hint so the admin knows to check their environment configuration.
+      const adminPassword = process.env.ADMIN_PASSWORD;
+      const isProduction = process.env.NODE_ENV === 'production';
+      const hint = (!adminPassword && isProduction)
+        ? 'Server configuration issue: ADMIN_PASSWORD not set. Contact the administrator.'
+        : 'Invalid password. Please try again.';
+
       return NextResponse.json(
-        { success: false, error: 'Invalid password. Please try again.' },
+        { success: false, error: hint },
         { status: 401 }
       );
     }

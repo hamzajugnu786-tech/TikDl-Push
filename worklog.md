@@ -114,3 +114,105 @@ Stage Summary:
 - Fix: Robust response unwrapping + extractUrl() helper + stats fallback + ms duration + music.play_url
 - Files modified: `src/services/providers/adapters/tiktok/tikhub.ts`, `src/lib/result-to-display.ts`, `src/app/api/download/route.ts`, `src/app/page.tsx`
 - All changes are in the response mapping layer only — no engine, fallback, or architecture changes
+---
+Task ID: 1-6
+Agent: Main
+Task: Pipeline trace Stage A-F for TikDL image/slide posts bug
+
+Work Log:
+- Read tikhub.ts adapter — traced raw TikHub API response handling (Stage A)
+- Read tikhub.ts type definitions — traced image field identification (Stage B)  
+- Read tikhub.ts toNovaDLResult() — traced adapter mapping to NovaDLResult (Stage C)
+- Read result-to-display.ts — traced adaptResultForDisplay() mapping to VideoInfo (Stage D)
+- Read api/download/route.ts — traced API route serialization (Stage E)
+- Read page.tsx frontend — traced rendering logic for postType/slideImages (Stage F)
+
+Stage Summary:
+- **BROKEN STAGE: C** — isPhotoPost detection in tikhub.ts lines 425-428 was too restrictive
+- Required hasImages AND (no play_addr OR media_type=68 OR aweme_type=150)
+- Real TikTok image posts often have play_addr AND non-standard media_type/aweme_type
+- Result: isPhotoPost=false → postType='video' → slide gallery never renders
+- Stages D, E, F are all correct — they properly pass and render postType/slideImages
+- Frontend already has full slide gallery implementation (checkboxes, Select All, Download Selected/All)
+
+---
+Task ID: 7
+Agent: Main
+Task: Fix Bug 1 - Image/slide post detection
+
+Work Log:
+- Changed isPhotoPost from complex condition to simple: isPhotoPost = hasImages
+- Added detailed ROOT CAUSE FIX comment explaining the previous bug
+- Changed supportsSlides from false to true in capabilities()
+
+Stage Summary:
+- isPhotoPost now correctly identifies any post with image_post_info.images or image_list
+- Slide gallery will now render for all photo posts regardless of video/media_type/aweme_type
+
+---
+Task ID: 8
+Agent: Main
+Task: Fix Bug 2 - Private/deleted videos showing fake metadata
+
+Work Log:
+- Changed unavailable detection from requiring ALL four checks to fail (hasVideo, hasImages, hasAuthor, hasTitle)
+- New logic: if no downloadable content (no video AND no images), treat as unavailable
+- Author/title metadata alone is NOT sufficient to show a result card
+
+Stage Summary:
+- Private/deleted videos now always return DELETED_CONTENT error
+- No more fake metadata with empty download URLs
+
+---
+Task ID: 9
+Agent: Main
+Task: Fix Bug 3 - Navbar mobile menu scroll lock
+
+Work Log:
+- Added useEffect to lock body scroll (overflow: hidden) when mobile menu is open
+- Cleanup restores overflow on close
+- Navbar was already fixed position with backdrop-blur, ESC close, click-outside close
+
+Stage Summary:
+- Background page no longer scrolls when mobile menu is open
+
+---
+Task ID: 10
+Agent: Main
+Task: Fix Bug 4 - Scroll to top on refresh/new URL/history
+
+Work Log:
+- Set window.history.scrollRestoration = 'manual' to prevent browser scroll restoration
+- Added popstate event listener for browser back/forward navigation
+- Both scroll to top on trigger
+
+Stage Summary:
+- Page always resets to top on refresh, new URL, and history navigation
+
+---
+Task ID: 11
+Agent: Main
+Task: Fix Bug 5 - Admin login locks legitimate credentials
+
+Work Log:
+- Root cause: If ADMIN_PASSWORD not set in production, ALL logins fail silently (auth.ts line 111-113)
+- After 5 failures, rate limiter kicks in, locking the admin out completely
+- Added diagnostic error message: "Server configuration issue: ADMIN_PASSWORD not set" when env var missing in production
+- This tells the admin it's a config issue, not a wrong password
+
+Stage Summary:
+- Admin now gets actionable error message instead of generic "Invalid password"
+- Rate limiter still works correctly (5 attempts/min) - protection NOT disabled
+
+---
+Task ID: 12
+Agent: Main
+Task: Production build verification
+
+Work Log:
+- Ran npx next build — compiled successfully in 12.9s
+- Zero TypeScript errors, zero ESLint errors
+- All 19 routes generated correctly
+
+Stage Summary:
+- Production build passes with zero errors

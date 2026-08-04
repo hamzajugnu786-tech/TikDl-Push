@@ -137,6 +137,23 @@ const TikTokDownloader = () => {
   // Swipe state
   const [touchStart, setTouchStart] = useState<number | null>(null);
 
+  // Bug 4 fix: Scroll to top on mount, page refresh, new URL, and history navigation
+  // Disable browser's automatic scroll restoration and always reset to top
+  useEffect(() => {
+    // Prevent browser from restoring previous scroll position on back/forward
+    if ('scrollRestoration' in window.history) {
+      window.history.scrollRestoration = 'manual';
+    }
+    window.scrollTo({ top: 0 });
+
+    // Also handle popstate (browser back/forward buttons)
+    const handlePopState = () => {
+      window.scrollTo({ top: 0 });
+    };
+    window.addEventListener('popstate', handlePopState);
+    return () => window.removeEventListener('popstate', handlePopState);
+  }, []);
+
   // Fetch ad config on mount
   useEffect(() => {
     const fetchConfig = async () => {
@@ -441,6 +458,9 @@ const TikTokDownloader = () => {
     <div className="min-h-screen bg-[#000000] text-white flex flex-col">
       <Toaster position="top-center" richColors closeButton />
       <div ref={topRef} />
+
+      {/* Navbar offset: fixed navbar needs padding-top so content isn't hidden */}
+      <div className="h-[52px]" />
 
       {/* ===== Navbar ===== */}
       <SiteNavbar isHome />

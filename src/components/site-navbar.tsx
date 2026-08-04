@@ -1,7 +1,7 @@
 'use client';
 
 import Link from 'next/link';
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { RefreshCw, Menu, X } from 'lucide-react';
 
 interface SiteNavbarProps {
@@ -12,10 +12,33 @@ interface SiteNavbarProps {
 export default function SiteNavbar({ isHome = false }: SiteNavbarProps) {
   const [mobileOpen, setMobileOpen] = useState(false);
 
+  // ESC key closes mobile menu
+  useEffect(() => {
+    if (!mobileOpen) return;
+    const handleKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setMobileOpen(false);
+    };
+    window.addEventListener('keydown', handleKey);
+    return () => window.removeEventListener('keydown', handleKey);
+  }, [mobileOpen]);
+
+  // Bug 3 fix: Lock body scroll when mobile menu is open
+  // This prevents the page from scrolling behind the overlay
+  useEffect(() => {
+    if (mobileOpen) {
+      document.body.style.overflow = 'hidden';
+    } else {
+      document.body.style.overflow = '';
+    }
+    return () => {
+      document.body.style.overflow = '';
+    };
+  }, [mobileOpen]);
+
   const homeHref = (hash: string) => isHome ? hash : `/${hash}`;
 
   return (
-    <nav className="sticky top-0 z-50 glass border-b border-white/10 bg-black/80">
+    <nav className="fixed top-0 left-0 right-0 z-50 glass border-b border-white/10 bg-black/80 backdrop-blur-xl">
       <div className="max-w-6xl mx-auto px-4 sm:px-6 py-3 flex justify-between items-center">
         {/* Logo */}
         <div className="flex items-center gap-2.5">
@@ -53,20 +76,27 @@ export default function SiteNavbar({ isHome = false }: SiteNavbarProps) {
         </button>
       </div>
 
-      {/* Mobile dropdown */}
+      {/* Mobile dropdown — click outside closes */}
       {mobileOpen && (
-        <div className="md:hidden border-t border-white/10 bg-black/95 backdrop-blur-xl">
-          <div className="max-w-6xl mx-auto px-4 sm:px-6 py-4 flex flex-col gap-3 text-sm font-medium text-gray-400">
-            <a href={homeHref('#features')} onClick={() => setMobileOpen(false)} className="hover:text-[#FE2C55] transition-colors duration-150 py-1">Features</a>
-            <a href={homeHref('#faq')} onClick={() => setMobileOpen(false)} className="hover:text-[#FE2C55] transition-colors duration-150 py-1">FAQ</a>
-            <a href={homeHref('#history')} onClick={() => setMobileOpen(false)} className="hover:text-[#FE2C55] transition-colors duration-150 py-1">History</a>
-            <Link href="/about" onClick={() => setMobileOpen(false)} className="hover:text-[#FE2C55] transition-colors duration-150 py-1">About</Link>
-            <Link href="/contact" onClick={() => setMobileOpen(false)} className="hover:text-[#FE2C55] transition-colors duration-150 py-1">Contact</Link>
-            <Link href="/privacy" onClick={() => setMobileOpen(false)} className="hover:text-[#FE2C55] transition-colors duration-150 py-1">Privacy</Link>
-            <Link href="/terms" onClick={() => setMobileOpen(false)} className="hover:text-[#FE2C55] transition-colors duration-150 py-1">Terms</Link>
-            <Link href="/dmca" onClick={() => setMobileOpen(false)} className="hover:text-[#FE2C55] transition-colors duration-150 py-1">DMCA</Link>
+        <>
+          {/* Backdrop overlay */}
+          <div
+            className="fixed inset-0 z-40"
+            onClick={() => setMobileOpen(false)}
+          />
+          <div className="relative z-50 md:hidden border-t border-white/10 bg-black/95 backdrop-blur-xl">
+            <div className="max-w-6xl mx-auto px-4 sm:px-6 py-4 flex flex-col gap-3 text-sm font-medium text-gray-400">
+              <a href={homeHref('#features')} onClick={() => setMobileOpen(false)} className="hover:text-[#FE2C55] transition-colors duration-150 py-1">Features</a>
+              <a href={homeHref('#faq')} onClick={() => setMobileOpen(false)} className="hover:text-[#FE2C55] transition-colors duration-150 py-1">FAQ</a>
+              <a href={homeHref('#history')} onClick={() => setMobileOpen(false)} className="hover:text-[#FE2C55] transition-colors duration-150 py-1">History</a>
+              <Link href="/about" onClick={() => setMobileOpen(false)} className="hover:text-[#FE2C55] transition-colors duration-150 py-1">About</Link>
+              <Link href="/contact" onClick={() => setMobileOpen(false)} className="hover:text-[#FE2C55] transition-colors duration-150 py-1">Contact</Link>
+              <Link href="/privacy" onClick={() => setMobileOpen(false)} className="hover:text-[#FE2C55] transition-colors duration-150 py-1">Privacy</Link>
+              <Link href="/terms" onClick={() => setMobileOpen(false)} className="hover:text-[#FE2C55] transition-colors duration-150 py-1">Terms</Link>
+              <Link href="/dmca" onClick={() => setMobileOpen(false)} className="hover:text-[#FE2C55] transition-colors duration-150 py-1">DMCA</Link>
+            </div>
           </div>
-        </div>
+        </>
       )}
     </nav>
   );

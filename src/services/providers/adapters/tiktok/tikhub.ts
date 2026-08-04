@@ -110,10 +110,17 @@ interface TikHubVideoData {
   share_url?: string;
   // Some endpoints wrap the aweme data inside aweme_detail
   aweme_detail?: TikHubVideoData;
-  // Photo/slide posts: array of image objects with url_list
+  // Photo/slide posts: TikTok uses image_post_info.images[] for photo carousels
+  // Each image is { url_list: string[], thumbnail: { url_list: string[] } }
+  image_post_info?: {
+    images?: unknown[];
+  };
+  // Legacy field — some older API versions may use image_list
   image_list?: unknown[];
-  // Photo post indicator (TikHub may set this)
+  // Photo post indicator: media_type=68 for photo/slide posts
   media_type?: number;
+  // aweme_type: 150 = photo post (another indicator)
+  aweme_type?: number;
 }
 
 // ============================================================================
@@ -200,6 +207,10 @@ export class TikTokTikHubAdapter implements NovaDLProvider {
         console.log('[TikHub] videoData.stats:', videoData.stats ? 'present' : 'missing');
         console.log('[TikHub] videoData.cover type:', typeof videoData.cover);
         console.log('[TikHub] videoData.video:', videoData.video ? 'present' : 'missing');
+        console.log('[TikHub] videoData.media_type:', videoData.media_type);
+        console.log('[TikHub] videoData.aweme_type:', videoData.aweme_type);
+        console.log('[TikHub] videoData.image_post_info:', videoData.image_post_info ? `present, images=${videoData.image_post_info.images?.length ?? 0}` : 'missing');
+        console.log('[TikHub] videoData.image_list:', videoData.image_list ? `present, length=${videoData.image_list.length}` : 'missing');
         if (videoData.video) {
           const videoObj = videoData.video as Record<string, unknown>;
           if (videoObj.play_addr !== undefined) console.log('[TikHub] videoData.video.play_addr type:', typeof videoObj.play_addr);
@@ -211,6 +222,41 @@ export class TikTokTikHubAdapter implements NovaDLProvider {
         throw new NovaDLError(
           NovaDLErrorCode.DOWNLOAD_FAILED,
           'No video data found in TikHub response',
+          this.platform,
+          requestId,
+          { provider: this.name }
+        );
+      }
+
+      // ──── Detect private/deleted/unavailable content ────
+      // ROOT CAUSE FIX (Bug 2): The previous logic only treated content as unavailable
+      //   when ALL four checks failed (no video, no images, no author, no title).
+      //   But TikHub often returns partial metadata for deleted/private videos
+      //   (e.g., author + title but no video/images). This created "fake metadata"
+      //   results with empty download URLs on the frontend.
+      //
+      // NEW LOGIC: If there is NO downloadable content (no video URL AND no images),
+      //   the post is unavailable regardless of whether author/title are present.
+      //   A real available post ALWAYS has video URLs or image URLs.
+      const hasVideo = videoData.video && (extractUrl(videoData.video?.play_addr) || extractUrl(videoData.video?.download_addr));
+      const hasImages = (videoData.image_post_info?.images && videoData.image_post_info.images.length > 0) ||
+                         (videoData.image_list && videoData.image_list.length > 0);
+      const hasAuthor = videoData.author && (videoData.author.unique_id || videoData.author.nickname);
+      const hasTitle = videoData.desc || videoData.title;
+      const hasDownloadableContent = hasVideo || hasImages;
+
+      if (!hasDownloadableContent) {
+        // No video or images = content is unavailable (private, deleted, region-locked, etc.)
+        // Author/title metadata alone is NOT sufficient to show a result.
+        console.log('[TikHub] No downloadable content (no video, no images) — treating as private/deleted/unavailable', {
+          hasAuthor: !!hasAuthor,
+          hasTitle: !!hasTitle,
+          hasVideo: !!hasVideo,
+          hasImages: !!hasImages,
+        });
+        throw new NovaDLError(
+          NovaDLErrorCode.DELETED_CONTENT,
+          'This content is unavailable. It may be private, deleted, or region-locked.',
           this.platform,
           requestId,
           { provider: this.name }
@@ -279,7 +325,7 @@ export class TikTokTikHubAdapter implements NovaDLProvider {
       supportsVideo: true,
       supportsAudio: true,
       supportsImages: true,
-      supportsSlides: false,
+      supportsSlides: true,
       supportsStories: false,
       supportsReels: true,
       supportsShorts: true,
@@ -381,15 +427,49 @@ export class TikTokTikHubAdapter implements NovaDLProvider {
     const stats = videoData.statistics || videoData.stats;
 
     // ──── Photo/Slide Post Detection ────
-    // TikTok photo posts have image_list with multiple images and media_type=68
-    // or no video field at all but image_list is present
-    const isPhotoPost = (videoData.image_list && videoData.image_list.length > 0) &&
-      (!videoData.video?.play_addr || videoData.media_type === 68);
+    // TikTok photo posts use image_post_info.images[] (confirmed by TikTok API docs)
+    // Each image object has: { url_list: string[], thumbnail: { url_list: string[] } }
+    // The thumbnail.url_list[0] gives the watermark-free full-resolution image.
+    // Fallback: some API versions may use image_list at the top level.
+    //
+    // ROOT CAUSE FIX (Bug 1): The previous logic required hasImages AND one of
+    //   (no play_addr, media_type=68, aweme_type=150). This was TOO RESTRICTIVE.
+    //   Real TikTok image posts often have video.play_addr present (auto-generated
+    //   slideshow video) AND media_type/aweme_type values that don't match 68/150.
+    //   This caused isPhotoPost=false, so postType='video' and slideImages=undefined,
+    //   meaning the slide gallery never rendered.
+    //
+    // NEW LOGIC: If image_post_info.images or image_list has entries, it IS a photo
+    //   post. The presence of images is the definitive indicator. The other fields
+    //   (media_type, aweme_type, play_addr absence) are only secondary confirmations
+    //   for cases where image data might be empty/malformed.
+    const imagePostImages = videoData.image_post_info?.images;
+    const legacyImageList = videoData.image_list;
+    const hasImages = (imagePostImages && imagePostImages.length > 0) ||
+                      (legacyImageList && legacyImageList.length > 0);
+    const isPhotoPost = hasImages;
+
     const slideImageUrls: string[] = [];
-    if (isPhotoPost && videoData.image_list) {
-      for (const img of videoData.image_list) {
-        const url = extractUrl(img);
-        if (url) slideImageUrls.push(url);
+    if (isPhotoPost) {
+      // Primary: image_post_info.images[] — each image has thumbnail.url_list or url_list
+      if (imagePostImages && imagePostImages.length > 0) {
+        for (const img of imagePostImages) {
+          if (!img || typeof img !== 'object') continue;
+          const imgObj = img as Record<string, unknown>;
+          // Prefer thumbnail.url_list[0] (watermark-free full-res)
+          const thumbnailUrl = extractUrl(imgObj.thumbnail);
+          // Fallback to url_list[0] on the image object itself
+          const directUrl = extractUrl(img);
+          const finalUrl = thumbnailUrl || directUrl;
+          if (finalUrl) slideImageUrls.push(finalUrl);
+        }
+      }
+      // Fallback: legacy image_list
+      if (slideImageUrls.length === 0 && legacyImageList && legacyImageList.length > 0) {
+        for (const img of legacyImageList) {
+          const url = extractUrl(img);
+          if (url) slideImageUrls.push(url);
+        }
       }
     }
 
@@ -412,6 +492,9 @@ export class TikTokTikHubAdapter implements NovaDLProvider {
     console.log('[TikHub→NovaDL] formats:', formats.length, 'types:', formats.map(f => f.type));
     console.log('[TikHub→NovaDL] audio:', audio.length, 'url:', audioUrl ? audioUrl.slice(0, 80) : '(empty)');
     console.log('[TikHub→NovaDL] noWatermarkUrl:', noWatermarkUrl ? noWatermarkUrl.slice(0, 80) : '(empty)');
+    console.log('[TikHub→NovaDL] isPhotoPost:', isPhotoPost, 'slideImages:', slideImageUrls.length);
+    console.log('[TikHub→NovaDL] media_type:', videoData.media_type, 'aweme_type:', videoData.aweme_type);
+    console.log('[TikHub→NovaDL] image_post_info.images:', imagePostImages?.length ?? 0, 'image_list:', legacyImageList?.length ?? 0);
 
     return {
       success: true,
