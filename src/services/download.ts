@@ -177,6 +177,7 @@ export class DownloadService {
             NovaDLErrorCode.AUTH_REQUIRED,
             NovaDLErrorCode.INVALID_URL,
             NovaDLErrorCode.UNSUPPORTED_PLATFORM,
+            NovaDLErrorCode.RATE_LIMITED,
           ];
 
           if (noRetryCodes.includes(engineError.code)) {
@@ -297,6 +298,7 @@ export class DownloadService {
             lastError = err;
 
             // Don't retry on client-type errors (private/deleted content)
+            // Also don't retry on RATE_LIMITED (API quota exceeded — retrying won't help)
             if (
               err.code === NovaDLErrorCode.PRIVATE_CONTENT ||
               err.code === NovaDLErrorCode.DELETED_CONTENT ||
@@ -304,12 +306,13 @@ export class DownloadService {
               err.code === NovaDLErrorCode.GEO_BLOCKED ||
               err.code === NovaDLErrorCode.AUTH_REQUIRED ||
               err.code === NovaDLErrorCode.INVALID_URL ||
-              err.code === NovaDLErrorCode.UNSUPPORTED_PLATFORM
+              err.code === NovaDLErrorCode.UNSUPPORTED_PLATFORM ||
+              err.code === NovaDLErrorCode.RATE_LIMITED
             ) {
               break;
             }
 
-            // Retry on transient errors (DOWNLOAD_FAILED, PROVIDER_OFFLINE, RATE_LIMITED)
+            // Retry on transient errors (DOWNLOAD_FAILED, PROVIDER_OFFLINE)
             if (attempt < 3) {
               await new Promise(r => setTimeout(r, 800 * attempt));
             }

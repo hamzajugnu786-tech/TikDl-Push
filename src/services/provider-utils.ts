@@ -33,6 +33,14 @@ export function mapHttpError(
   providerName: string
 ): NovaDLError {
   switch (status) {
+    case 402:
+      return new NovaDLError(
+        NovaDLErrorCode.RATE_LIMITED,
+        `API quota exceeded on ${providerName}. Please try again later.`,
+        platform,
+        requestId,
+        { provider: providerName }
+      );
     case 403:
       return new NovaDLError(
         NovaDLErrorCode.PRIVATE_CONTENT,

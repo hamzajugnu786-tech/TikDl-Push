@@ -39,12 +39,17 @@ function extractUrl(field: unknown): string {
   if (typeof field === 'string') return field;
   if (typeof field === 'object' && field !== null) {
     const obj = field as Record<string, unknown>;
-    // Primary: url_list array (most common TikHub format)
-    if (Array.isArray(obj.url_list) && obj.url_list.length > 0 && typeof obj.url_list[0] === 'string') {
-      return obj.url_list[0];
+    // Primary: url_list array — try ALL elements (not just [0])
+    // TikHub sometimes returns ["", "real-url"] or [null, "real-url"]
+    if (Array.isArray(obj.url_list)) {
+      for (const item of obj.url_list) {
+        if (typeof item === 'string' && item.length > 0) {
+          return item;
+        }
+      }
     }
     // Secondary: "url" field (some TikHub formats)
-    if (typeof obj.url === 'string') return obj.url;
+    if (typeof obj.url === 'string' && obj.url.length > 0) return obj.url;
     // Tertiary: "uri" field (TikTok internal format, less common)
     if (typeof obj.uri === 'string' && obj.uri.startsWith('http')) return obj.uri;
   }
