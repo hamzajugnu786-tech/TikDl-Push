@@ -24,6 +24,10 @@ interface VideoInfo {
   withWatermarkUrl: string;
   audioUrl: string;
   cover: string;
+  /** "video" for normal video posts, "images" for photo/slide posts */
+  postType?: 'video' | 'images';
+  /** For photo/slide posts: array of original image URLs */
+  slideImages?: string[];
 }
 
 interface FAQItem {
@@ -136,6 +140,11 @@ const TikTokDownloader = () => {
   const [error, setError] = useState('');
   const [history, setHistory] = useState<VideoInfo[]>([]);
   const [activeTab, setActiveTab] = useState<'video' | 'audio' | 'cover'>('video');
+  const [isUnavailable, setIsUnavailable] = useState(false);
+  const [unavailableReason, setUnavailableReason] = useState('');
+  // Photo/slide post state
+  const [imagePostMode, setImagePostMode] = useState<'video' | 'images'>('video');
+  const [selectedImages, setSelectedImages] = useState<Set<number>>(new Set());
   const [showAdPopup, setShowAdPopup] = useState(false);
   const [countdown, setCountdown] = useState(5);
   const [pendingUrl, setPendingUrl] = useState('');
@@ -255,11 +264,34 @@ const TikTokDownloader = () => {
       const result = await response.json();
 
       if (!result.success) {
-        throw new Error(result.error || 'Failed to fetch video info');
+        const errMsg = result.error || 'Failed to fetch video info';
+        // Check for unavailable content using NovaDLErrorCode or message keywords
+        const unavailableCodes = ['PRIVATE_CONTENT', 'DELETED_CONTENT', 'AGE_RESTRICTED', 'GEO_BLOCKED'];
+        const unavailableKeywords = ['private', 'deleted', 'unavailable', 'not available', 'region', 'age-restricted', 'geo'];
+        const isUnavail = unavailableCodes.some(c => result.errorCode === c) ||
+          unavailableKeywords.some(k => errMsg.toLowerCase().includes(k));
+        if (isUnavail) {
+          setIsUnavailable(true);
+          setUnavailableReason(errMsg);
+          setVideoInfo(null);
+          toast.error('This TikTok isn\'t available');
+          return;
+        }
+        throw new Error(errMsg);
       }
 
       const data: VideoInfo = result.data;
+      setIsUnavailable(false);
+      setUnavailableReason('');
       setVideoInfo(data);
+      // Initialize photo/slide state
+      if (data.postType === 'images' && data.slideImages && data.slideImages.length > 0) {
+        setImagePostMode('images');
+        setSelectedImages(new Set(data.slideImages.map((_, i) => i)));
+      } else {
+        setImagePostMode('video');
+        setSelectedImages(new Set());
+      }
       setHistory(prev => [data, ...prev.slice(0, 4)]);
 
       toast.success('Video ready!');
@@ -268,6 +300,8 @@ const TikTokDownloader = () => {
       console.error('Download error:', err);
       setError(errorMessage);
       toast.error('Fetch failed', { description: errorMessage });
+      setIsUnavailable(false);
+      setUnavailableReason('');
     } finally {
       setIsLoading(false);
       setPendingUrl('');
@@ -321,15 +355,29 @@ const TikTokDownloader = () => {
     toast.success(`Downloading ${filename}`);
   }, []);
 
-  const getDownloadFilename = useCallback((type: 'video' | 'audio' | 'cover', info: VideoInfo): string => {
-    const sanitizeName = (name: string) => name.replace(/[^a-zA-Z0-9_-]/g, '_').slice(0, 50);
-    const baseName = sanitizeName(info.title || info.id);
-    switch (type) {
-      case 'video': return `tiktok_${baseName}_no_watermark.mp4`;
-      case 'audio': return `tiktok_${baseName}_audio.mp3`;
-      case 'cover': return `tiktok_${baseName}_cover.jpg`;
-    }
+  /** Sanitize filename for Windows/macOS/Linux — preserve Unicode but remove FS-unsafe chars */
+  const sanitizeFilename = useCallback((name: string): string => {
+    // Remove characters illegal on any OS: \ / : * ? " < > | and control chars
+    let safe = name.replace(/[\\/:*?"<>|\x00-\x1f]/g, '');
+    // Trim whitespace and dots from ends (Windows hates trailing dots)
+    safe = safe.trim().replace(/^[.]+|[.]+$/g, '');
+    // Limit length (255 byte limit on most FS, be conservative)
+    if (safe.length > 180) safe = safe.slice(0, 180);
+    // Fallback if empty
+    if (!safe) safe = 'TikTok_Video';
+    return safe;
   }, []);
+
+  const getDownloadFilename = useCallback((type: 'video' | 'audio' | 'cover', info: VideoInfo): string => {
+    // Preserve the original TikTok title as the filename
+    const rawTitle = info.title || info.id;
+    const baseName = sanitizeFilename(rawTitle);
+    switch (type) {
+      case 'video': return `${baseName}.mp4`;
+      case 'audio': return `${baseName}.mp3`;
+      case 'cover': return `${baseName}.jpg`;
+    }
+  }, [sanitizeFilename]);
 
   const copyToClipboard = useCallback((text: string, label: string) => {
     navigator.clipboard.writeText(text).then(() => {
@@ -598,6 +646,32 @@ const TikTokDownloader = () => {
 
           {/* ===== Video Result Section ===== */}
           <AnimatePresence>
+            {/* ===== Unavailable State ===== */}
+            {isUnavailable && (
+              <motion.section
+                initial={{ opacity: 0, y: 20 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: 20 }}
+                className="max-w-4xl mx-auto px-4 sm:px-6 py-6"
+              >
+                <div className="glass rounded-[16px] p-6 sm:p-8 text-center">
+                  <div className="text-4xl mb-4">🔒</div>
+                  <h3 className="text-lg sm:text-xl font-semibold mb-2">This TikTok isn't available</h3>
+                  <p className="text-gray-400 text-sm mb-4">
+                    This video is private, deleted or unavailable.<br />
+                    Try another public TikTok URL.
+                  </p>
+                  <button
+                    onClick={() => { setIsUnavailable(false); setVideoInfo(null); setError(''); }}
+                    className="bg-white/10 hover:bg-white/15 px-5 py-2 rounded-[12px] text-sm font-medium transition-colors duration-150"
+                  >
+                    Try Another URL
+                  </button>
+                </div>
+              </motion.section>
+            )}
+
+            {/* ===== Video Result Section ===== */}
             {videoInfo && (
               <motion.section
                 initial={{ opacity: 0, y: 20 }}
@@ -606,6 +680,15 @@ const TikTokDownloader = () => {
                 className="max-w-4xl mx-auto px-4 sm:px-6 py-6"
               >
                 <div className="glass rounded-[16px] p-4 sm:p-6">
+                  {/* Photo/Slide post indicator */}
+                  {videoInfo.postType === 'images' && (
+                    <div className="flex items-center gap-2 mb-4 px-3 py-2 rounded-[10px] bg-[#4ADE80]/10 border border-[#4ADE80]/20">
+                      <ImageIcon size={16} className="text-[#4ADE80]" />
+                      <span className="text-sm font-medium text-[#4ADE80]">TikTok Photo Post</span>
+                      <span className="text-xs text-gray-500 ml-1">({videoInfo.slideImages?.length || 0} images)</span>
+                    </div>
+                  )}
+
                   {/* Tab selector */}
                   <div className="flex gap-2 mb-5">
                     {(['video', 'audio', 'cover'] as const).map((tab) => (
@@ -629,13 +712,122 @@ const TikTokDownloader = () => {
                   <div className="flex flex-col lg:flex-row gap-5">
                     {/* Preview */}
                     <div className="lg:flex-1">
-                      {activeTab === 'video' && (
+                      {/* Photo/slide post: download mode selector */}
+                      {videoInfo.postType === 'images' && activeTab === 'video' && (
+                        <div className="mb-4">
+                          <p className="text-sm text-gray-400 mb-2">Download Mode</p>
+                          <div className="flex gap-2">
+                            <button
+                              onClick={() => setImagePostMode('video')}
+                              className={`flex-1 px-3 py-2 rounded-[10px] text-sm font-medium transition-colors duration-150 ${
+                                imagePostMode === 'video'
+                                  ? 'bg-[#FE2C55] text-white'
+                                  : 'bg-white/10 text-gray-400 hover:bg-white/15'
+                              }`}
+                            >
+                              <Play size={14} className="inline mr-1" />Download as MP4 Video
+                            </button>
+                            <button
+                              onClick={() => setImagePostMode('images')}
+                              className={`flex-1 px-3 py-2 rounded-[10px] text-sm font-medium transition-colors duration-150 ${
+                                imagePostMode === 'images'
+                                  ? 'bg-[#4ADE80] text-black'
+                                  : 'bg-white/10 text-gray-400 hover:bg-white/15'
+                              }`}
+                            >
+                              <ImageIcon size={14} className="inline mr-1" />Download Original Images
+                            </button>
+                          </div>
+                        </div>
+                      )}
+
+                      {/* Photo/slide: image grid with checkboxes */}
+                      {videoInfo.postType === 'images' && activeTab === 'video' && imagePostMode === 'images' && videoInfo.slideImages && (
+                        <div className="space-y-3">
+                          <div className="flex items-center justify-between">
+                            <label className="flex items-center gap-2 text-sm text-gray-400 cursor-pointer">
+                              <input
+                                type="checkbox"
+                                checked={selectedImages.size === videoInfo.slideImages.length}
+                                onChange={() => {
+                                  if (selectedImages.size === videoInfo.slideImages!.length) {
+                                    setSelectedImages(new Set());
+                                  } else {
+                                    setSelectedImages(new Set(videoInfo.slideImages!.map((_, i) => i)));
+                                  }
+                                }}
+                                className="accent-[#4ADE80]"
+                              />
+                              Select All
+                            </label>
+                            <span className="text-xs text-gray-500">{selectedImages.size} selected</span>
+                          </div>
+                          <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+                            {videoInfo.slideImages.map((imgUrl, idx) => (
+                              <div
+                                key={idx}
+                                className={`relative rounded-[10px] overflow-hidden cursor-pointer transition-all duration-150 ${
+                                  selectedImages.has(idx) ? 'ring-2 ring-[#4ADE80]' : 'ring-1 ring-white/10 opacity-70 hover:opacity-100'
+                                }`}
+                                onClick={() => {
+                                  setSelectedImages(prev => {
+                                    const next = new Set(prev);
+                                    if (next.has(idx)) next.delete(idx); else next.add(idx);
+                                    return next;
+                                  });
+                                }}
+                              >
+                                <img
+                                  src={`/api/proxy?url=${encodeURIComponent(imgUrl)}&filename=image_${idx + 1}.jpg`}
+                                  alt={`Image ${idx + 1}`}
+                                  className="w-full aspect-square object-cover"
+                                />
+                                <div className="absolute top-1.5 left-1.5">
+                                  <input
+                                    type="checkbox"
+                                    checked={selectedImages.has(idx)}
+                                    onChange={() => {
+                                      setSelectedImages(prev => {
+                                        const next = new Set(prev);
+                                        if (next.has(idx)) next.delete(idx); else next.add(idx);
+                                        return next;
+                                      });
+                                    }}
+                                    onClick={(e) => e.stopPropagation()}
+                                    className="accent-[#4ADE80]"
+                                  />
+                                </div>
+                                <div className="absolute bottom-1 right-1.5 bg-black/60 px-1.5 py-0.5 rounded text-[10px] text-white">
+                                  {idx + 1}
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                          {selectedImages.size > 0 && (
+                            <motion.button
+                              whileHover={{ scale: 1.02 }}
+                              whileTap={{ scale: 0.98 }}
+                              onClick={() => {
+                                const imgs = videoInfo.slideImages!;
+                                selectedImages.forEach(idx => {
+                                  handleDownload(imgs[idx], sanitizeFilename(`${videoInfo.title || videoInfo.id}_${idx + 1}.jpg`));
+                                });
+                              }}
+                              className="w-full bg-[#4ADE80] hover:bg-[#4ADE80]/90 text-black py-2.5 rounded-[12px] font-semibold text-[14px] flex items-center justify-center gap-2 transition-colors duration-150"
+                            >
+                              <Download size={16} /> Download Selected ({selectedImages.size})
+                            </motion.button>
+                          )}
+                        </div>
+                      )}
+
+                      {/* Normal video/audio/cover preview */}
+                      {!(videoInfo.postType === 'images' && activeTab === 'video' && imagePostMode === 'images') && activeTab === 'video' && (
                         <div className="relative rounded-[12px] overflow-hidden bg-zinc-900">
                           <img
-                            src={videoInfo.thumbnail}
+                            src={`/api/proxy?url=${encodeURIComponent(videoInfo.thumbnail)}&filename=thumbnail.jpg`}
                             alt={videoInfo.title}
                             className="w-full object-cover"
-                            referrerPolicy="no-referrer"
                             onError={(e) => { (e.target as HTMLImageElement).src = '/icon-512.png'; }}
                           />
                           <div className="absolute bottom-2 right-2 bg-black/70 px-2 py-1 rounded-lg text-xs flex items-center gap-1">
@@ -653,10 +845,9 @@ const TikTokDownloader = () => {
                       {activeTab === 'cover' && (
                         <div className="rounded-[12px] overflow-hidden">
                           <img
-                            src={videoInfo.cover || videoInfo.thumbnail}
+                            src={`/api/proxy?url=${encodeURIComponent(videoInfo.cover || videoInfo.thumbnail)}&filename=cover.jpg`}
                             alt="Cover image"
                             className="w-full object-cover"
-                            referrerPolicy="no-referrer"
                           />
                         </div>
                       )}
@@ -668,10 +859,9 @@ const TikTokDownloader = () => {
                       <div className="flex items-center gap-3">
                         {videoInfo.avatar && (
                           <img
-                            src={videoInfo.avatar}
+                            src={`/api/proxy?url=${encodeURIComponent(videoInfo.avatar)}&filename=avatar.jpg`}
                             alt={videoInfo.author}
                             className="w-9 h-9 rounded-full object-cover bg-zinc-800"
-                            referrerPolicy="no-referrer"
                             onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }}
                           />
                         )}
@@ -688,18 +878,21 @@ const TikTokDownloader = () => {
                       <div className="space-y-2">
                         {activeTab === 'video' && (
                           <>
-                            <motion.button
-                              whileHover={{ scale: 1.02, y: -1 }}
-                              whileTap={{ scale: 0.98 }}
-                              onClick={() => handleDownload(videoInfo.noWatermarkUrl, getDownloadFilename('video', videoInfo))}
-                              className="w-full bg-[#FE2C55] hover:bg-[#FE2C55]/95 py-2.5 rounded-[12px] font-semibold text-[14px] flex items-center justify-center gap-2 transition-colors duration-150 shadow-[0_4px_16px_rgba(254,44,85,0.25)]"
-                              disabled={!videoInfo.noWatermarkUrl || videoInfo.noWatermarkUrl.startsWith('#')}
-                            >
-                              <Download size={16} /> No Watermark HD
-                            </motion.button>
-                            {videoInfo.withWatermarkUrl && !videoInfo.withWatermarkUrl.startsWith('#') && (
+                            {/* Photo/slide post: only show video download in 'video' mode */}
+                            {!(videoInfo.postType === 'images' && imagePostMode === 'images') && (
+                              <motion.button
+                                whileHover={{ scale: 1.02, y: -1 }}
+                                whileTap={{ scale: 0.98 }}
+                                onClick={() => handleDownload(videoInfo.noWatermarkUrl, getDownloadFilename('video', videoInfo))}
+                                className="w-full bg-[#FE2C55] hover:bg-[#FE2C55]/95 py-2.5 rounded-[12px] font-semibold text-[14px] flex items-center justify-center gap-2 transition-colors duration-150 shadow-[0_4px_16px_rgba(254,44,85,0.25)]"
+                                disabled={!videoInfo.noWatermarkUrl || videoInfo.noWatermarkUrl.startsWith('#')}
+                              >
+                                <Download size={16} /> No Watermark HD
+                              </motion.button>
+                            )}
+                            {!(videoInfo.postType === 'images' && imagePostMode === 'images') && videoInfo.withWatermarkUrl && !videoInfo.withWatermarkUrl.startsWith('#') && (
                               <button
-                                onClick={() => handleDownload(videoInfo.withWatermarkUrl, `tiktok_${videoInfo.id}_with_watermark.mp4`)}
+                                onClick={() => handleDownload(videoInfo.withWatermarkUrl, sanitizeFilename(`${videoInfo.title || videoInfo.id}_wm.mp4`))}
                                 className="w-full bg-white/10 hover:bg-white/15 py-2.5 rounded-[12px] font-medium text-[14px] flex items-center justify-center gap-2 transition-colors duration-150"
                               >
                                 <Download size={14} /> With Watermark
@@ -889,10 +1082,9 @@ const TikTokDownloader = () => {
                       }}
                     >
                       <img
-                        src={item.thumbnail}
+                        src={`/api/proxy?url=${encodeURIComponent(item.thumbnail)}&filename=thumb.jpg`}
                         alt={item.title}
                         className="w-12 h-12 rounded-[10px] object-cover bg-zinc-800"
-                        referrerPolicy="no-referrer"
                         onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }}
                       />
                       <div className="flex-1 min-w-0">

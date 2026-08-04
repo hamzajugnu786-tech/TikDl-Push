@@ -31,24 +31,19 @@ const ALLOWED_HOST_PATTERNS = [
   '.bytedance.com',
   '.tikhub.io',
   '.rapidapi.com',
-  '.p16.bktgdn.win',
-  '.p19.bktgdn.win',
-  '.p77.bktgdn.win',
-  '.p3.bktgdn.win',
-  '.p9.bktgdn.win',
-  '.p5.bktgdn.win',
-  '.p6.bktgdn.win',
-  '.p7.bktgdn.win',
-  '.p8.bktgdn.win',
-  '.ak.bktgdn.win',
-  '.aweme.bktgdn.win',
+  '.bktgdn.win',
   '.bytecdn.com',
   '.bytecdn.',
+  '.ttwstatic.com',
+  '.tiktokcdn',
+  '.tiktokv',
   'tiktokcdn',
   'tiktokv',
   'ibytedtos',
   'byteimg',
   'muscdn',
+  'tiktok',
+  'bytecdntest',
 ];
 
 function isAllowedHost(hostname: string): boolean {
@@ -128,12 +123,23 @@ export async function GET(request: NextRequest) {
     }
 
     // Stream the response body with Content-Disposition: attachment
-    const sanitizedFilename = filename.replace(/[^\w.-]/g, '_');
+    // Preserve Unicode in filename but remove FS-unsafe chars
+    // Use RFC 5987 encoding for non-ASCII characters in Content-Disposition
+    const sanitizedFilename = filename
+      .replace(/[\\/:*?"<>|\x00-\x1f]/g, '_')
+      .trim()
+      .replace(/^[.]+|[.]+$/g, '');
+
+    // For non-ASCII filenames, use filename*= encoding (RFC 5987)
+    const hasNonAscii = /[^\x20-\x7e]/.test(sanitizedFilename);
+    const contentDisposition = hasNonAscii
+      ? `attachment; filename="${sanitizedFilename.replace(/[^\x20-\x7e]/g, '_')}"; filename*=UTF-8''${encodeURIComponent(sanitizedFilename)}`
+      : `attachment; filename="${sanitizedFilename}"`;
 
     return new Response(upstreamResponse.body, {
       status: 200,
       headers: {
-        'Content-Disposition': `attachment; filename="${sanitizedFilename}"`,
+        'Content-Disposition': contentDisposition,
         'Content-Type': contentType,
         // Cache for 1 hour — these are immutable CDN assets
         'Cache-Control': 'public, max-age=3600, immutable',

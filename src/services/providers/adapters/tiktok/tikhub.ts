@@ -110,6 +110,10 @@ interface TikHubVideoData {
   share_url?: string;
   // Some endpoints wrap the aweme data inside aweme_detail
   aweme_detail?: TikHubVideoData;
+  // Photo/slide posts: array of image objects with url_list
+  image_list?: unknown[];
+  // Photo post indicator (TikHub may set this)
+  media_type?: number;
 }
 
 // ============================================================================
@@ -375,12 +379,28 @@ export class TikTokTikHubAdapter implements NovaDLProvider {
     // ──── Statistics ────
     // Handle both "statistics" and "stats" field names
     const stats = videoData.statistics || videoData.stats;
+
+    // ──── Photo/Slide Post Detection ────
+    // TikTok photo posts have image_list with multiple images and media_type=68
+    // or no video field at all but image_list is present
+    const isPhotoPost = (videoData.image_list && videoData.image_list.length > 0) &&
+      (!videoData.video?.play_addr || videoData.media_type === 68);
+    const slideImageUrls: string[] = [];
+    if (isPhotoPost && videoData.image_list) {
+      for (const img of videoData.image_list) {
+        const url = extractUrl(img);
+        if (url) slideImageUrls.push(url);
+      }
+    }
+
     const metadata: NovaDLMetadata = {
       videoId: id,
       views: stats?.play_count ? formatCount(stats.play_count) : undefined,
       likes: stats?.digg_count ? formatCount(stats.digg_count) : undefined,
       comments: stats?.comment_count ? formatCount(stats.comment_count) : undefined,
       shares: stats?.share_count ? formatCount(stats.share_count) : undefined,
+      postType: isPhotoPost ? 'images' : 'video',
+      slideImages: slideImageUrls.length > 0 ? slideImageUrls : undefined,
     };
 
     // ──── DIAGNOSTIC: Log the final NovaDLResult ────

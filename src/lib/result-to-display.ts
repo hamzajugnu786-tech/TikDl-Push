@@ -50,6 +50,10 @@ export interface VideoInfo {
   withWatermarkUrl: string;
   audioUrl: string;
   cover: string;
+  /** "video" for normal video posts, "images" for photo/slide posts */
+  postType?: 'video' | 'images';
+  /** For photo/slide posts: array of original image URLs */
+  slideImages?: string[];
 }
 
 // ============================================================================
@@ -90,6 +94,8 @@ export function adaptResultForDisplay(result: NovaDLResult): VideoInfo {
     withWatermarkUrl: withWatermark?.url || '',
     audioUrl: audio?.url || '',
     cover: cover?.url || result.thumbnail,
+    postType: result.metadata.postType as 'video' | 'images' | undefined,
+    slideImages: result.metadata.slideImages as string[] | undefined,
   };
 
   // Essential diagnostic: log final VideoInfo summary
@@ -120,6 +126,8 @@ export interface DownloadApiResponse {
   success: boolean;
   data?: VideoInfo;
   error?: string;
+  /** NovaDLErrorCode for programmatic error handling on the frontend */
+  errorCode?: string;
   provider?: string;
   duration?: number;
   requestId?: string;
@@ -149,6 +157,7 @@ export function serviceResultToApiResponse(
   return {
     success: false,
     error: serviceResult.error?.message || 'Download failed',
+    errorCode: serviceResult.error?.code,
     provider: serviceResult.provider,
     duration: serviceResult.duration,
     requestId: serviceResult.requestId,
