@@ -11,6 +11,8 @@ import {
 } from 'lucide-react';
 import { Toaster, toast } from 'sonner';
 import { sanitizeAdHtml } from '@/lib/sanitize';
+import SiteNavbar from '@/components/site-navbar';
+import SiteFooter from '@/components/site-footer';
 
 interface VideoInfo {
   id: string;
@@ -503,28 +505,9 @@ const TikTokDownloader = () => {
       <Toaster position="top-center" richColors closeButton />
 
       {/* ===== Navbar ===== */}
-      <nav className="sticky top-0 z-50 glass border-b border-white/10 bg-black/80">
-        <div className="max-w-6xl mx-auto px-4 sm:px-6 py-3 flex justify-between items-center">
-          <div className="flex items-center gap-2.5">
-            <div className="w-7 h-7 bg-[#FE2C55] rounded-lg flex items-center justify-center text-base font-bold">♪</div>
-            <span className="font-bold text-lg tracking-tighter">TikDL</span>
-            <button
-              onClick={() => window.location.reload()}
-              className="ml-1 w-7 h-7 flex items-center justify-center rounded-lg hover:bg-white/10 transition-colors duration-150"
-              title="Refresh page"
-            >
-              <RefreshCw size={14} className="text-gray-400 hover:text-white transition-colors" />
-            </button>
-          </div>
-          <div className="hidden md:flex gap-6 text-sm font-medium text-gray-400">
-            <a href="#features" className="hover:text-[#FE2C55] transition-colors duration-150">Features</a>
-            <a href="#faq" className="hover:text-[#FE2C55] transition-colors duration-150">FAQ</a>
-            <a href="#history" className="hover:text-[#FE2C55] transition-colors duration-150">History</a>
-          </div>
-        </div>
-      </nav>
+      <SiteNavbar isHome />
 
-      {/* ===== Header Banner Ad ===== */}
+      {/* ===== Banner Ad 1: Below Navbar ===== */}
       {landingAds.bannerAds.filter(a => a.placement === 'header_banner').length > 0 && (
         <div className="max-w-6xl mx-auto px-4 sm:px-6 mt-2">
           {landingAds.bannerAds.filter(a => a.placement === 'header_banner').map(ad => renderAdSlot(ad, 'ad-slot-banner'))}
@@ -680,7 +663,7 @@ const TikTokDownloader = () => {
             </div>
           </section>
 
-          {/* Inline Ad: Between URL Box & Download Button */}
+          {/* ===== Banner Ad 2: Between URL Input and Result Card ===== */}
           {landingAds.inlineAds.filter(a => a.placement === 'between_url_download').length > 0 && (
             <div className="max-w-xl mx-auto px-4 sm:px-6 my-2">
               {landingAds.inlineAds.filter(a => a.placement === 'between_url_download').map(ad => renderAdSlot(ad))}
@@ -999,6 +982,13 @@ const TikTokDownloader = () => {
             )}
           </AnimatePresence>
 
+          {/* Banner Ad 3: Between Result Card and Recent Downloads */}
+          {(videoInfo || isUnavailable) && landingAds.inlineAds.filter(a => a.placement === 'between_result_recent').length > 0 && (
+            <div className="max-w-4xl mx-auto px-4 sm:px-6 my-3">
+              {landingAds.inlineAds.filter(a => a.placement === 'between_result_recent').map(ad => renderAdSlot(ad))}
+            </div>
+          )}
+
           {/* Recent Downloads shortcut — below result card */}
           {videoInfo && history.length > 0 && (
             <div className="max-w-4xl mx-auto px-4 sm:px-6 mt-1 mb-2 text-center">
@@ -1011,10 +1001,10 @@ const TikTokDownloader = () => {
             </div>
           )}
 
-          {/* Inline Ad: Between Download Section & Features */}
-          {landingAds.inlineAds.filter(a => a.placement === 'between_url_download').length > 0 && videoInfo && (
-            <div className="max-w-xl mx-auto px-4 sm:px-6 my-3">
-              {landingAds.inlineAds.filter(a => a.placement === 'between_url_download').map(ad => renderAdSlot(ad))}
+          {/* Banner Ad 4: Between Recent Downloads and Features */}
+          {landingAds.inlineAds.filter(a => a.placement === 'between_recent_features').length > 0 && (
+            <div className="max-w-5xl mx-auto px-4 sm:px-6 my-3">
+              {landingAds.inlineAds.filter(a => a.placement === 'between_recent_features').map(ad => renderAdSlot(ad))}
             </div>
           )}
 
@@ -1063,7 +1053,7 @@ const TikTokDownloader = () => {
             </div>
           </section>
 
-          {/* Inline Ad: Between Features & FAQ */}
+          {/* ===== Banner Ad 5: Between Features and FAQ ===== */}
           {landingAds.inlineAds.filter(a => a.placement === 'between_features_faq').length > 0 && (
             <div className="max-w-3xl mx-auto px-4 sm:px-6 my-3">
               {landingAds.inlineAds.filter(a => a.placement === 'between_features_faq').map(ad => renderAdSlot(ad))}
@@ -1185,7 +1175,7 @@ const TikTokDownloader = () => {
         )}
       </div>
 
-      {/* ===== Footer Banner Ad ===== */}
+      {/* ===== Banner Ad 6: Above Footer ===== */}
       {landingAds.bannerAds.filter(a => a.placement === 'above_footer').length > 0 && (
         <div className="max-w-6xl mx-auto px-4 sm:px-6 mb-2">
           {landingAds.bannerAds.filter(a => a.placement === 'above_footer').map(ad => renderAdSlot(ad, 'ad-slot-banner'))}
@@ -1193,36 +1183,7 @@ const TikTokDownloader = () => {
       )}
 
       {/* ===== Footer ===== */}
-      <footer className="py-6 px-4 sm:px-6 bg-[#0a0a0a] border-t border-white/10 mt-auto">
-        <div className="max-w-5xl mx-auto flex flex-col sm:flex-row items-center justify-between gap-4">
-          <div className="flex items-center gap-2">
-            <div className="w-6 h-6 bg-[#FE2C55] rounded-lg flex items-center justify-center text-sm font-bold">♪</div>
-            <span className="font-bold text-base tracking-tighter">TikDL</span>
-          </div>
-          <div className="flex gap-5 text-sm text-gray-500">
-            <a href="#features" className="hover:text-[#FE2C55] transition-colors duration-150">Features</a>
-            <a href="#faq" className="hover:text-[#FE2C55] transition-colors duration-150">FAQ</a>
-          </div>
-          <div className="flex items-center gap-2">
-            <p className="text-xs text-gray-600">
-              TikDL is not affiliated with TikTok. For personal use only.
-            </p>
-          </div>
-        </div>
-        <div className="max-w-5xl mx-auto mt-4 pt-3 border-t border-white/5 text-center">
-          <p className="text-xs text-gray-500">
-            Powered by{' '}
-            <a
-              href="https://silbren.com"
-              target="_blank"
-              rel="noopener noreferrer"
-              className="text-[#9CA3AF] hover:text-white transition-colors duration-150 font-medium"
-            >
-              Silbren.com
-            </a>
-          </p>
-        </div>
-      </footer>
+      <SiteFooter />
 
       {/* ===== Ad Interstitial Popup ===== */}
       <AnimatePresence>
