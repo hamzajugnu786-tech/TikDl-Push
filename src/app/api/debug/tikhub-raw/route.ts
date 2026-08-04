@@ -5,9 +5,6 @@
  * raw JSON response. It does NOT process the data through the adapter.
  *
  * Usage: POST /api/debug/tikhub-raw { "url": "https://www.tiktok.com/@user/video/123" }
- *
- * SECURITY: This endpoint is only available in development mode.
- * In production, it requires the same admin authentication as other admin routes.
  */
 
 import { NextRequest, NextResponse } from 'next/server';
@@ -53,6 +50,7 @@ export async function POST(request: NextRequest) {
 
     // Stage A: Raw TikHub JSON
     trace.stageA_rawResponse = {
+      httpStatus: response.status,
       code: rawJson.code,
       message: rawJson.message,
       dataType: typeof rawJson.data,
@@ -82,7 +80,7 @@ export async function POST(request: NextRequest) {
       trace.stageB_unwrapping = 'fallback';
     }
 
-    // Stage C: extractUrl() on key fields
+    // Stage C: extractUrl() on key fields — SAME function as adapter
     function extractUrl(field: unknown): string {
       if (!field) return '';
       if (typeof field === 'string') return field;
@@ -92,6 +90,32 @@ export async function POST(request: NextRequest) {
           return obj.url_list[0];
         }
         if (typeof obj.url === 'string') return obj.url;
+        if (typeof obj.uri === 'string' && obj.uri.startsWith('http')) return obj.uri;
+      }
+      return '';
+    }
+
+    // Enhanced extractUrl that tries ALL url_list elements (proposed fix)
+    function extractUrlRobust(field: unknown): string {
+      if (!field) return '';
+      if (typeof field === 'string') return field;
+      if (typeof field === 'object' && field !== null) {
+        const obj = field as Record<string, unknown>;
+        // Try ALL elements in url_list, not just [0]
+        if (Array.isArray(obj.url_list)) {
+          for (const item of obj.url_list) {
+            if (typeof item === 'string' && item.length > 0) {
+              return item;
+            }
+          }
+        }
+        if (typeof obj.url === 'string' && obj.url.length > 0) return obj.url;
+        if (typeof obj.uri === 'string' && obj.uri.startsWith('http')) return obj.uri;
+        // Try nested data
+        if (obj.data && typeof obj.data === 'object') {
+          const nested = extractUrlRobust(obj.data);
+          if (nested) return nested;
+        }
       }
       return '';
     }
@@ -101,7 +125,7 @@ export async function POST(request: NextRequest) {
 
       trace.stageC_videoData = {
         aweme_id: videoData.aweme_id,
-        desc: typeof videoData.desc === 'string' ? videoData.desc.slice(0, 100) : videoData.desc,
+        desc: typeof videoData.desc === 'string' ? videoData.desc.slice(0, 100) : String(videoData.desc),
         media_type: videoData.media_type,
         aweme_type: videoData.aweme_type,
         hasVideo: !!videoData.video,
@@ -111,21 +135,38 @@ export async function POST(request: NextRequest) {
       };
 
       if (video) {
+        // Log the RAW play_addr and download_addr objects — this is the key diagnostic
+        trace.stageC_raw_play_addr = video.play_addr;
+        trace.stageC_raw_download_addr = video.download_addr;
+
         trace.stageC_video = {
           play_addr_type: typeof video.play_addr,
-          play_addr_value: video.play_addr,
           download_addr_type: typeof video.download_addr,
-          download_addr_value: video.download_addr,
           play_addr_265_type: typeof video.play_addr_265,
           duration: video.duration,
           width: video.width,
           height: video.height,
         };
 
+        // Compare current extractUrl vs robust extractUrl
+        const currentPlayUrl = extractUrl(video.play_addr);
+        const robustPlayUrl = extractUrlRobust(video.play_addr);
+        const currentDownloadUrl = extractUrl(video.download_addr);
+        const robustDownloadUrl = extractUrlRobust(video.download_addr);
+
+        trace.stageC_extractUrl_comparison = {
+          play_addr_current: currentPlayUrl || '(empty)',
+          play_addr_robust: robustPlayUrl || '(empty)',
+          play_addr_DIFFERS: currentPlayUrl !== robustPlayUrl,
+          download_addr_current: currentDownloadUrl || '(empty)',
+          download_addr_robust: robustDownloadUrl || '(empty)',
+          download_addr_DIFFERS: currentDownloadUrl !== robustDownloadUrl,
+        };
+
         trace.stageC_extractUrl = {
-          play_addr: extractUrl(video.play_addr),
-          download_addr: extractUrl(video.download_addr),
-          play_addr_265: extractUrl(video.play_addr_265),
+          play_addr: currentPlayUrl || '(empty)',
+          download_addr: currentDownloadUrl || '(empty)',
+          play_addr_265: extractUrl(video.play_addr_265) || '(empty)',
         };
       }
 
@@ -134,8 +175,8 @@ export async function POST(request: NextRequest) {
       if (music) {
         trace.stageC_music = {
           play_url_type: typeof music.play_url,
-          play_url_value: music.play_url,
-          extractUrl_play_url: extractUrl(music.play_url),
+          raw_play_url: music.play_url,
+          extractUrl_play_url: extractUrl(music.play_url) || '(empty)',
         };
       }
 
@@ -156,16 +197,16 @@ export async function POST(request: NextRequest) {
           unique_id: author.unique_id,
           nickname: author.nickname,
           avatar_larger_type: typeof author.avatar_larger,
-          avatar_larger_extractUrl: extractUrl(author.avatar_larger),
+          avatar_larger_extractUrl: extractUrl(author.avatar_larger) || '(empty)',
         };
       }
 
       // Cover
       trace.stageC_cover = {
         cover_type: typeof videoData.cover,
-        cover_extractUrl: extractUrl(videoData.cover),
+        cover_extractUrl: extractUrl(videoData.cover) || '(empty)',
         origin_cover_type: typeof videoData.origin_cover,
-        origin_cover_extractUrl: extractUrl(videoData.origin_cover),
+        origin_cover_extractUrl: extractUrl(videoData.origin_cover) || '(empty)',
       };
     }
 
@@ -206,11 +247,14 @@ export async function POST(request: NextRequest) {
       };
     }
 
+    // Safely stringify the raw data
+    const rawDataStr = JSON.stringify(rawJson.data, null, 2);
+    const rawDataPreview = typeof rawDataStr === 'string' ? rawDataStr.slice(0, 15000) : 'undefined';
+
     return NextResponse.json({
       trace,
       rawResponseKeys: Object.keys(rawJson),
-      // Include the raw data field (truncated for safety)
-      rawDataPreview: JSON.stringify(rawJson.data, null, 2).slice(0, 10000),
+      rawDataPreview,
     });
   } catch (error) {
     return NextResponse.json(
