@@ -73,9 +73,11 @@ const ALLOWED_HOST_PATTERNS = [
 
   // ──── TikHub API ────
   '.tikhub.io',
+  'tikhub.io',          // exact domain (no subdomain) — API calls to https://tikhub.io/...
 
   // ──── RapidAPI ────
   '.rapidapi.com',
+  'rapidapi.com',       // exact domain (no subdomain)
 
   // ──── SSSTik.io (V2 — tiktok-api-dl) ────
   'ssstik.io',
