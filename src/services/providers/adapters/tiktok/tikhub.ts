@@ -406,11 +406,13 @@ export class TikTokTikHubAdapter implements NovaDLProvider {
     // ──── Audio ────
     // Use music.play_url if available, NOT the video URL
     const audioUrl = extractUrl(videoData.music?.play_url);
+    // TikTok API returns AAC audio (m4a), detect extension from URL
+    const audioExt = audioUrl.includes('.mp3') ? 'mp3' : 'm4a';
     const audio: NovaDLAudio[] = audioUrl ? [{
       url: audioUrl,
-      format: 'mp3',
-      extension: 'mp3',
-      label: 'MP3 Audio',
+      format: audioExt,
+      extension: audioExt,
+      label: audioExt === 'mp3' ? 'MP3 Audio' : 'M4A Audio',
     }] : [];
 
     // ──── Images ────

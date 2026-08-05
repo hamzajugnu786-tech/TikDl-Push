@@ -308,20 +308,41 @@ const TikTokDownloader = () => {
     }, 1000);
   }, [interstitialConfig.countdownDuration]);
 
-  const proceedAfterAd = useCallback(() => {
-    setShowAdPopup(false);
-    if (pendingDownload) {
-      const proxyUrl = `/api/proxy?url=${encodeURIComponent(pendingDownload.url)}&filename=${encodeURIComponent(pendingDownload.filename)}`;
+  // ──── SAFE DOWNLOAD: fetch+blob instead of <a> click ────
+  // This prevents .json extension when proxy returns errors.
+  // Old approach: <a href=proxyUrl download> → browser saves error body as file.mp4.json
+  // New approach: fetch() → detect error → blob download only on success
+  const triggerProxyDownload = useCallback(async (downloadUrl: string, filename: string) => {
+    try {
+      const proxyUrl = `/api/proxy?url=${encodeURIComponent(downloadUrl)}&filename=${encodeURIComponent(filename)}`;
+      const res = await fetch(proxyUrl);
+      if (!res.ok) {
+        const text = await res.text().catch(() => 'Download failed');
+        toast.error('Download failed', { description: text.slice(0, 100) });
+        return;
+      }
+      const blob = await res.blob();
+      const blobUrl = URL.createObjectURL(blob);
       const a = document.createElement('a');
-      a.href = proxyUrl;
-      a.download = pendingDownload.filename;
+      a.href = blobUrl;
+      a.download = filename;
       document.body.appendChild(a);
       a.click();
       document.body.removeChild(a);
-      toast.success(`Downloading ${pendingDownload.filename}`);
+      URL.revokeObjectURL(blobUrl);
+      toast.success(`Downloading ${filename}`);
+    } catch (err) {
+      toast.error('Download failed', { description: err instanceof Error ? err.message : 'Network error' });
+    }
+  }, []);
+
+  const proceedAfterAd = useCallback(() => {
+    setShowAdPopup(false);
+    if (pendingDownload) {
+      triggerProxyDownload(pendingDownload.url, pendingDownload.filename);
       setPendingDownload(null);
     }
-  }, [pendingDownload]);
+  }, [pendingDownload, triggerProxyDownload]);
 
   useEffect(() => {
     if (countdown === 0 && showAdPopup && interstitialConfig.autoDownload && !autoProceedRef.current) {
@@ -353,16 +374,9 @@ const TikTokDownloader = () => {
     if (interstitialConfig.enabled) {
       startAdTimer(downloadUrl, filename);
     } else {
-      const proxyUrl = `/api/proxy?url=${encodeURIComponent(downloadUrl)}&filename=${encodeURIComponent(filename)}`;
-      const a = document.createElement('a');
-      a.href = proxyUrl;
-      a.download = filename;
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
-      toast.success(`Downloading ${filename}`);
+      triggerProxyDownload(downloadUrl, filename);
     }
-  }, [interstitialConfig.enabled, startAdTimer]);
+  }, [interstitialConfig.enabled, startAdTimer, triggerProxyDownload]);
 
   const sanitizeFilename = useCallback((name: string): string => {
     let safe = name.replace(/[\\/:*?"<>|\x00-\x1f]/g, '');
@@ -372,12 +386,12 @@ const TikTokDownloader = () => {
     return safe;
   }, []);
 
-  const getDownloadFilename = useCallback((type: 'video' | 'audio', info: VideoInfo): string => {
+  const getDownloadFilename = useCallback((type: 'video' | 'audio', info: VideoInfo, audioExt?: string): string => {
     const rawTitle = info.title || info.id;
     const baseName = sanitizeFilename(rawTitle);
     switch (type) {
       case 'video': return `${baseName}.mp4`;
-      case 'audio': return `${baseName}.mp3`;
+      case 'audio': return `${baseName}.${audioExt || 'm4a'}`;
     }
   }, [sanitizeFilename]);
 
@@ -709,12 +723,12 @@ const TikTokDownloader = () => {
                             </label>
                             <span className="text-xs text-gray-500">{selectedImages.size} of {videoInfo.slideImages.length} selected</span>
                           </div>
-                          {/* Horizontal scroll gallery */}
-                          <div className="flex gap-2 overflow-x-auto pb-2 snap-x snap-mandatory" style={{ scrollbarWidth: 'thin' }}>
+                          {/* Grid gallery — 2 columns on mobile, 3 on sm+ */}
+                          <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
                             {videoInfo.slideImages.map((imgUrl, idx) => (
                               <div
                                 key={idx}
-                                className={`relative rounded-[10px] overflow-hidden cursor-pointer transition-all duration-150 flex-shrink-0 w-[140px] h-[140px] snap-start ${selectedImages.has(idx) ? 'ring-2 ring-[#4ADE80]' : 'ring-1 ring-white/10 opacity-70 hover:opacity-100'}`}
+                                className={`relative rounded-[10px] overflow-hidden cursor-pointer transition-all duration-150 aspect-[3/4] ${selectedImages.has(idx) ? 'ring-2 ring-[#4ADE80] shadow-[0_0_12px_rgba(74,222,128,0.2)]' : 'ring-1 ring-white/10 hover:ring-white/30'}`}
                                 onClick={() => {
                                   setSelectedImages(prev => {
                                     const next = new Set(prev);
@@ -724,10 +738,17 @@ const TikTokDownloader = () => {
                                 }}
                               >
                                 <img
-                                  src={`/api/proxy?url=${encodeURIComponent(imgUrl)}&filename=image_${idx + 1}.jpg`}
+                                  src={`/api/proxy?url=${encodeURIComponent(imgUrl)}&filename=image_${idx + 1}.jpg&mode=inline`}
                                   alt={`Image ${idx + 1}`}
                                   className="w-full h-full object-cover"
+                                  loading="lazy"
+                                  onError={(e) => { (e.target as HTMLImageElement).src = '/icon-512.png'; }}
                                 />
+                                {/* Selection overlay */}
+                                {selectedImages.has(idx) && (
+                                  <div className="absolute inset-0 bg-[#4ADE80]/15 pointer-events-none" />
+                                )}
+                                {/* Checkbox */}
                                 <div className="absolute top-1.5 left-1.5">
                                   <input
                                     type="checkbox"
@@ -740,17 +761,29 @@ const TikTokDownloader = () => {
                                       });
                                     }}
                                     onClick={(e) => e.stopPropagation()}
-                                    className="accent-[#4ADE80]"
+                                    className="accent-[#4ADE80] w-3.5 h-3.5"
                                   />
                                 </div>
-                                <div className="absolute bottom-1 right-1.5 bg-black/60 px-1.5 py-0.5 rounded text-[10px] text-white">
+                                {/* Image number badge */}
+                                <div className="absolute bottom-1 right-1.5 bg-black/70 px-1.5 py-0.5 rounded text-[10px] text-white font-medium">
                                   {idx + 1}
                                 </div>
+                                {/* Individual download button */}
+                                <button
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    handleDownload(imgUrl, sanitizeFilename(`${videoInfo.title || videoInfo.id}_${idx + 1}.jpg`));
+                                  }}
+                                  className="absolute top-1.5 right-1.5 w-6 h-6 bg-black/60 hover:bg-black/80 rounded-md flex items-center justify-center transition-opacity duration-150"
+                                  title={`Download image ${idx + 1}`}
+                                >
+                                  <Download size={11} className="text-white" />
+                                </button>
                               </div>
                             ))}
                           </div>
                           {/* Download actions for slides */}
-                          <div className="flex gap-2">
+                          <div className="flex gap-2 flex-wrap">
                             {selectedImages.size > 0 && (
                               <motion.button
                                 whileHover={{ scale: 1.02 }}
@@ -761,7 +794,7 @@ const TikTokDownloader = () => {
                                     handleDownload(imgs[idx], sanitizeFilename(`${videoInfo.title || videoInfo.id}_${idx + 1}.jpg`));
                                   });
                                 }}
-                                className="flex-1 bg-[#4ADE80] hover:bg-[#4ADE80]/90 text-black py-2.5 rounded-[12px] font-semibold text-[14px] flex items-center justify-center gap-2 transition-colors duration-150"
+                                className="flex-1 min-w-[140px] bg-[#4ADE80] hover:bg-[#4ADE80]/90 text-black py-2.5 rounded-[12px] font-semibold text-[14px] flex items-center justify-center gap-2 transition-colors duration-150"
                               >
                                 <Download size={16} /> Download Selected ({selectedImages.size})
                               </motion.button>
@@ -775,9 +808,9 @@ const TikTokDownloader = () => {
                                   handleDownload(imgUrl, sanitizeFilename(`${videoInfo.title || videoInfo.id}_${idx + 1}.jpg`));
                                 });
                               }}
-                              className="flex-1 bg-white/10 hover:bg-white/15 py-2.5 rounded-[12px] font-medium text-[14px] flex items-center justify-center gap-2 transition-colors duration-150"
+                              className="flex-1 min-w-[140px] bg-white/10 hover:bg-white/15 py-2.5 rounded-[12px] font-medium text-[14px] flex items-center justify-center gap-2 transition-colors duration-150"
                             >
-                              <Download size={16} /> Download All
+                              <Download size={16} /> Download All ({videoInfo.slideImages.length})
                             </motion.button>
                           </div>
                         </div>
@@ -802,7 +835,7 @@ const TikTokDownloader = () => {
                       {videoInfo.postType !== 'images' && activeTab === 'video' && (
                         <div className="relative rounded-[12px] overflow-hidden bg-zinc-900">
                           <img
-                            src={`/api/proxy?url=${encodeURIComponent(videoInfo.thumbnail)}&filename=thumbnail.jpg`}
+                            src={`/api/proxy?url=${encodeURIComponent(videoInfo.thumbnail)}&filename=thumbnail.jpg&mode=inline`}
                             alt={videoInfo.title}
                             className="w-full object-cover"
                             onError={(e) => { (e.target as HTMLImageElement).src = '/icon-512.png'; }}
@@ -827,7 +860,7 @@ const TikTokDownloader = () => {
                       <div className="flex items-center gap-3">
                         {videoInfo.avatar && (
                           <img
-                            src={`/api/proxy?url=${encodeURIComponent(videoInfo.avatar)}&filename=avatar.jpg`}
+                            src={`/api/proxy?url=${encodeURIComponent(videoInfo.avatar)}&filename=avatar.jpg&mode=inline`}
                             alt={videoInfo.author}
                             className="w-9 h-9 rounded-full object-cover bg-zinc-800"
                             onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }}
@@ -873,7 +906,7 @@ const TikTokDownloader = () => {
                             className="w-full bg-[#38BDF8] hover:bg-[#38BDF8]/90 text-black py-2.5 rounded-[12px] font-semibold text-[14px] flex items-center justify-center gap-2 transition-colors duration-150 shadow-[0_4px_16px_rgba(56,189,248,0.25)]"
                             disabled={!videoInfo.audioUrl || videoInfo.audioUrl.startsWith('#')}
                           >
-                            <Music size={16} /> Download MP3 Audio
+                            <Music size={16} /> Download Audio
                           </motion.button>
                         )}
                       </div>
@@ -940,7 +973,7 @@ const TikTokDownloader = () => {
                       }}
                     >
                       <img
-                        src={`/api/proxy?url=${encodeURIComponent(item.thumbnail)}&filename=thumb.jpg`}
+                        src={`/api/proxy?url=${encodeURIComponent(item.thumbnail)}&filename=thumb.jpg&mode=inline`}
                         alt={item.title}
                         className="w-11 h-11 rounded-[10px] object-cover bg-zinc-800"
                         onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }}

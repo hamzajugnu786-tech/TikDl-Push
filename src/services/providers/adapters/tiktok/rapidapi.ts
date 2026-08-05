@@ -183,11 +183,12 @@ export class TikTokRapidAPIAdapter implements NovaDLProvider {
     }
 
     const audioUrl = videoData.music?.play_url || videoData.audioUrl || '';
+    const audioExt = audioUrl.includes('.mp3') ? 'mp3' : 'm4a';
     const audio: NovaDLAudio[] = audioUrl ? [{
       url: audioUrl,
-      format: 'mp3',
-      extension: 'mp3',
-      label: 'MP3 Audio',
+      format: audioExt,
+      extension: audioExt,
+      label: audioExt === 'mp3' ? 'MP3 Audio' : 'M4A Audio',
     }] : [];
 
     const images: NovaDLImage[] = [];

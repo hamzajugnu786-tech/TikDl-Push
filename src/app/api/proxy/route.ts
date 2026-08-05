@@ -1,49 +1,105 @@
 /**
- * /api/proxy — Download Proxy Endpoint
+ * /api/proxy — Download & Media Proxy Endpoint
  *
- * Streams a remote file to the browser with Content-Disposition: attachment,
- * forcing the browser to download the file instead of playing it inline.
- *
- * This is necessary because the HTML `download` attribute on <a> tags is
- * ignored by browsers for cross-origin URLs. By proxying through our backend,
- * we control the Content-Disposition header and guarantee a download.
+ * Streams a remote file to the browser with proper Content-Type and
+ * Content-Disposition headers.
  *
  * Query params:
  *   - url:       The remote file URL to stream (required)
  *   - filename:  The filename for Content-Disposition (required)
+ *   - mode:      "download" (default) or "inline"
+ *                - "download": Content-Disposition: attachment → browser saves file
+ *                - "inline":   Content-Disposition: inline → browser displays/embeds
  *
  * Security:
  *   - Only allows HTTPS URLs (no http, no file://, etc.)
  *   - Only allows known CDN/file host patterns to prevent SSRF
  *   - 30-second timeout on upstream fetch
  *   - Streams response body — no buffering in memory
+ *
+ * CRITICAL FIX: Error responses MUST use text/plain Content-Type,
+ * never application/json. When the browser triggers a download via
+ * <a download="file.mp4"> and receives application/json, it appends
+ * .json to the filename, producing file.mp4.json — a useless file.
  */
 
 import { NextRequest, NextResponse } from 'next/server';
 
-// Allowed host patterns for remote URLs (prevents SSRF to internal services)
+// ============================================================================
+// SSRF PROTECTION — Allowed Host Patterns
+// ============================================================================
+
+/**
+ * Allowed host patterns for remote URLs (prevents SSRF to internal services).
+ *
+ * Covers ALL URL sources across all providers:
+ *   - TikTok CDN: tiktokcdn.com, tiktokv.com, ibytedtos.com, byteimg.com, etc.
+ *   - TikHub API: tikhub.io
+ *   - RapidAPI: rapidapi.com
+ *   - SSSTik.io (V2 provider): ssstik.io, cdn.ssstik.io
+ *   - MusicalDown (V3 provider): musicaldown.com, musidown.com
+ *   - BunnyCDN: b-cdn.net (used by MusicalDown)
+ *   - TikTok direct: tiktok.com (video pages, CDNs)
+ *   - Bytedance CDN: bytecdn.com, bytedance.com
+ *   - Other known TikTok/Bytedance CDN patterns
+ *
+ * Uses substring matching via String.includes() — order doesn't matter.
+ */
 const ALLOWED_HOST_PATTERNS = [
+  // ──── TikTok / Bytedance CDN ────
   '.tiktokcdn.com',
   '.tiktokv.com',
+  '.tiktok.com',
   '.muscdn.com',
   '.ibytedtos.com',
   '.byteimg.com',
   '.bytedance.com',
-  '.tikhub.io',
-  '.rapidapi.com',
-  '.bktgdn.win',
   '.bytecdn.com',
   '.bytecdn.',
   '.ttwstatic.com',
-  '.tiktokcdn',
-  '.tiktokv',
+  '.bktgdn.win',
+  '.p16',        // p16-sign-sg.tiktokcdn.com pattern
+  '.p77',        // p77-sign-va.tiktokcdn.com pattern
+  '.p3',         // p3-sign-va.tiktokcdn.com pattern
   'tiktokcdn',
   'tiktokv',
   'ibytedtos',
   'byteimg',
   'muscdn',
   'tiktok',
+  'bytedance',
+  'bytecdn',
   'bytecdntest',
+
+  // ──── TikHub API ────
+  '.tikhub.io',
+
+  // ──── RapidAPI ────
+  '.rapidapi.com',
+
+  // ──── SSSTik.io (V2 — tiktok-api-dl) ────
+  'ssstik.io',
+
+  // ──── MusicalDown.com (V3 — tiktok-api-dl) ────
+  'musicaldown.com',
+  'musidown.com',
+
+  // ──── BunnyCDN (used by MusicalDown and other CDNs) ────
+  'b-cdn.net',
+
+  // ──── Cloudflare CDN (many TikTok CDN URLs use CF) ────
+  '.cloudfront.net',
+
+  // ──── Akamai CDN (some TikTok URLs) ────
+  '.akamaized.net',
+  '.akamaihd.net',
+
+  // ──── Generic video/image CDNs that TikTok occasionally uses ────
+  '.cdninstagram.com',   // sometimes used for cross-platform content
+  '.fbcdn.net',          // Meta CDN (for shared content)
+
+  // ──── Vercel blob/edge storage (if we ever host proxied content) ────
+  '.blob.vercel-storage.com',
 ];
 
 function isAllowedHost(hostname: string): boolean {
@@ -51,16 +107,41 @@ function isAllowedHost(hostname: string): boolean {
   return ALLOWED_HOST_PATTERNS.some(pattern => lower.includes(pattern));
 }
 
+// ============================================================================
+// MIME TYPE INFERENCE
+// ============================================================================
+
+function inferContentType(filename: string): string {
+  const lower = filename.toLowerCase();
+  if (lower.endsWith('.mp4')) return 'video/mp4';
+  if (lower.endsWith('.webm')) return 'video/webm';
+  if (lower.endsWith('.mp3')) return 'audio/mpeg';
+  if (lower.endsWith('.m4a')) return 'audio/mp4';
+  if (lower.endsWith('.ogg')) return 'audio/ogg';
+  if (lower.endsWith('.wav')) return 'audio/wav';
+  if (lower.endsWith('.jpg') || lower.endsWith('.jpeg')) return 'image/jpeg';
+  if (lower.endsWith('.png')) return 'image/png';
+  if (lower.endsWith('.webp')) return 'image/webp';
+  if (lower.endsWith('.gif')) return 'image/gif';
+  return 'application/octet-stream';
+}
+
+// ============================================================================
+// PROXY HANDLER
+// ============================================================================
+
 export async function GET(request: NextRequest) {
   const { searchParams } = new URL(request.url);
   const remoteUrl = searchParams.get('url');
   const filename = searchParams.get('filename');
+  const mode = searchParams.get('mode') || 'download'; // "download" or "inline"
 
   if (!remoteUrl || !filename) {
-    return NextResponse.json(
-      { error: 'Missing required query parameters: url, filename' },
-      { status: 400 }
-    );
+    // Return text/plain to avoid .json extension on download errors
+    return new Response('Missing required query parameters: url, filename', {
+      status: 400,
+      headers: { 'Content-Type': 'text/plain' },
+    });
   }
 
   // Validate URL scheme — only HTTPS allowed
@@ -68,73 +149,87 @@ export async function GET(request: NextRequest) {
   try {
     parsedUrl = new URL(remoteUrl);
   } catch {
-    return NextResponse.json(
-      { error: 'Invalid URL format' },
-      { status: 400 }
-    );
+    return new Response('Invalid URL format', {
+      status: 400,
+      headers: { 'Content-Type': 'text/plain' },
+    });
   }
 
   if (parsedUrl.protocol !== 'https:') {
-    return NextResponse.json(
-      { error: 'Only HTTPS URLs are allowed' },
-      { status: 400 }
-    );
+    return new Response('Only HTTPS URLs are allowed', {
+      status: 400,
+      headers: { 'Content-Type': 'text/plain' },
+    });
   }
 
   // Validate host to prevent SSRF
   if (!isAllowedHost(parsedUrl.hostname)) {
-    return NextResponse.json(
-      { error: 'Host not allowed' },
-      { status: 403 }
-    );
+    // LOG the blocked hostname so we can diagnose and add it
+    console.error(`[proxy] BLOCKED hostname: "${parsedUrl.hostname}" for URL: ${remoteUrl.slice(0, 200)}`);
+    // Return text/plain — NEVER application/json — to prevent .json extension
+    return new Response(`Host not allowed: ${parsedUrl.hostname}`, {
+      status: 403,
+      headers: { 'Content-Type': 'text/plain' },
+    });
   }
 
   try {
+    // Build upstream request headers
+    // Some TikTok CDN URLs require a Referer from tiktok.com domain
+    const upstreamHeaders: Record<string, string> = {
+      'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+    };
+
+    // Add Referer for TikTok CDN URLs — they sometimes reject requests without it
+    if (parsedUrl.hostname.includes('tiktok') || parsedUrl.hostname.includes('bytedance') || parsedUrl.hostname.includes('bytecdn')) {
+      upstreamHeaders['Referer'] = 'https://www.tiktok.com/';
+    }
+
     // Fetch the remote file with a timeout
     const upstreamResponse = await fetch(remoteUrl, {
-      headers: {
-        'User-Agent': 'TikDL/1.0',
-        // No Referer — some CDNs reject requests with referer
-      },
+      headers: upstreamHeaders,
       signal: AbortSignal.timeout(30000),
       redirect: 'follow',
     });
 
     if (!upstreamResponse.ok) {
       console.error(`[proxy] Upstream error: ${upstreamResponse.status} for ${remoteUrl.slice(0, 100)}`);
-      return NextResponse.json(
-        { error: `Upstream server returned ${upstreamResponse.status}` },
-        { status: 502 }
-      );
+      // text/plain error — no .json extension on download
+      return new Response(`Upstream server returned ${upstreamResponse.status}`, {
+        status: 502,
+        headers: { 'Content-Type': 'text/plain' },
+      });
     }
 
     // Determine content type from upstream or infer from filename
     const upstreamContentType = upstreamResponse.headers.get('content-type') || '';
     let contentType = upstreamContentType;
 
-    if (!contentType || contentType === 'application/octet-stream') {
-      // Infer from filename extension
-      if (filename.endsWith('.mp4')) contentType = 'video/mp4';
-      else if (filename.endsWith('.mp3')) contentType = 'audio/mpeg';
-      else if (filename.endsWith('.jpg') || filename.endsWith('.jpeg')) contentType = 'image/jpeg';
-      else if (filename.endsWith('.png')) contentType = 'image/png';
-      else if (filename.endsWith('.webp')) contentType = 'image/webp';
-      else contentType = 'application/octet-stream';
+    // Override incorrect upstream content types (some CDNs return text/html for media)
+    if (contentType.startsWith('text/html') || contentType === 'application/json') {
+      contentType = inferContentType(filename);
     }
 
-    // Stream the response body with Content-Disposition: attachment
-    // Preserve Unicode in filename but remove FS-unsafe chars
-    // Use RFC 5987 encoding for non-ASCII characters in Content-Disposition
+    if (!contentType || contentType === 'application/octet-stream') {
+      contentType = inferContentType(filename);
+    }
+
+    // Sanitize filename — remove filesystem-unsafe characters
     const sanitizedFilename = filename
       .replace(/[\\/:*?"<>|\x00-\x1f]/g, '_')
       .trim()
       .replace(/^[.]+|[.]+$/g, '');
 
+    // Build Content-Disposition header
+    // "download" mode → attachment (browser saves file)
+    // "inline" mode → inline (browser displays/embeds, e.g. for <img> tags)
+    const dispositionType = mode === 'inline' ? 'inline' : 'attachment';
+
     // For non-ASCII filenames, use filename*= encoding (RFC 5987)
     const hasNonAscii = /[^\x20-\x7e]/.test(sanitizedFilename);
     const contentDisposition = hasNonAscii
-      ? `attachment; filename="${sanitizedFilename.replace(/[^\x20-\x7e]/g, '_')}"; filename*=UTF-8''${encodeURIComponent(sanitizedFilename)}`
-      : `attachment; filename="${sanitizedFilename}"`;
+      ? `${dispositionType}; filename="${sanitizedFilename.replace(/[^\x20-\x7e]/g, '_')}"; filename*=UTF-8''${encodeURIComponent(sanitizedFilename)}`
+      : `${dispositionType}; filename="${sanitizedFilename}"`;
 
     return new Response(upstreamResponse.body, {
       status: 200,
@@ -143,15 +238,16 @@ export async function GET(request: NextRequest) {
         'Content-Type': contentType,
         // Cache for 1 hour — these are immutable CDN assets
         'Cache-Control': 'public, max-age=3600, immutable',
-        // Security: prevent this response from being embedded
+        // Security: prevent this response from being embedded in other contexts
         'X-Content-Type-Options': 'nosniff',
       },
     });
   } catch (error) {
     console.error('[proxy] Fetch error:', error);
-    return NextResponse.json(
-      { error: 'Failed to fetch remote file' },
-      { status: 502 }
-    );
+    // text/plain error — no .json extension on download
+    return new Response('Failed to fetch remote file', {
+      status: 502,
+      headers: { 'Content-Type': 'text/plain' },
+    });
   }
 }

@@ -316,11 +316,13 @@ export class TikTokApiDlAdapter implements NovaDLProvider {
 
     // ──── Audio ────
     const audioUrl = this.firstString(r.music?.playUrl);
+    // TikTok V1 API returns AAC audio (m4a), not mp3
+    const audioExt = audioUrl.includes('.mp3') ? 'mp3' : 'm4a';
     const audio: NovaDLAudio[] = audioUrl ? [{
       url: audioUrl,
-      format: 'mp3',
-      extension: 'mp3',
-      label: r.music?.title ? `${r.music.title} (MP3)` : 'MP3 Audio',
+      format: audioExt,
+      extension: audioExt,
+      label: r.music?.title ? `${r.music.title} (${audioExt.toUpperCase()})` : `${audioExt.toUpperCase()} Audio`,
     }] : [];
 
     // ──── Images ────
@@ -378,10 +380,11 @@ export class TikTokApiDlAdapter implements NovaDLProvider {
     const authorAvatar = r.author?.avatar || '';
 
     // SSSTik returns video URL directly (no-watermark by default)
-    const videoUrl = this.firstString(r.video?.playAddr) || '';
+    const videoUrl = this.firstString(r.video?.playAddr) || r.direct || '';
 
-    // Thumbnail — SSSTik doesn't provide separate thumbnail; use author avatar as fallback
-    const thumbnail = authorAvatar || '';
+    // Thumbnail — SSSTik V2 sometimes provides cover via video data
+    // If not available, fall back to author avatar
+    const thumbnail = this.firstString(r.video?.cover) || authorAvatar || '';
 
     const duration = '0:00'; // SSSTik doesn't provide duration
 
@@ -400,20 +403,22 @@ export class TikTokApiDlAdapter implements NovaDLProvider {
 
     // ──── Audio ────
     const audioUrl = this.firstString(r.music?.playUrl);
+    // Determine audio extension from URL or default to m4a (TikTok uses AAC)
+    const audioExt = audioUrl.includes('.mp3') ? 'mp3' : 'm4a';
     const audio: NovaDLAudio[] = audioUrl ? [{
       url: audioUrl,
-      format: 'mp3',
-      extension: 'mp3',
-      label: 'MP3 Audio',
+      format: audioExt,
+      extension: audioExt,
+      label: audioExt === 'mp3' ? 'MP3 Audio' : 'M4A Audio',
     }] : [];
 
     // ──── Images ────
     const images: NovaDLImage[] = [];
 
-    // SSSTik doesn't provide separate cover/thumbnail, but we add
-    // the author avatar as a cover fallback for the frontend
-    if (authorAvatar) {
-      images.push({ url: authorAvatar, type: NovaDLImageType.COVER, extension: 'jpg', label: 'Cover Image' });
+    // Cover from video or author avatar
+    const coverUrl = this.firstString(r.video?.cover) || authorAvatar || '';
+    if (coverUrl) {
+      images.push({ url: coverUrl, type: NovaDLImageType.COVER, extension: 'jpg', label: 'Cover Image' });
     }
 
     // ──── Statistics ────
@@ -495,11 +500,13 @@ export class TikTokApiDlAdapter implements NovaDLProvider {
 
     // ──── Audio ────
     const audioUrl = r.music || '';
+    // Determine audio extension — MusicalDown typically returns m4a (AAC)
+    const audioExt = audioUrl.includes('.mp3') ? 'mp3' : 'm4a';
     const audio: NovaDLAudio[] = audioUrl ? [{
       url: audioUrl,
-      format: 'mp3',
-      extension: 'mp3',
-      label: 'MP3 Audio',
+      format: audioExt,
+      extension: audioExt,
+      label: audioExt === 'mp3' ? 'MP3 Audio' : 'M4A Audio',
     }] : [];
 
     // ──── Images ────
