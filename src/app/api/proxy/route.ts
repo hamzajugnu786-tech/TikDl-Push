@@ -79,6 +79,8 @@ const ALLOWED_HOST_PATTERNS = [
 
   // ──── SSSTik.io (V2 — tiktok-api-dl) ────
   'ssstik.io',
+  'tikcdn.io',          // SSSTik CDN — serves video/audio/image media from https://tikcdn.io/ssstik/...
+  'cdn.ssstik.io',      // SSSTik alternate CDN subdomain
 
   // ──── MusicalDown.com (V3 — tiktok-api-dl) ────
   'musicaldown.com',
@@ -183,6 +185,12 @@ export async function GET(request: NextRequest) {
     // Add Referer for TikTok CDN URLs — they sometimes reject requests without it
     if (parsedUrl.hostname.includes('tiktok') || parsedUrl.hostname.includes('bytedance') || parsedUrl.hostname.includes('bytecdn')) {
       upstreamHeaders['Referer'] = 'https://www.tiktok.com/';
+    }
+
+    // Add Referer for SSSTik CDN URLs — tikcdn.io and cdn.ssstik.io require it
+    if (parsedUrl.hostname.includes('tikcdn') || parsedUrl.hostname.includes('ssstik')) {
+      upstreamHeaders['Referer'] = 'https://ssstik.io/';
+      upstreamHeaders['Origin'] = 'https://ssstik.io';
     }
 
     // Fetch the remote file with a timeout
