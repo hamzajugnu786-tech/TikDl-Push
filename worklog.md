@@ -249,3 +249,36 @@ Stage Summary:
 - Build: PASSES
 - Commit: 333d7bb
 - Push: Confirmed to origin/main
+
+---
+Task ID: 1
+Agent: main
+Task: Forensic audit and fix of tikcdn.io proxy 403 BLOCKED error
+
+Work Log:
+- Read ALL critical files: proxy/route.ts, download/route.ts, tiktokApiDl.ts, page.tsx, next.config.ts, result-to-display.ts
+- Searched ENTIRE repo for BLOCKED, 403, hostname, ssrf, proxy, allowedHost patterns
+- ROOT CAUSE FOUND: ALLOWED_HOST_PATTERNS in src/app/api/proxy/route.ts did NOT contain 'tikcdn.io'
+- The SSSTik V2 provider returns media URLs from tikcdn.io CDN (e.g. https://tikcdn.io/ssstik/...)
+- isAllowedHost("tikcdn.io") matched ZERO patterns → returned 403 Forbidden
+- Comment at line 39 mentioned "ssstik.io, cdn.ssstik.io" but only ssstik.io was in the array
+- Also found: tikhub.io and rapidapi.com exact-domain patterns were missing (.tikhub.io only matches subdomains)
+- Added 'tikcdn.io' to ALLOWED_HOST_PATTERNS
+- Added 'cdn.ssstik.io' to ALLOWED_HOST_PATTERNS
+- Added 'tikhub.io' exact domain pattern
+- Added 'rapidapi.com' exact domain pattern
+- Added Referer + Origin headers for tikcdn.io and ssstik hostnames (SSSTik CDN requires Referer: https://ssstik.io/)
+- Verified allowlist logic with Node.js test: ALL 14 test cases pass
+- Verified proxy endpoint: tikcdn.io → HTTP 200 (was 403 before)
+- Verified proxy endpoint: evil.internal.local → HTTP 403 (still correctly blocked)
+- Verified server log: [proxy] BLOCKED hostname only for invalid hosts, NOT tikcdn.io
+- Build: npm run build → zero errors
+- Committed: 8bba64c (primary fix) + bc32a2d (additional exact-domain patterns)
+- Pushed to GitHub: main branch
+
+Stage Summary:
+- Root cause: tikcdn.io was never added to ALLOWED_HOST_PATTERNS
+- Fix: Added tikcdn.io, cdn.ssstik.io, tikhub.io, rapidapi.com to allowlist + SSSTik Referer headers
+- Files modified: src/app/api/proxy/route.ts (10 lines added)
+- Proven: tikcdn.io now returns 200 instead of 403 in proxy
+- Deployment: Pushed to GitHub (commit bc32a2d), Vercel auto-deploy triggered
