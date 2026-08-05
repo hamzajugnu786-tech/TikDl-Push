@@ -216,3 +216,36 @@ Work Log:
 
 Stage Summary:
 - Production build passes with zero errors
+---
+Task ID: tiktok-api-dl-integration
+Agent: Main Agent
+Task: Integrate @tobyg74/tiktok-api-dl as primary free TikTok provider replacing TikHub
+
+Work Log:
+- Phase 1: Read entire project architecture (Provider Registry, DownloadService, VideoInfo, NovaDLResult, adapters, engine-bridge, result-to-display)
+- Phase 2: Installed @tobyg74/tiktok-api-dl@1.3.8 via npm
+- Phase 3: Created TikTokApiDlAdapter at src/services/providers/adapters/tiktok/tiktokApiDl.ts
+  - Implements NovaDLProvider interface
+  - Internal fallback: V2 (SSSTik.io) → V3 (MusicalDown.com) → V1 (TikTok mobile API)
+  - Only imports Downloader function (no CookieManager, DownloadManager, TiktokService, etc.)
+- Phase 4: Mapped all media types to NovaDLResult format
+  - Video (no-watermark + watermark), slides/images, audio/music, cover, thumbnail, author, statistics
+  - V1: Full mapping (downloadAddr→noWatermark, playAddr→withWatermark, image_post_info→slideImages)
+  - V2: SSSTik mapping (without_watermark→noWatermark, music→audio, splide images→slideImages)
+  - V3: MusicalDown mapping (videoHD/videoSD→noWatermark, videoWatermark→withWatermark, music string→audio)
+- Phase 5: Adapter returns NovaDLResult which adaptResultForDisplay() converts to VideoInfo - zero frontend changes needed
+- Phase 6: Updated provider registration order: tiktok-api-dl → tikhub → rapidapi
+- Phase 7: Internal retry is V2→V3→V1; DownloadService handles provider-level retries (3 attempts per provider)
+- Phase 8: Verified SSSTik.io (200), MusicalDown.com (200), TikTok API reachable
+- Phase 9: Build passes cleanly (next build succeeds)
+- Phase 10: Pushed to GitHub (commit 333d7bb), Vercel auto-deploy triggered
+- Phase 11: Commit 333d7bb pushed to hamzajugnu786-tech/TikDl-Push main branch
+
+Stage Summary:
+- New file: src/services/providers/adapters/tiktok/tiktokApiDl.ts (576 lines)
+- Modified: src/services/providers/adapters/tiktok/index.ts (provider registration order)
+- Modified: package.json, package-lock.json (added @tobyg74/tiktok-api-dl dependency)
+- Provider order: tiktok-api-dl (primary, FREE) → tikhub (fallback) → rapidapi (fallback)
+- Build: PASSES
+- Commit: 333d7bb
+- Push: Confirmed to origin/main
