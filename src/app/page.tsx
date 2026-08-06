@@ -7,7 +7,7 @@ import {
   Clock, User, Heart, RefreshCw, ClipboardPaste,
   ChevronDown, ChevronUp, Shield, Zap,
   Smartphone, Globe, CheckCircle, Share2,
-  ArrowDown, Link as LinkIcon, Lock, Home, History,
+  ArrowDown, Link as LinkIcon, Lock,
 } from 'lucide-react';
 import { Toaster, toast } from 'sonner';
 import { sanitizeAdHtml } from '@/lib/sanitize';
@@ -130,7 +130,7 @@ const TikTokDownloader = () => {
     inlineAds: [],
   });
 
-  const adTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const adTimerRef = useRef<number | null>(null);
   const countdownRef = useRef<number>(5);
   const autoProceedRef = useRef(false);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -241,8 +241,24 @@ const TikTokDownloader = () => {
 
       const result = await response.json();
 
+      // Handle non-200 responses that might leak provider errors
+      if (!response.ok && response.status !== 200) {
+        // Rate limit
+        if (response.status === 429) {
+          throw new Error('Too many requests. Please wait a moment and try again.');
+        }
+        // For any other non-200, show a generic message
+        throw new Error('Video not found. Please check the URL and try again.');
+      }
+
       if (!result.success) {
-        const errMsg = result.error || 'Failed to fetch video info';
+        let errMsg = result.error || 'Failed to fetch video info';
+        // NEVER show provider/API/quota/backend errors to users
+        const internalKeywords = ['quota', 'tikhub', 'rapidapi', 'provider', 'spi ', 'rate limit', 'offline', 'circuit', 'fallback', 'timeout', 'retry', 'v1 ', 'v2 ', 'v3 ', 'ssstik', 'musicaldown', 'tikcdn', 'error code', 'status:', 'http', 'api key', 'unauthorized', 'forbidden', 'internal'];
+        const isInternalError = internalKeywords.some(k => errMsg.toLowerCase().includes(k));
+        if (isInternalError) {
+          errMsg = 'Video not found. Please check the URL and try again.';
+        }
         const unavailableCodes = ['PRIVATE_CONTENT', 'DELETED_CONTENT', 'AGE_RESTRICTED', 'GEO_BLOCKED'];
         const unavailableKeywords = ['private', 'deleted', 'unavailable', 'not available', 'region', 'age-restricted', 'geo'];
         const isUnavail = unavailableCodes.some(c => result.errorCode === c) ||
@@ -295,9 +311,15 @@ const TikTokDownloader = () => {
         });
       });
     } catch (err: unknown) {
-      const errorMessage = err instanceof Error ? err.message : 'Unable to process this video. Try again.';
+      let errorMessage = err instanceof Error ? err.message : 'Unable to process this video. Try again.';
+      // NEVER show provider/API/quota/backend errors to users
+      const internalKeywords = ['quota', 'tikhub', 'rapidapi', 'provider', 'spi ', 'rate limit', 'offline', 'circuit', 'fallback', 'timeout', 'retry', 'v1 ', 'v2 ', 'v3 ', 'ssstik', 'musicaldown', 'tikcdn', 'error code', 'status:', 'http', 'api key', 'unauthorized', 'forbidden', 'internal'];
+      const isInternalError = internalKeywords.some(k => errorMessage.toLowerCase().includes(k));
+      if (isInternalError) {
+        errorMessage = 'Video not found. Please check the URL and try again.';
+      }
       setError(errorMessage);
-      toast.error('Fetch failed', { description: errorMessage });
+      toast.error(errorMessage);
     } finally {
       setIsLoading(false);
     }
@@ -317,7 +339,7 @@ const TikTokDownloader = () => {
     }
   }, [fetchVideo]);
 
-  // Ad popup timer
+  // Ad popup timer — smooth animation using requestAnimationFrame
   const startAdTimer = useCallback((downloadUrl: string, filename: string) => {
     const duration = interstitialConfig.countdownDuration || 5;
     setCountdown(duration);
@@ -326,17 +348,19 @@ const TikTokDownloader = () => {
     setShowAdPopup(true);
     setPendingDownload({ url: downloadUrl, filename });
     countdownRef.current = duration;
-    if (adTimerRef.current) clearInterval(adTimerRef.current);
+    if (adTimerRef.current) cancelAnimationFrame(adTimerRef.current);
     const targetTime = Date.now() + duration * 1000;
-    adTimerRef.current = setInterval(() => {
-      const remaining = Math.max(0, Math.ceil((targetTime - Date.now()) / 1000));
+    const tick = () => {
+      const remaining = Math.max(0, (targetTime - Date.now()) / 1000);
       countdownRef.current = remaining;
       setCountdown(remaining);
       if (remaining <= 0) {
-        if (adTimerRef.current) clearInterval(adTimerRef.current);
         adTimerRef.current = null;
+        return;
       }
-    }, 100); // 10x/sec for smooth countdown display
+      adTimerRef.current = requestAnimationFrame(tick);
+    };
+    adTimerRef.current = requestAnimationFrame(tick);
   }, [interstitialConfig.countdownDuration]);
 
   // ──── STREAMING DOWNLOAD: Direct <a> link to proxy ────
@@ -385,7 +409,7 @@ const TikTokDownloader = () => {
   }, [pendingDownload, triggerProxyDownload]);
 
   useEffect(() => {
-    if (countdown === 0 && showAdPopup && interstitialConfig.autoDownload && !autoProceedRef.current) {
+    if (countdown <= 0 && showAdPopup && interstitialConfig.autoDownload && !autoProceedRef.current) {
       autoProceedRef.current = true;
       setAutoProceedDone(true);
       const timeout = setTimeout(() => { proceedAfterAd(); }, 800);
@@ -436,12 +460,12 @@ const TikTokDownloader = () => {
   }, []);
 
   const getDownloadFilename = useCallback((type: 'video' | 'audio' | 'image', info: VideoInfo, idx?: number, audioExt?: string): string => {
-    // Format: @username-video-title-tikdl.extension
-    // For slides: @username-video-title-tikdl-slide01.jpg
+    // Format: VideoTitle-@username-tikdl.extension
+    // For slides: VideoTitle-@username-tikdl-slide01.jpg
     const author = (info.author || 'tiktok').replace(/^@/, '');
     const rawTitle = info.title || info.id;
     const cleanTitle = sanitizeFilename(rawTitle);
-    const base = `@${author}-${cleanTitle}-tikdl`;
+    const base = `${cleanTitle}-@${author}-tikdl`;
     switch (type) {
       case 'video': return `${base}.mp4`;
       case 'audio': return `${base}.${audioExt || 'm4a'}`;
@@ -457,7 +481,7 @@ const TikTokDownloader = () => {
 
   // Cleanup timer on unmount
   useEffect(() => {
-    return () => { if (adTimerRef.current) clearInterval(adTimerRef.current); };
+    return () => { if (adTimerRef.current) cancelAnimationFrame(adTimerRef.current); };
   }, []);
 
   const handlePaste = useCallback(async () => {
@@ -567,7 +591,7 @@ const TikTokDownloader = () => {
   };
 
   return (
-    <div className="min-h-screen bg-[#000000] text-white flex flex-col pb-16 md:pb-0">
+    <div className="min-h-screen bg-[#000000] text-white flex flex-col">
       <Toaster position="top-center" richColors closeButton />
       <div ref={topRef} />
 
@@ -575,7 +599,7 @@ const TikTokDownloader = () => {
       <div className="h-[52px]" />
 
       {/* ===== Navbar ===== */}
-      <SiteNavbar isHome />
+      <SiteNavbar isHome currentPage="home" />
 
       {/* ===== Banner Ad 1: Below Navbar ===== */}
       {landingAds.bannerAds.filter(a => a.placement === 'header_banner').length > 0 && (
@@ -731,69 +755,57 @@ const TikTokDownloader = () => {
                 className="max-w-4xl mx-auto px-4 sm:px-6 py-4"
               >
                 <div ref={resultCardRef} className={`glass rounded-[16px] p-4 sm:p-6 transition-all duration-500 ${resultHighlight ? 'ring-2 ring-[#FE2C55]/60' : ''}`}>
-                  {/* Photo/Slide post indicator */}
-                  {videoInfo.postType === 'images' && (
-                    <div className="flex items-center gap-2 mb-4 px-3 py-2 rounded-[10px] bg-[#FE2C55]/10 border border-[#FE2C55]/20">
-                      <ImageIcon size={16} className="text-[#FE2C55]" />
-                      <span className="text-sm font-medium text-[#FE2C55]">TikTok Photo Post</span>
-                      <span className="text-xs text-gray-500 ml-1">({videoInfo.slideImages?.length || 0} images)</span>
+                  {/* Tab selector — swipeable (only show for non-photo posts or audio) */}
+                  {videoInfo.postType !== 'images' && (
+                    <div
+                      ref={tabContainerRef}
+                      onTouchStart={handleTouchStart}
+                      onTouchEnd={handleTouchEnd}
+                      className="flex gap-2 mb-5 select-none"
+                    >
+                      <button
+                        onClick={() => setActiveTab('video')}
+                        className={`px-4 py-2 rounded-[10px] text-sm font-medium transition-all duration-200 ${activeTab === 'video' ? 'bg-[#FE2C55] text-white' : 'bg-white/10 text-gray-400 hover:bg-white/15'}`}
+                      >
+                        <Play size={14} className="inline mr-1" /> Video
+                      </button>
+                      <button
+                        onClick={() => setActiveTab('audio')}
+                        className={`px-4 py-2 rounded-[10px] text-sm font-medium transition-all duration-200 ${activeTab === 'audio' ? 'bg-[#38BDF8] text-black' : 'bg-white/10 text-gray-400 hover:bg-white/15'}`}
+                      >
+                        <Music size={14} className="inline mr-1" /> Audio
+                      </button>
                     </div>
                   )}
-
-                  {/* Tab selector — swipeable */}
-                  <div
-                    ref={tabContainerRef}
-                    onTouchStart={handleTouchStart}
-                    onTouchEnd={handleTouchEnd}
-                    className="flex gap-2 mb-5 select-none"
-                  >
-                    <button
-                      onClick={() => setActiveTab('video')}
-                      className={`px-4 py-2 rounded-[10px] text-sm font-medium transition-all duration-200 ${activeTab === 'video' ? 'bg-[#FE2C55] text-white' : 'bg-white/10 text-gray-400 hover:bg-white/15'}`}
-                    >
-                      <Play size={14} className="inline mr-1" /> Video
-                    </button>
-                    <button
-                      onClick={() => setActiveTab('audio')}
-                      className={`px-4 py-2 rounded-[10px] text-sm font-medium transition-all duration-200 ${activeTab === 'audio' ? 'bg-[#38BDF8] text-black' : 'bg-white/10 text-gray-400 hover:bg-white/15'}`}
-                    >
-                      <Music size={14} className="inline mr-1" /> Audio
-                    </button>
-                  </div>
 
                   <div className="flex flex-col lg:flex-row gap-5">
                     {/* Preview */}
                     <div className="lg:flex-1">
-                      {/* Photo/slide post: download mode selector */}
-                      {videoInfo.postType === 'images' && activeTab === 'video' && (
-                        <div className="mb-4">
-                          <p className="text-sm text-gray-400 mb-2">Download Mode</p>
-                          <div className="flex gap-2">
-                            <button
-                              onClick={() => setImagePostMode('video')}
-                              className={`flex-1 px-3 py-2 rounded-[10px] text-sm font-medium transition-colors duration-150 ${imagePostMode === 'video' ? 'bg-[#FE2C55] text-white' : 'bg-white/10 text-gray-400 hover:bg-white/15'}`}
-                            >
-                              <Play size={14} className="inline mr-1" />Download as Video
-                            </button>
-                            <button
-                              onClick={() => setImagePostMode('images')}
-                              className={`flex-1 px-3 py-2 rounded-[10px] text-sm font-medium transition-colors duration-150 ${imagePostMode === 'images' ? 'bg-[#FE2C55] text-white' : 'bg-white/10 text-gray-400 hover:bg-white/15'}`}
-                            >
-                              <ImageIcon size={14} className="inline mr-1" />Download Original Slides
-                            </button>
-                          </div>
-                        </div>
-                      )}
-
-                      {/* Photo/slide: premium carousel gallery */}
-                      {videoInfo.postType === 'images' && activeTab === 'video' && imagePostMode === 'images' && videoInfo.slideImages && videoInfo.slideImages.length > 0 && (
+                      {/* Photo/slide post: Preview Slider + Download controls */}
+                      {videoInfo.postType === 'images' && videoInfo.slideImages && videoInfo.slideImages.length > 0 && (
                         <div className="space-y-3">
-                          {/* Carousel container — swipeable */}
+                          {/* Carousel container — swipeable with touch + mouse drag */}
                           <div
-                            className="relative rounded-[12px] overflow-hidden bg-zinc-900 aspect-[3/4] touch-pan-y"
+                            className="relative rounded-[12px] overflow-hidden bg-zinc-900 aspect-[3/4] touch-pan-y select-none"
                             onTouchStart={handleSlideTouchStart}
                             onTouchMove={handleSlideTouchMove}
                             onTouchEnd={handleSlideTouchEnd}
+                            onMouseDown={(e) => setSlideTouchStart(e.clientX)}
+                            onMouseMove={(e) => { if (slideTouchStart !== null) setSlideTouchCurrent(e.clientX); }}
+                            onMouseUp={(e) => {
+                              if (slideTouchStart === null) return;
+                              const diff = slideTouchStart - e.clientX;
+                              if (Math.abs(diff) > 40) {
+                                if (diff > 0) {
+                                  setCurrentSlide(prev => Math.min(prev + 1, videoInfo.slideImages!.length - 1));
+                                } else {
+                                  setCurrentSlide(prev => Math.max(prev - 1, 0));
+                                }
+                              }
+                              setSlideTouchStart(null);
+                              setSlideTouchCurrent(0);
+                            }}
+                            onMouseLeave={() => { setSlideTouchStart(null); setSlideTouchCurrent(0); }}
                           >
                             <AnimatePresence mode="wait">
                               <motion.img
@@ -804,7 +816,8 @@ const TikTokDownloader = () => {
                                 animate={{ opacity: 1, x: 0 }}
                                 exit={{ opacity: 0, x: -30 }}
                                 transition={{ duration: 0.2 }}
-                                className="w-full h-full object-contain"
+                                className="w-full h-full object-contain pointer-events-none"
+                                draggable={false}
                                 onError={(e) => { const img = e.target as HTMLImageElement; img.style.opacity = '0.3'; }}
                               />
                             </AnimatePresence>
@@ -823,7 +836,7 @@ const TikTokDownloader = () => {
                             <div className="absolute bottom-2 left-1/2 -translate-x-1/2 bg-black/70 px-3 py-1 rounded-full text-xs text-white font-medium">
                               {currentSlide + 1} / {videoInfo.slideImages.length}
                             </div>
-                            {/* Checkbox overlay */}
+                            {/* Checkbox overlay on current slide */}
                             <div className="absolute top-2 left-2">
                               <input
                                 type="checkbox"
@@ -838,14 +851,6 @@ const TikTokDownloader = () => {
                                 className="accent-[#FE2C55] w-4 h-4"
                               />
                             </div>
-                            {/* Individual download */}
-                            <button
-                              onClick={() => handleDownload(videoInfo.slideImages![currentSlide], getDownloadFilename('image', videoInfo, currentSlide))}
-                              className="absolute top-2 right-2 w-8 h-8 bg-black/60 hover:bg-black/80 rounded-full flex items-center justify-center transition-colors"
-                              title={`Download image ${currentSlide + 1}`}
-                            >
-                              <Download size={14} className="text-white" />
-                            </button>
                           </div>
                           {/* Select All + count */}
                           <div className="flex items-center justify-between">
@@ -866,48 +871,21 @@ const TikTokDownloader = () => {
                             </label>
                             <span className="text-xs text-gray-500">{selectedImages.size} of {videoInfo.slideImages.length} selected</span>
                           </div>
-                          {/* Download actions */}
-                          <div className="flex gap-2 flex-wrap">
-                            {selectedImages.size > 0 && (
-                              <motion.button
-                                whileHover={{ scale: 1.02 }}
-                                whileTap={{ scale: 0.98 }}
-                                onClick={() => {
-                                  const imgs = videoInfo.slideImages!;
-                                  const indices = Array.from(selectedImages).sort((a, b) => a - b);
-                                  // For batch downloads: show ad once, then download all selected
-                                  if (interstitialConfig.enabled) {
-                                    // Store ALL downloads as pending, trigger first through ad flow
-                                    const downloads = indices.map(idx => ({
-                                      url: imgs[idx],
-                                      filename: getDownloadFilename('image', videoInfo, idx),
-                                    }));
-                                    setPendingDownload(downloads[0]);
-                                    startAdTimer(downloads[0].url, downloads[0].filename);
-                                    // Schedule remaining downloads after ad
-                                    downloads.slice(1).forEach((dl, i) => {
-                                      setTimeout(() => triggerProxyDownload(dl.url, dl.filename), (i + 1) * 500);
-                                    });
-                                  } else {
-                                    indices.forEach((idx, i) => {
-                                      setTimeout(() => triggerProxyDownload(imgs[idx], getDownloadFilename('image', videoInfo, idx)), i * 300);
-                                    });
-                                  }
-                                }}
-                                className="flex-1 min-w-[140px] bg-[#FE2C55] hover:bg-[#FE2C55]/90 text-white py-2.5 rounded-[12px] font-semibold text-[14px] flex items-center justify-center gap-2 transition-colors duration-150"
-                              >
-                                <Download size={16} /> Download Selected ({selectedImages.size})
-                              </motion.button>
-                            )}
+                          {/* Download Slides (selected) + Download As Video */}
+                          <div className="space-y-2">
                             <motion.button
                               whileHover={{ scale: 1.02 }}
                               whileTap={{ scale: 0.98 }}
                               onClick={() => {
+                                if (selectedImages.size === 0) {
+                                  toast.error('Select at least one slide to download');
+                                  return;
+                                }
                                 const imgs = videoInfo.slideImages!;
-                                // For batch downloads: show ad once, then download all
+                                const indices = Array.from(selectedImages).sort((a, b) => a - b);
                                 if (interstitialConfig.enabled) {
-                                  const downloads = imgs.map((imgUrl, idx) => ({
-                                    url: imgUrl,
+                                  const downloads = indices.map(idx => ({
+                                    url: imgs[idx],
                                     filename: getDownloadFilename('image', videoInfo, idx),
                                   }));
                                   setPendingDownload(downloads[0]);
@@ -916,33 +894,27 @@ const TikTokDownloader = () => {
                                     setTimeout(() => triggerProxyDownload(dl.url, dl.filename), (i + 1) * 500);
                                   });
                                 } else {
-                                  imgs.forEach((imgUrl, idx, arr) => {
-                                    setTimeout(() => triggerProxyDownload(imgUrl, getDownloadFilename('image', videoInfo, idx)), idx * 300);
+                                  indices.forEach((idx, i) => {
+                                    setTimeout(() => triggerProxyDownload(imgs[idx], getDownloadFilename('image', videoInfo, idx)), i * 300);
                                   });
                                 }
                               }}
-                              className="flex-1 min-w-[140px] bg-white/10 hover:bg-white/15 text-white py-2.5 rounded-[12px] font-medium text-[14px] flex items-center justify-center gap-2 transition-colors duration-150"
+                              disabled={selectedImages.size === 0}
+                              className="w-full bg-[#FE2C55] hover:bg-[#FE2C55]/90 text-white py-2.5 rounded-[12px] font-semibold text-[14px] flex items-center justify-center gap-2 transition-colors duration-150 shadow-[0_4px_16px_rgba(254,44,85,0.25)] disabled:opacity-50"
                             >
-                              <Download size={16} /> Download All ({videoInfo.slideImages.length})
+                              <Download size={16} /> Download Slides ({selectedImages.size})
                             </motion.button>
+                            {videoInfo.noWatermarkUrl && !videoInfo.noWatermarkUrl.startsWith('#') && (
+                              <motion.button
+                                whileHover={{ scale: 1.02 }}
+                                whileTap={{ scale: 0.98 }}
+                                onClick={() => handleDownload(videoInfo.noWatermarkUrl, getDownloadFilename('video', videoInfo))}
+                                className="w-full bg-white/10 hover:bg-white/15 text-white py-2.5 rounded-[12px] font-medium text-[14px] flex items-center justify-center gap-2 transition-colors duration-150"
+                              >
+                                <Play size={16} /> Download As Video
+                              </motion.button>
+                            )}
                           </div>
-                        </div>
-                      )}
-
-                      {/* Photo post in video mode                      )}
-
-                      {/* Photo post in video mode: show message if slideshow video not available */}
-                      {videoInfo.postType === 'images' && activeTab === 'video' && imagePostMode === 'video' && (
-                        <div className="rounded-[12px] bg-zinc-900 p-5 flex flex-col items-center justify-center min-h-[180px] text-center">
-                          <ImageIcon size={32} className="text-[#FE2C55] mb-3" />
-                          <p className="text-sm font-medium mb-1">Photo Post Detected</p>
-                          <p className="text-xs text-gray-500 mb-3">This is a photo slideshow. Switch to &quot;Download Original Slides&quot; to save individual images.</p>
-                          <button
-                            onClick={() => setImagePostMode('images')}
-                            className="bg-[#FE2C55] hover:bg-[#FE2C55]/90 text-white px-4 py-2 rounded-[10px] text-sm font-medium transition-colors"
-                          >
-                            View Slides →
-                          </button>
                         </div>
                       )}
 
@@ -1013,14 +985,6 @@ const TikTokDownloader = () => {
                             >
                               <Download size={16} /> No Watermark HD
                             </motion.button>
-                            {videoInfo.withWatermarkUrl && !videoInfo.withWatermarkUrl.startsWith('#') && (
-                              <button
-                                onClick={() => handleDownload(videoInfo.withWatermarkUrl, sanitizeFilename(`${videoInfo.title || videoInfo.id}_wm.mp4`))}
-                                className="w-full bg-white/10 hover:bg-white/15 py-2.5 rounded-[12px] font-medium text-[14px] flex items-center justify-center gap-2 transition-colors duration-150"
-                              >
-                                <Download size={14} /> With Watermark
-                              </button>
-                            )}
                           </>
                         )}
                         {activeTab === 'audio' && (
@@ -1111,9 +1075,9 @@ const TikTokDownloader = () => {
                       )}
                       <div className="flex-1 min-w-0">
                         <p className="font-medium text-sm truncate">{item.title}</p>
-                        <p className="text-xs text-gray-500 truncate">{item.author}</p>
+                        <p className="text-xs text-gray-500 truncate">{item.author?.startsWith('@') ? item.author : `@${item.author}`}</p>
                         {item._timestamp && (
-                          <p className="text-[10px] text-gray-600 mt-0.5">{new Date(item._timestamp).toLocaleDateString()}</p>
+                          <p className="text-[10px] text-gray-600 mt-0.5">{new Date(item._timestamp).toLocaleString()}</p>
                         )}
                       </div>
                     </div>
@@ -1228,41 +1192,6 @@ const TikTokDownloader = () => {
       {/* ===== Footer ===== */}
       <SiteFooter />
 
-      {/* ===== Mobile Bottom Navigation — always visible on small screens ===== */}
-      <nav className="fixed bottom-0 left-0 right-0 z-50 md:hidden border-t border-white/10 bg-black/90 backdrop-blur-xl safe-area-bottom">
-        <div className="flex items-center justify-around py-2">
-          <a
-            href="#"
-            onClick={(e) => { e.preventDefault(); window.scrollTo({ top: 0, behavior: 'smooth' }); }}
-            className="flex flex-col items-center gap-0.5 text-white"
-          >
-            <Home size={20} />
-            <span className="text-[10px] font-medium">Home</span>
-          </a>
-          <a
-            href="#features"
-            className="flex flex-col items-center gap-0.5 text-gray-500 hover:text-white transition-colors"
-          >
-            <Zap size={20} />
-            <span className="text-[10px]">Features</span>
-          </a>
-          <a
-            href="#history"
-            className={`flex flex-col items-center gap-0.5 transition-colors ${history.length > 0 ? 'text-[#FE2C55]' : 'text-gray-500 hover:text-white'}`}
-          >
-            <History size={20} />
-            <span className="text-[10px] font-medium">History</span>
-          </a>
-          <a
-            href="#faq"
-            className="flex flex-col items-center gap-0.5 text-gray-500 hover:text-white transition-colors"
-          >
-            <Shield size={20} />
-            <span className="text-[10px]">FAQ</span>
-          </a>
-        </div>
-      </nav>
-
       {/* ===== Ad Interstitial Popup ===== */}
       <AnimatePresence>
         {showAdPopup && (
@@ -1315,13 +1244,13 @@ const TikTokDownloader = () => {
                 <div className="relative w-14 h-14">
                   <svg className="w-full h-full -rotate-90" viewBox="0 0 80 80">
                     <circle cx="40" cy="40" r="36" fill="none" stroke="rgba(255,255,255,0.08)" strokeWidth="4" />
-                    <circle cx="40" cy="40" r="36" fill="none" stroke="#FE2C55" strokeWidth="4" strokeLinecap="round" strokeDasharray={circumference} strokeDashoffset={strokeDashoffset} style={{ transition: 'stroke-dashoffset 0.15s linear' }} />
+                    <circle cx="40" cy="40" r="36" fill="none" stroke="#FE2C55" strokeWidth="4" strokeLinecap="round" strokeDasharray={circumference} strokeDashoffset={strokeDashoffset} />
                   </svg>
                   <div className="absolute inset-0 flex items-center justify-center">
                     {countdown > 0 ? (
-                      <motion.span key={countdown} initial={{ scale: 1.2, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} transition={{ duration: 0.2 }} className="text-xl font-bold tabular-nums" style={{ animation: 'subtlePulse 1s ease-in-out infinite' }}>
-                        {countdown}
-                      </motion.span>
+                      <span className="text-xl font-bold tabular-nums">
+                        {Math.ceil(countdown)}
+                      </span>
                     ) : (
                       <motion.span initial={{ scale: 0, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} transition={{ type: 'spring', stiffness: 300 }} className="text-[#25F4EE]">
                         <CheckCircle size={22} />

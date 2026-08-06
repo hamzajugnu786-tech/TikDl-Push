@@ -7,9 +7,11 @@ import { RefreshCw, Menu, X } from 'lucide-react';
 interface SiteNavbarProps {
   /** If true, show the refresh button and use hash links for home anchors */
   isHome?: boolean;
+  /** Currently active page — used to highlight the active link in TikTok Red */
+  currentPage?: 'home' | 'features' | 'faq' | 'history' | 'about' | 'contact' | 'privacy' | 'terms' | 'dmca';
 }
 
-export default function SiteNavbar({ isHome = false }: SiteNavbarProps) {
+export default function SiteNavbar({ isHome = false, currentPage }: SiteNavbarProps) {
   const [mobileOpen, setMobileOpen] = useState(false);
   const sidebarRef = useRef<HTMLDivElement>(null);
 
@@ -63,11 +65,11 @@ export default function SiteNavbar({ isHome = false }: SiteNavbarProps) {
 
           {/* Desktop links */}
           <div className="hidden md:flex items-center gap-6 text-sm font-medium text-gray-400">
-            <a href={homeHref('#features')} className="hover:text-[#FE2C55] transition-colors duration-150">Features</a>
-            <a href={homeHref('#faq')} className="hover:text-[#FE2C55] transition-colors duration-150">FAQ</a>
-            <a href={homeHref('#history')} className="hover:text-[#FE2C55] transition-colors duration-150">History</a>
-            <Link href="/about" className="hover:text-[#FE2C55] transition-colors duration-150">About</Link>
-            <Link href="/contact" className="hover:text-[#FE2C55] transition-colors duration-150">Contact</Link>
+            <a href={homeHref('#features')} className={`transition-colors duration-150 ${currentPage === 'features' ? 'text-[#FE2C55]' : 'hover:text-[#FE2C55]'}`}>Features</a>
+            <a href={homeHref('#faq')} className={`transition-colors duration-150 ${currentPage === 'faq' ? 'text-[#FE2C55]' : 'hover:text-[#FE2C55]'}`}>FAQ</a>
+            <a href={homeHref('#history')} className={`transition-colors duration-150 ${currentPage === 'history' ? 'text-[#FE2C55]' : 'hover:text-[#FE2C55]'}`}>History</a>
+            <Link href="/about" className={`transition-colors duration-150 ${currentPage === 'about' ? 'text-[#FE2C55]' : 'hover:text-[#FE2C55]'}`}>About</Link>
+            <Link href="/contact" className={`transition-colors duration-150 ${currentPage === 'contact' ? 'text-[#FE2C55]' : 'hover:text-[#FE2C55]'}`}>Contact</Link>
           </div>
 
           {/* Mobile hamburger */}
@@ -114,35 +116,35 @@ export default function SiteNavbar({ isHome = false }: SiteNavbarProps) {
           <a
             href={homeHref('#features')}
             onClick={closeMobile}
-            className="px-3 py-2.5 rounded-lg text-sm font-medium text-gray-300 hover:text-white hover:bg-white/8 transition-colors duration-150"
+            className={`px-3 py-2.5 rounded-lg text-sm font-medium hover:bg-white/8 transition-colors duration-150 ${currentPage === 'features' ? 'text-[#FE2C55]' : 'text-gray-300 hover:text-white'}`}
           >
             Features
           </a>
           <a
             href={homeHref('#faq')}
             onClick={closeMobile}
-            className="px-3 py-2.5 rounded-lg text-sm font-medium text-gray-300 hover:text-white hover:bg-white/8 transition-colors duration-150"
+            className={`px-3 py-2.5 rounded-lg text-sm font-medium hover:bg-white/8 transition-colors duration-150 ${currentPage === 'faq' ? 'text-[#FE2C55]' : 'text-gray-300 hover:text-white'}`}
           >
             FAQ
           </a>
           <a
             href={homeHref('#history')}
             onClick={closeMobile}
-            className="px-3 py-2.5 rounded-lg text-sm font-medium text-gray-300 hover:text-white hover:bg-white/8 transition-colors duration-150"
+            className={`px-3 py-2.5 rounded-lg text-sm font-medium hover:bg-white/8 transition-colors duration-150 ${currentPage === 'history' ? 'text-[#FE2C55]' : 'text-gray-300 hover:text-white'}`}
           >
             History
           </a>
           <Link
             href="/about"
             onClick={closeMobile}
-            className="px-3 py-2.5 rounded-lg text-sm font-medium text-gray-300 hover:text-white hover:bg-white/8 transition-colors duration-150"
+            className={`px-3 py-2.5 rounded-lg text-sm font-medium hover:bg-white/8 transition-colors duration-150 ${currentPage === 'about' ? 'text-[#FE2C55]' : 'text-gray-300 hover:text-white'}`}
           >
             About
           </Link>
           <Link
             href="/contact"
             onClick={closeMobile}
-            className="px-3 py-2.5 rounded-lg text-sm font-medium text-gray-300 hover:text-white hover:bg-white/8 transition-colors duration-150"
+            className={`px-3 py-2.5 rounded-lg text-sm font-medium hover:bg-white/8 transition-colors duration-150 ${currentPage === 'contact' ? 'text-[#FE2C55]' : 'text-gray-300 hover:text-white'}`}
           >
             Contact
           </Link>

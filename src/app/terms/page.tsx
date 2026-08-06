@@ -12,7 +12,7 @@ export const metadata: Metadata = {
 export default function TermsPage() {
   return (
     <div className="min-h-screen bg-[#000000] text-white flex flex-col">
-      <SiteNavbar />
+      <SiteNavbar currentPage="terms" />
       <div className="h-[52px]" />
       <main className="flex-1">
         <section className="pt-12 sm:pt-16 pb-8 px-4 sm:px-6">

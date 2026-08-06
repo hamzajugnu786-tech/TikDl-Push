@@ -118,6 +118,7 @@ export async function POST(request: NextRequest) {
 
       if (errorCode === NovaDLErrorCode.INVALID_URL || errorCode === NovaDLErrorCode.UNSUPPORTED_PLATFORM) {
         statusCode = 400;
+        apiResponse.error = 'Invalid TikTok URL. Please check the URL and try again.';
       } else if (errorCode === NovaDLErrorCode.RATE_LIMITED) {
         statusCode = 429;
       } else if (
@@ -126,23 +127,16 @@ export async function POST(request: NextRequest) {
         errorCode === NovaDLErrorCode.AGE_RESTRICTED ||
         errorCode === NovaDLErrorCode.GEO_BLOCKED
       ) {
-        // Backward compat: old route returned 404 for private/deleted
         statusCode = 404;
+        apiResponse.error = 'This video is unavailable. It was removed by the creator or is no longer available on TikTok.';
       } else if (errorCode === NovaDLErrorCode.PROVIDER_OFFLINE) {
         statusCode = 503;
+        apiResponse.error = 'Video not found. Please try again later.';
+      } else {
+        // All other errors — NEVER leak provider/API/quota details
+        statusCode = 404;
+        apiResponse.error = 'Video not found. Please check the URL and try again.';
       }
-    }
-
-    // TASK 2: Generic unavailable message — never tell users the video is specifically
-    //   "private" unless TikHub explicitly proves it with a 403 status code.
-    //   Use one generic message for all unavailable cases.
-    if (
-      serviceResult.error?.code === NovaDLErrorCode.PRIVATE_CONTENT ||
-      serviceResult.error?.code === NovaDLErrorCode.DELETED_CONTENT ||
-      serviceResult.error?.code === NovaDLErrorCode.AGE_RESTRICTED ||
-      serviceResult.error?.code === NovaDLErrorCode.GEO_BLOCKED
-    ) {
-      apiResponse.error = 'This video is unavailable. It was removed by the creator or is no longer available on TikTok.';
     }
 
     return NextResponse.json(apiResponse, { status: statusCode });
@@ -153,9 +147,9 @@ export async function POST(request: NextRequest) {
     return NextResponse.json(
       {
         success: false,
-        error: 'An unexpected error occurred. Please try again.',
+        error: 'Video not found. Please check the URL and try again.',
       },
-      { status: 500 }
+      { status: 404 }
     );
   }
 }
