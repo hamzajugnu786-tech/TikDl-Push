@@ -32,6 +32,45 @@ import { NovaDLErrorCode } from '@/services/errors';
 import { getDownloadRateLimiter } from '@/lib/rate-limiter';
 import { getClientIp, hashIpForRateLimit } from '@/lib/privacy';
 
+// ============================================================================
+// STRICT TIKTOK URL VALIDATION
+// ============================================================================
+
+/**
+ * Validate that a URL is not just on tiktok.com domain, but is a specific
+ * video/content URL that could potentially be downloaded.
+ *
+ * This runs BEFORE rate limiting to ensure invalid URLs ALWAYS get a 400
+ * response, never a 429 "Too many requests" response.
+ *
+ * Valid TikTok URL structures:
+ *   - https://www.tiktok.com/@username/video/123456
+ *   - https://www.tiktok.com/@username/photo/123456
+ *   - https://vm.tiktok.com/SHORTCODE/
+ *   - https://vt.tiktok.com/SHORTCODE/
+ *   - https://m.tiktok.com/v/123456
+ *   - https://m.tiktok.com/video/123456
+ *
+ * Invalid (domain only, non-video paths):
+ *   - https://www.tiktok.com/
+ *   - https://www.tiktok.com/trending
+ *   - https://www.tiktok.com/@username (profile page)
+ *   - https://www.tiktok.com/foryou
+ *   - https://www.tiktok.com/discover
+ */
+const TIKTOK_VIDEO_URL_PATTERNS = [
+  // Full URLs: /@username/video/ID or /@username/photo/ID
+  /^https?:\/\/(?:www\.|m\.)?tiktok\.com\/@[^/]+\/(?:video|photo)\/\d+/i,
+  // Short URLs: /SHORTCODE (vm.tiktok.com, vt.tiktok.com)
+  /^https?:\/\/(?:vm\.|vt\.)tiktok\.com\/[A-Za-z0-9]+\/?/i,
+  // Mobile URLs: /v/ID or /video/ID
+  /^https?:\/\/m\.tiktok\.com\/(?:v|video)\/\d+/i,
+];
+
+function isValidTikTokVideoUrl(url: string): boolean {
+  return TIKTOK_VIDEO_URL_PATTERNS.some(pattern => pattern.test(url));
+}
+
 export async function POST(request: NextRequest) {
   // Initialize NovaDL service layer on first request
   await initializeNovaDL();
@@ -68,9 +107,20 @@ export async function POST(request: NextRequest) {
     const platformInfo = PlatformDetector.identify(sanitizedUrl);
 
     if (platformInfo.platform !== 'tiktok') {
-      // Return the same error message as the old route for non-TikTok URLs
+      // Not even a TikTok domain
       return NextResponse.json(
         { success: false, error: 'Invalid TikTok URL format. Please use a valid TikTok link.' },
+        { status: 400 }
+      );
+    }
+
+    // Stricter validation: Check that the URL is a specific video/content URL,
+    // not just a TikTok domain page (like /trending, /foryou, /@username profile).
+    // This prevents URLs like "https://www.tiktok.com/trending" from reaching
+    // the rate limiter and showing "Too many requests" to the user.
+    if (!isValidTikTokVideoUrl(sanitizedUrl)) {
+      return NextResponse.json(
+        { success: false, error: 'Invalid TikTok URL. Please check the URL and try again.' },
         { status: 400 }
       );
     }

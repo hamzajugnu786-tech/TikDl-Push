@@ -94,7 +94,7 @@ export function adaptResultForDisplay(result: NovaDLResult): VideoInfo {
     duration: result.duration || '',
     views: result.metadata.views || '',
     likes: result.metadata.likes || '',
-    noWatermarkUrl: noWatermark?.url || '',
+    noWatermarkUrl: noWatermark?.url || withWatermark?.url || '',
     withWatermarkUrl: withWatermark?.url || '',
     audioUrl: audio?.url || '',
     cover: cover?.url || result.thumbnail,

@@ -138,6 +138,59 @@ export class DownloadLogger {
           requestId: entry.requestId,
         },
       });
+
+      // 3. Aggregate into Analytics table for dashboard stats.
+      // Upsert a row for today's date, incrementing counters.
+      // This ensures the admin dashboard always has real data.
+      const todayStr = new Date().toISOString().split('T')[0]; // "2026-08-06"
+      const isSuccess = entry.status === 'success';
+      try {
+        // First, get the current analytics row to compute the new average response time
+        const existing = await db.analytics.findUnique({
+          where: { date: todayStr },
+        });
+
+        if (existing) {
+          // Update existing row — recalculate running average
+          const newTotal = existing.totalDownloads + 1;
+          const newSuccess = existing.successCount + (isSuccess ? 1 : 0);
+          const newFail = existing.failCount + (isSuccess ? 0 : 1);
+          // Running average: old_avg * old_count + new_value) / new_count
+          const newAvgMs = Math.round(
+            (existing.avgResponseMs * existing.totalDownloads + entry.executionTime) / newTotal
+          );
+          // Count unique IP hashes for uniqueVisitors
+          const newUniqueVisitors = hashedIp && !existing.uniqueVisitors
+            ? 1
+            : existing.uniqueVisitors || 0;
+
+          await db.analytics.update({
+            where: { date: todayStr },
+            data: {
+              totalDownloads: newTotal,
+              successCount: newSuccess,
+              failCount: newFail,
+              avgResponseMs: newAvgMs,
+              uniqueVisitors: newUniqueVisitors,
+            },
+          });
+        } else {
+          // Create first row for today
+          await db.analytics.create({
+            data: {
+              date: todayStr,
+              totalDownloads: 1,
+              successCount: isSuccess ? 1 : 0,
+              failCount: isSuccess ? 0 : 1,
+              avgResponseMs: entry.executionTime,
+              uniqueVisitors: hashedIp ? 1 : 0,
+            },
+          });
+        }
+      } catch (analyticsError) {
+        // Analytics aggregation failure should never block the main log
+        console.error('[Logger] Failed to update Analytics aggregation:', analyticsError);
+      }
     } catch (dbError) {
       // DB write failure should never block or crash the system
       console.error('[Logger] Failed to write to DownloadLog DB:', dbError);

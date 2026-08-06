@@ -984,7 +984,7 @@ const TikTokDownloader = () => {
                               whileHover={{ scale: 1.02, y: -1 }}
                               whileTap={{ scale: 0.98 }}
                               onClick={() => handleDownload(videoInfo.noWatermarkUrl, getDownloadFilename('video', videoInfo))}
-                              className="w-full bg-[#FE2C55] hover:bg-[#FE2C55]/95 py-2.5 rounded-[12px] font-semibold text-[14px] flex items-center justify-center gap-2 transition-colors duration-150 shadow-[0_4px_16px_rgba(254,44,85,0.25)]"
+                              className="w-full bg-[#FE2C55] hover:bg-[#FE2C55]/95 py-2.5 rounded-[12px] font-semibold text-[14px] flex items-center justify-center gap-2 transition-colors duration-150 shadow-[0_4px_16px_rgba(254,44,85,0.25)] disabled:opacity-50 disabled:cursor-not-allowed"
                               disabled={!videoInfo.noWatermarkUrl || videoInfo.noWatermarkUrl.startsWith('#')}
                             >
                               <Download size={16} /> No Watermark HD
@@ -996,7 +996,7 @@ const TikTokDownloader = () => {
                             whileHover={{ scale: 1.02, y: -1 }}
                             whileTap={{ scale: 0.98 }}
                             onClick={() => handleDownload(videoInfo.audioUrl, getDownloadFilename('audio', videoInfo))}
-                            className="w-full bg-[#38BDF8] hover:bg-[#38BDF8]/90 text-black py-2.5 rounded-[12px] font-semibold text-[14px] flex items-center justify-center gap-2 transition-colors duration-150 shadow-[0_4px_16px_rgba(56,189,248,0.25)]"
+                            className="w-full bg-[#38BDF8] hover:bg-[#38BDF8]/90 text-black py-2.5 rounded-[12px] font-semibold text-[14px] flex items-center justify-center gap-2 transition-colors duration-150 shadow-[0_4px_16px_rgba(56,189,248,0.25)] disabled:opacity-50 disabled:cursor-not-allowed"
                             disabled={!videoInfo.audioUrl || videoInfo.audioUrl.startsWith('#')}
                           >
                             <Music size={16} /> Download Audio

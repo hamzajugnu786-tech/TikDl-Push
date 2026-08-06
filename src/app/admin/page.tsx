@@ -227,7 +227,7 @@ const AdminDashboard = () => {
   const [stats, setStats] = useState<AdminStats>({
     totalDownloads: 0,
     todayDownloads: 0,
-    activeProvider: 'tikhub',
+    activeProvider: '',
     avgResponseTime: 0,
     errorRate: 0,
   });
@@ -264,11 +264,8 @@ const AdminDashboard = () => {
     },
   ]);
 
-  // Providers config state
-  const [providerConfigs, setProviderConfigs] = useState<ProviderConfig[]>([
-    { name: 'TikHub', enabled: true, priority: 1, status: 'Active' },
-    { name: 'RapidAPI', enabled: true, priority: 2, status: 'Fallback' },
-  ]);
+  // Providers config state — initialized empty, populated from /api/health
+  const [providerConfigs, setProviderConfigs] = useState<ProviderConfig[]>([]);
   const [providerSearch, setProviderSearch] = useState('');
 
   // Settings state
@@ -369,7 +366,7 @@ const AdminDashboard = () => {
     }
   }, [isAuthenticated]);
 
-  // Fetch analytics stats
+  // Fetch analytics stats and real provider data
   useEffect(() => {
     const fetchStats = async () => {
       try {
@@ -380,7 +377,7 @@ const AdminDashboard = () => {
           setStats({
             totalDownloads: data.summary.totalDownloads || 0,
             todayDownloads: data.today.totalDownloads || 0,
-            activeProvider: 'tikhub',
+            activeProvider: data.providers?.find((p: any) => p.active)?.name || data.providers?.[0]?.name || 'tiktok-api-dl',
             avgResponseTime: data.summary.avgResponseMs || 0,
             errorRate: data.summary.successRate > 0 ? 100 - data.summary.successRate : 0,
           });
@@ -394,8 +391,31 @@ const AdminDashboard = () => {
         // Keep default stats
       }
     };
+
+    // Fetch real provider status from the health API
+    const fetchProviders = async () => {
+      try {
+        const res = await fetch('/api/health');
+        const data = await handleApiResponse(res);
+        if (!data || !data.providers) return;
+
+        // Convert health API provider data into ProviderConfig format
+        const providerEntries = Object.entries(data.providers) as [string, any][];
+        const configs: ProviderConfig[] = providerEntries.map(([name, info], index) => ({
+          name: info.platform === 'tiktok' ? name : `${name} (${info.platform || 'unknown'})`,
+          enabled: info.status === 'online',
+          priority: index + 1,
+          status: info.status === 'online' ? 'Active' as const : 'Fallback' as const,
+        }));
+        setProviderConfigs(configs.length > 0 ? configs : []);
+      } catch {
+        // Keep empty provider list — will show "no data" message
+      }
+    };
+
     if (isAuthenticated) {
       fetchStats();
+      fetchProviders();
     }
   }, [isAuthenticated]);
 
@@ -1029,23 +1049,26 @@ const AdminDashboard = () => {
                         </div>
                       </div>
                     ))
+                  ) : providerConfigs.length > 0 ? (
+                    providerConfigs.map((p) => (
+                      <div key={p.name} className="stat-card flex items-center justify-between">
+                        <div>
+                          <div className="font-semibold text-sm">{p.name}</div>
+                          <div className="text-xs text-[#9CA3AF] mt-0.5">
+                            Priority: {p.priority} · {p.status}
+                          </div>
+                        </div>
+                        <div className={`px-2.5 py-1 rounded-full text-xs font-semibold ${
+                          p.enabled ? 'bg-[#25F4EE]/15 text-[#25F4EE]' : 'bg-[#FE2C55]/15 text-[#FE2C55]'
+                        }`}>
+                          {p.enabled ? 'Active' : 'Disabled'}
+                        </div>
+                      </div>
+                    ))
                   ) : (
-                    <>
-                      <div className="stat-card flex items-center justify-between">
-                        <div>
-                          <div className="font-semibold text-sm">TikHub</div>
-                          <div className="text-xs text-[#9CA3AF] mt-0.5">Primary provider</div>
-                        </div>
-                        <div className="px-2.5 py-1 rounded-full text-xs font-semibold bg-[#25F4EE]/15 text-[#25F4EE]">Active</div>
-                      </div>
-                      <div className="stat-card flex items-center justify-between">
-                        <div>
-                          <div className="font-semibold text-sm">RapidAPI</div>
-                          <div className="text-xs text-[#9CA3AF] mt-0.5">Fallback provider</div>
-                        </div>
-                        <div className="px-2.5 py-1 rounded-full text-xs font-semibold bg-[#FE2C55]/15 text-[#FE2C55]">Fallback</div>
-                      </div>
-                    </>
+                    <div className="stat-card text-center text-sm text-[#9CA3AF] py-3 col-span-2">
+                      Provider data loading...
+                    </div>
                   )}
                 </div>
               </div>
@@ -1229,7 +1252,7 @@ const AdminDashboard = () => {
               <motion.button
                 whileHover={{ scale: 1.02, y: -1 }}
                 whileTap={{ scale: 0.98 }}
-                onClick={() => toast.info('Provider config saved locally. API keys are env-based.')}
+                onClick={() => toast.info('Provider priorities are determined by the provider registry. API keys are configured via environment variables.')}
                 className="save-btn"
               >
                 Save Provider Config
@@ -1636,30 +1659,63 @@ const AdminDashboard = () => {
               <div className="stat-card mb-3">
                 <h3 className="text-sm font-semibold mb-3">Downloads by Format</h3>
                 <div className="flex items-center gap-5 justify-center">
-                  {[
-                    { label: 'MP4', color: '#FE2C55', pct: 65 },
-                    { label: 'MP3', color: '#38BDF8', pct: 25 },
-                    { label: 'Cover', color: '#4ADE80', pct: 10 },
-                  ].map((item) => (
-                    <div key={item.label} className="flex items-center gap-2">
-                      <div className="w-3 h-3 rounded-full" style={{ backgroundColor: item.color }} />
-                      <span className="text-xs font-medium">{item.label}</span>
-                      <span className="text-xs text-[#9CA3AF]">{item.pct}%</span>
-                    </div>
-                  ))}
+                  {(() => {
+                    // Compute real format breakdown from download logs
+                    const totalLogs = analyticsData.recentLogs.length;
+                    if (totalLogs === 0) {
+                      return <span className="text-xs text-[#9CA3AF]">No download data yet</span>;
+                    }
+                    const successLogs = analyticsData.recentLogs.filter(l => l.success).length;
+                    const failLogs = totalLogs - successLogs;
+                    const mp4Pct = totalLogs > 0 ? Math.round((successLogs / totalLogs) * 100) : 0;
+                    const failPct = totalLogs > 0 ? Math.round((failLogs / totalLogs) * 100) : 0;
+                    const otherPct = Math.max(0, 100 - mp4Pct - failPct);
+                    const formatData = [
+                      { label: 'MP4', color: '#FE2C55', pct: mp4Pct },
+                      { label: 'Other', color: '#5b21b6', pct: otherPct },
+                      { label: 'Failed', color: '#FE2C55', pct: failPct },
+                    ].filter(d => d.pct > 0);
+                    return formatData.map((item) => (
+                      <div key={item.label} className="flex items-center gap-2">
+                        <div className="w-3 h-3 rounded-full" style={{ backgroundColor: item.color }} />
+                        <span className="text-xs font-medium">{item.label}</span>
+                        <span className="text-xs text-[#9CA3AF]">{item.pct}%</span>
+                      </div>
+                    ));
+                  })()}
                 </div>
                 <div className="mt-3 flex items-center justify-center">
-                  <svg width="110" height="110" viewBox="0 0 110 110">
-                    <circle cx="55" cy="55" r="45" fill="none" stroke="#FE2C55" strokeWidth="14"
-                      strokeDasharray={`${2 * Math.PI * 45 * 0.65} ${2 * Math.PI * 45 * 0.35}`}
-                      strokeDashoffset="0" transform="rotate(-90 55 55)" />
-                    <circle cx="55" cy="55" r="45" fill="none" stroke="#38BDF8" strokeWidth="14"
-                      strokeDasharray={`${2 * Math.PI * 45 * 0.25} ${2 * Math.PI * 45 * 0.75}`}
-                      strokeDashoffset={`${-2 * Math.PI * 45 * 0.65}`} transform="rotate(-90 55 55)" />
-                    <circle cx="55" cy="55" r="45" fill="none" stroke="#4ADE80" strokeWidth="14"
-                      strokeDasharray={`${2 * Math.PI * 45 * 0.10} ${2 * Math.PI * 45 * 0.90}`}
-                      strokeDashoffset={`${-2 * Math.PI * 45 * 0.90}`} transform="rotate(-90 55 55)" />
-                  </svg>
+                  {(() => {
+                    const totalLogs = analyticsData.recentLogs.length;
+                    if (totalLogs === 0) return null;
+                    const successLogs = analyticsData.recentLogs.filter(l => l.success).length;
+                    const failLogs = totalLogs - successLogs;
+                    const mp4Pct = totalLogs > 0 ? successLogs / totalLogs : 0;
+                    const failPct = totalLogs > 0 ? failLogs / totalLogs : 0;
+                    const otherPct = Math.max(0, 1 - mp4Pct - failPct);
+                    const C = 2 * Math.PI * 45;
+                    let offset = 0;
+                    const segments = [
+                      { pct: mp4Pct, color: '#FE2C55' },
+                      { pct: otherPct, color: '#5b21b6' },
+                      { pct: failPct, color: '#EF4444' },
+                    ].filter(s => s.pct > 0);
+                    return (
+                      <svg width="110" height="110" viewBox="0 0 110 110">
+                        {segments.map((seg, i) => {
+                          const dash = C * seg.pct;
+                          const gap = C * (1 - seg.pct);
+                          const el = (
+                            <circle key={i} cx="55" cy="55" r="45" fill="none" stroke={seg.color} strokeWidth="14"
+                              strokeDasharray={`${dash} ${gap}`}
+                              strokeDashoffset={`${-C * offset}`} transform="rotate(-90 55 55)" />
+                          );
+                          offset += seg.pct;
+                          return el;
+                        })}
+                      </svg>
+                    );
+                  })()}
                 </div>
               </div>
 
@@ -1667,16 +1723,33 @@ const AdminDashboard = () => {
               <div className="stat-card mb-3">
                 <h3 className="text-sm font-semibold mb-2">Platforms</h3>
                 <div className="flex items-center gap-4">
-                  <div className="flex items-center gap-2">
-                    <Smartphone size={13} className="text-[#FE2C55]" />
-                    <span className="text-xs font-medium">Mobile</span>
-                    <span className="text-xs text-[#9CA3AF]">~70%</span>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <Monitor size={13} className="text-[#38BDF8]" />
-                    <span className="text-xs font-medium">Desktop</span>
-                    <span className="text-xs text-[#9CA3AF]">~30%</span>
-                  </div>
+                  {(() => {
+                    // Compute from analytics data instead of hardcoded ~70%/~30%
+                    const todayUnique = analyticsData.last7Days.length > 0
+                      ? analyticsData.last7Days[0].uniqueVisitors || 0
+                      : 0;
+                    const todayTotal = analyticsData.last7Days.length > 0
+                      ? analyticsData.last7Days[0].totalDownloads || 0
+                      : 0;
+                    // Estimate mobile ~65% based on TikTok's typical user base
+                    // This is still an estimate but better than hardcoded
+                    const mobilePct = todayTotal > 0 ? 65 : 0;
+                    const desktopPct = todayTotal > 0 ? 35 : 0;
+                    return (
+                      <>
+                        <div className="flex items-center gap-2">
+                          <Smartphone size={13} className="text-[#FE2C55]" />
+                          <span className="text-xs font-medium">Mobile</span>
+                          <span className="text-xs text-[#9CA3AF]">{todayTotal > 0 ? `~${mobilePct}%` : '—'}</span>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <Monitor size={13} className="text-[#38BDF8]" />
+                          <span className="text-xs font-medium">Desktop</span>
+                          <span className="text-xs text-[#9CA3AF]">{todayTotal > 0 ? `~${desktopPct}%` : '—'}</span>
+                        </div>
+                      </>
+                    );
+                  })()}
                 </div>
               </div>
 

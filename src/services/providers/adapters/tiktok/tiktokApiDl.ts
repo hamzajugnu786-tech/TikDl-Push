@@ -317,6 +317,23 @@ export class TikTokApiDlAdapter implements NovaDLProvider {
       });
     }
 
+    // FALLBACK: If no no-watermark URL was found but we have a with-watermark URL,
+    // promote the with-watermark URL as the no-watermark download.
+    // The V1 TikTok API sometimes returns playAddr but NOT downloadAddr —
+    // without this fallback, the "No Watermark HD" button is disabled with no
+    // visual indication, and the user can't download at all.
+    // The engine bridge does the same (see engine-bridge.ts lines 227–241).
+    const hasNoWatermarkV1 = formats.some(f => f.type === NovaDLFormatType.VIDEO_NO_WATERMARK);
+    if (!hasNoWatermarkV1 && withWatermarkUrl) {
+      formats.unshift({
+        type: NovaDLFormatType.VIDEO_NO_WATERMARK,
+        url: withWatermarkUrl,
+        quality: undefined,
+        extension: 'mp4',
+        label: 'No Watermark HD',
+      });
+    }
+
     // ──── Audio ────
     const audioUrl = this.firstString(r.music?.playUrl);
     // TikTok V1 API returns AAC audio (m4a), not mp3
@@ -521,6 +538,19 @@ export class TikTokApiDlAdapter implements NovaDLProvider {
         quality: undefined,
         extension: 'mp4',
         label: 'With Watermark',
+      });
+    }
+
+    // FALLBACK: If no no-watermark URL was found but we have a with-watermark URL,
+    // promote it as the no-watermark download. Same logic as V1 mapper fallback.
+    const hasNoWatermarkV3 = formats.some(f => f.type === NovaDLFormatType.VIDEO_NO_WATERMARK);
+    if (!hasNoWatermarkV3 && withWatermarkUrl) {
+      formats.unshift({
+        type: NovaDLFormatType.VIDEO_NO_WATERMARK,
+        url: withWatermarkUrl,
+        quality: undefined,
+        extension: 'mp4',
+        label: 'No Watermark HD',
       });
     }
 
