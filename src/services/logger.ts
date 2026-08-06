@@ -142,12 +142,15 @@ export class DownloadLogger {
       // 3. Aggregate into Analytics table for dashboard stats.
       // Upsert a row for today's date, incrementing counters.
       // This ensures the admin dashboard always has real data.
-      const todayStr = new Date().toISOString().split('T')[0]; // "2026-08-06"
+      // Use UTC-midnight Date object for consistent matching with the analytics API route.
+      const now = new Date();
+      const todayStr = now.toISOString().split('T')[0]; // "2026-08-06"
+      const todayDate = new Date(todayStr + 'T00:00:00.000Z'); // Explicit UTC midnight
       const isSuccess = entry.status === 'success';
       try {
         // First, get the current analytics row to compute the new average response time
         const existing = await db.analytics.findUnique({
-          where: { date: todayStr },
+          where: { date: todayDate },
         });
 
         if (existing) {
@@ -165,7 +168,7 @@ export class DownloadLogger {
             : existing.uniqueVisitors || 0;
 
           await db.analytics.update({
-            where: { date: todayStr },
+            where: { date: todayDate },
             data: {
               totalDownloads: newTotal,
               successCount: newSuccess,
@@ -178,7 +181,7 @@ export class DownloadLogger {
           // Create first row for today
           await db.analytics.create({
             data: {
-              date: todayStr,
+              date: todayDate,
               totalDownloads: 1,
               successCount: isSuccess ? 1 : 0,
               failCount: isSuccess ? 0 : 1,

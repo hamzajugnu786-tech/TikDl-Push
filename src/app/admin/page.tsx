@@ -1731,21 +1731,22 @@ const AdminDashboard = () => {
                     const todayTotal = analyticsData.last7Days.length > 0
                       ? analyticsData.last7Days[0].totalDownloads || 0
                       : 0;
-                    // Estimate mobile ~65% based on TikTok's typical user base
-                    // This is still an estimate but better than hardcoded
-                    const mobilePct = todayTotal > 0 ? 65 : 0;
-                    const desktopPct = todayTotal > 0 ? 35 : 0;
+                    // Estimate mobile/desktop from user-agent data in recent logs
+                    // We cannot determine device type from IP hashes, so use recent log data
+                    // If there's download activity but no device data, show "—" instead of fake percentages
+                    const mobilePct = 0;
+                    const desktopPct = 0;
                     return (
                       <>
                         <div className="flex items-center gap-2">
                           <Smartphone size={13} className="text-[#FE2C55]" />
                           <span className="text-xs font-medium">Mobile</span>
-                          <span className="text-xs text-[#9CA3AF]">{todayTotal > 0 ? `~${mobilePct}%` : '—'}</span>
+                          <span className="text-xs text-[#9CA3AF]">{mobilePct > 0 ? `~${mobilePct}%` : '—'}</span>
                         </div>
                         <div className="flex items-center gap-2">
                           <Monitor size={13} className="text-[#38BDF8]" />
                           <span className="text-xs font-medium">Desktop</span>
-                          <span className="text-xs text-[#9CA3AF]">{todayTotal > 0 ? `~${desktopPct}%` : '—'}</span>
+                          <span className="text-xs text-[#9CA3AF]">{desktopPct > 0 ? `~${desktopPct}%` : '—'}</span>
                         </div>
                       </>
                     );

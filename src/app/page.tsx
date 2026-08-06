@@ -239,38 +239,47 @@ const TikTokDownloader = () => {
         body: JSON.stringify({ url: videoUrl }),
       });
 
-      const result = await response.json();
-
-      // Handle non-200 responses that might leak provider errors
+      // Handle non-200 responses — NEVER expose backend/internal status codes or messages
       if (!response.ok && response.status !== 200) {
-        // Rate limit
-        if (response.status === 429) {
-          throw new Error('Too many requests. Please wait a moment and try again.');
+        // Try to parse JSON for errorCode, but NEVER leak the raw error message
+        let parsedResult: any = null;
+        try { parsedResult = await response.json(); } catch { /* non-JSON response (e.g. Vercel 502 HTML page) */ }
+
+        // Check for content-level error codes from our API
+        if (parsedResult?.errorCode) {
+          const unavailableCodes = ['PRIVATE_CONTENT', 'DELETED_CONTENT', 'AGE_RESTRICTED', 'GEO_BLOCKED'];
+          if (unavailableCodes.includes(parsedResult.errorCode)) {
+            setIsUnavailable(true);
+            setUnavailableReason('This video is unavailable. It was removed by the creator or is no longer available on TikTok.');
+            setVideoInfo(null);
+            toast.error('This TikTok isn\'t available');
+            return;
+          }
         }
-        // For any other non-200, show a generic message
-        throw new Error('Video not found. Please check the URL and try again.');
+
+        // ALL other non-200 responses (429, 502, 500, 503, etc.) —
+        // NEVER expose "Too many requests", "Server returned 502", rate limit, or any backend message.
+        // Always show "Video unavailable" to the user.
+        throw new Error('Video unavailable');
       }
 
+      const result = await response.json();
+
       if (!result.success) {
-        let errMsg = result.error || 'Failed to fetch video info';
-        // NEVER show provider/API/quota/backend errors to users
-        const internalKeywords = ['quota', 'tikhub', 'rapidapi', 'provider', 'spi ', 'rate limit', 'offline', 'circuit', 'fallback', 'timeout', 'retry', 'v1 ', 'v2 ', 'v3 ', 'ssstik', 'musicaldown', 'tikcdn', 'error code', 'status:', 'http', 'api key', 'unauthorized', 'forbidden', 'internal'];
-        const isInternalError = internalKeywords.some(k => errMsg.toLowerCase().includes(k));
-        if (isInternalError) {
-          errMsg = 'Video not found. Please check the URL and try again.';
-        }
+        // Determine user-facing message — NEVER expose provider/API/quota/backend errors
         const unavailableCodes = ['PRIVATE_CONTENT', 'DELETED_CONTENT', 'AGE_RESTRICTED', 'GEO_BLOCKED'];
-        const unavailableKeywords = ['private', 'deleted', 'unavailable', 'not available', 'region', 'age-restricted', 'geo'];
-        const isUnavail = unavailableCodes.some(c => result.errorCode === c) ||
-          unavailableKeywords.some(k => errMsg.toLowerCase().includes(k));
+        const isUnavail = unavailableCodes.some(c => result.errorCode === c);
+
         if (isUnavail) {
           setIsUnavailable(true);
-          setUnavailableReason(errMsg);
+          setUnavailableReason('This video is unavailable. It was removed by the creator or is no longer available on TikTok.');
           setVideoInfo(null);
           toast.error('This TikTok isn\'t available');
           return;
         }
-        throw new Error(errMsg);
+
+        // ALL other errors — never leak backend details. Show only "Video unavailable".
+        throw new Error('Video unavailable');
       }
 
       const data: VideoInfo = result.data;
@@ -311,12 +320,13 @@ const TikTokDownloader = () => {
         });
       });
     } catch (err: unknown) {
-      let errorMessage = err instanceof Error ? err.message : 'Unable to process this video. Try again.';
+      let errorMessage = err instanceof Error ? err.message : 'Video unavailable';
       // NEVER show provider/API/quota/backend errors to users
-      const internalKeywords = ['quota', 'tikhub', 'rapidapi', 'provider', 'spi ', 'rate limit', 'offline', 'circuit', 'fallback', 'timeout', 'retry', 'v1 ', 'v2 ', 'v3 ', 'ssstik', 'musicaldown', 'tikcdn', 'error code', 'status:', 'http', 'api key', 'unauthorized', 'forbidden', 'internal'];
+      // If the message contains any internal/technical keywords, replace with generic message
+      const internalKeywords = ['quota', 'tikhub', 'rapidapi', 'provider', 'spi ', 'rate limit', 'offline', 'circuit', 'fallback', 'timeout', 'retry', 'v1 ', 'v2 ', 'v3 ', 'ssstik', 'musicaldown', 'tikcdn', 'error code', 'status:', 'http', 'api key', 'unauthorized', 'forbidden', 'internal', '502', '500', '503', '429', 'server returned', 'failed to fetch', 'network'];
       const isInternalError = internalKeywords.some(k => errorMessage.toLowerCase().includes(k));
       if (isInternalError) {
-        errorMessage = 'Video not found. Please check the URL and try again.';
+        errorMessage = 'Video unavailable';
       }
       setError(errorMessage);
       toast.error(errorMessage);
@@ -391,11 +401,11 @@ const TikTokDownloader = () => {
     setTimeout(() => { if (a.parentNode) a.parentNode.removeChild(a); }, 100);
     toast.success(`Downloading ${filename}`);
 
-    // Background HEAD check — if it fails, show a warning toast
-    // This runs after the download is already triggered, so it doesn't add latency
+    // Background HEAD check — if it fails, show a generic warning
+    // NEVER expose the HTTP status code (502, 403, etc.) to the user
     fetch(proxyUrl, { method: 'HEAD' }).then(headRes => {
       if (!headRes.ok) {
-        toast.error('Download may have failed', { description: `Server returned ${headRes.status}` });
+        toast.error('Download may have failed', { description: 'The file could not be downloaded. Please try again.' });
       }
     }).catch(() => {
       // Network error — download might still work, don't show error
@@ -715,6 +725,13 @@ const TikTokDownloader = () => {
               </motion.div>
             </div>
           </section>
+
+          {/* ===== Hero Section Ad ===== */}
+          {landingAds.inlineAds.filter(a => a.placement === 'hero_section').length > 0 && (
+            <div className="max-w-xl mx-auto px-4 sm:px-6 mb-2">
+              {landingAds.inlineAds.filter(a => a.placement === 'hero_section').map(ad => renderAdSlot(ad))}
+            </div>
+          )}
 
           {/* ===== Banner Ad 2: Between URL Input and Result Card ===== */}
           {landingAds.inlineAds.filter(a => a.placement === 'between_url_download').length > 0 && (
@@ -1037,6 +1054,13 @@ const TikTokDownloader = () => {
           {(videoInfo || isUnavailable) && landingAds.inlineAds.filter(a => a.placement === 'between_result_recent').length > 0 && (
             <div className="max-w-4xl mx-auto px-4 sm:px-6 my-3">
               {landingAds.inlineAds.filter(a => a.placement === 'between_result_recent').map(ad => renderAdSlot(ad))}
+            </div>
+          )}
+
+          {/* ===== Native Content Ad ===== */}
+          {landingAds.inlineAds.filter(a => a.placement === 'native_content').length > 0 && (
+            <div className="max-w-xl mx-auto px-4 sm:px-6 my-3">
+              {landingAds.inlineAds.filter(a => a.placement === 'native_content').map(ad => renderAdSlot(ad))}
             </div>
           )}
 

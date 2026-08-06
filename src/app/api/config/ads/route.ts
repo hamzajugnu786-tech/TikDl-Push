@@ -10,10 +10,13 @@ const DEFAULT_CONFIG = {
 };
 
 // Landing page placements — which placements to show on public pages
+// MUST include every placement that the frontend renders.
 const LANDING_PLACEMENTS = [
   'header_banner',
   'hero_section',
   'between_url_download',
+  'between_result_recent',
+  'between_recent_features',
   'between_features_faq',
   'above_footer',
   'left_sidebar',
@@ -49,9 +52,9 @@ export async function GET() {
       (ad) => ad.enabled && ['header_banner', 'above_footer'].includes(ad.placement)
     );
 
-    // Inline ads
+    // Inline ads — includes ALL inline/content placements the frontend renders
     const inlineAds = allAds.filter(
-      (ad) => ad.enabled && ['hero_section', 'between_url_download', 'between_features_faq', 'native_content'].includes(ad.placement)
+      (ad) => ad.enabled && ['hero_section', 'between_url_download', 'between_result_recent', 'between_recent_features', 'between_features_faq', 'native_content'].includes(ad.placement)
     );
 
     return NextResponse.json({

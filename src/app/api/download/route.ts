@@ -160,7 +160,9 @@ export async function POST(request: NextRequest) {
     }
 
     // Error — map NovaDLErrorCode to appropriate HTTP status
-    let statusCode = 500;
+    // NEVER return 500 or 502 — these leak infrastructure details.
+    // All errors map to 400 (client error) or 404 (content not found).
+    let statusCode = 404;
 
     if (serviceResult.error) {
       const errorCode = serviceResult.error.code;
@@ -169,7 +171,10 @@ export async function POST(request: NextRequest) {
         statusCode = 400;
         apiResponse.error = 'Invalid TikTok URL. Please check the URL and try again.';
       } else if (errorCode === NovaDLErrorCode.RATE_LIMITED) {
+        // Rate-limited — return 429 but with generic user message
+        // Frontend will show "Video unavailable" for ALL errors including 429
         statusCode = 429;
+        apiResponse.error = 'Video unavailable';
       } else if (
         errorCode === NovaDLErrorCode.PRIVATE_CONTENT ||
         errorCode === NovaDLErrorCode.DELETED_CONTENT ||
@@ -178,13 +183,11 @@ export async function POST(request: NextRequest) {
       ) {
         statusCode = 404;
         apiResponse.error = 'This video is unavailable. It was removed by the creator or is no longer available on TikTok.';
-      } else if (errorCode === NovaDLErrorCode.PROVIDER_OFFLINE) {
-        statusCode = 503;
-        apiResponse.error = 'Video not found. Please try again later.';
       } else {
-        // All other errors — NEVER leak provider/API/quota details
+        // All other errors (PROVIDER_OFFLINE, DOWNLOAD_FAILED, UNKNOWN_ERROR, etc.)
+        // NEVER leak provider/API/quota details. Always 404 with generic message.
         statusCode = 404;
-        apiResponse.error = 'Video not found. Please check the URL and try again.';
+        apiResponse.error = 'Video unavailable';
       }
     }
 
