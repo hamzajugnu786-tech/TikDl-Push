@@ -54,6 +54,10 @@ export interface VideoInfo {
   postType?: 'video' | 'images';
   /** For photo/slide posts: array of original image URLs */
   slideImages?: string[];
+  /** Additional metadata for richer display */
+  comments?: string;
+  shares?: string;
+  followers?: string;
 }
 
 // ============================================================================
@@ -87,7 +91,7 @@ export function adaptResultForDisplay(result: NovaDLResult): VideoInfo {
     author: result.author,
     avatar: result.authorAvatar || '',
     thumbnail: thumbnail?.url || result.thumbnail,
-    duration: result.duration || '0:00',
+    duration: result.duration || '',
     views: result.metadata.views || '',
     likes: result.metadata.likes || '',
     noWatermarkUrl: noWatermark?.url || '',
@@ -96,6 +100,9 @@ export function adaptResultForDisplay(result: NovaDLResult): VideoInfo {
     cover: cover?.url || result.thumbnail,
     postType: result.metadata.postType as 'video' | 'images' | undefined,
     slideImages: result.metadata.slideImages as string[] | undefined,
+    comments: (result.metadata.comments as string) || '',
+    shares: (result.metadata.shares as string) || '',
+    followers: (result.metadata.followers as string) || '',
   };
 
   // Essential diagnostic: log final VideoInfo summary

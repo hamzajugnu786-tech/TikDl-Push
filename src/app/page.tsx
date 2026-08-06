@@ -7,7 +7,7 @@ import {
   Clock, User, Heart, RefreshCw, ClipboardPaste,
   ChevronDown, ChevronUp, Shield, Zap,
   Smartphone, Globe, CheckCircle, Share2,
-  ArrowDown, Link as LinkIcon, Lock,
+  ArrowDown, Link as LinkIcon, Lock, Home, History,
 } from 'lucide-react';
 import { Toaster, toast } from 'sonner';
 import { sanitizeAdHtml } from '@/lib/sanitize';
@@ -29,6 +29,12 @@ interface VideoInfo {
   cover: string;
   postType?: 'video' | 'images';
   slideImages?: string[];
+  /** Additional metadata for richer display */
+  comments?: string;
+  shares?: string;
+  followers?: string;
+  /** Timestamp for history expiry */
+  _timestamp?: number;
 }
 
 interface FAQItem {
@@ -136,6 +142,9 @@ const TikTokDownloader = () => {
   const [resultHighlight, setResultHighlight] = useState(false);
   // Swipe state
   const [touchStart, setTouchStart] = useState<number | null>(null);
+  // Slide carousel swipe state (separate from tab swipe)
+  const [slideTouchStart, setSlideTouchStart] = useState<number | null>(null);
+  const [slideTouchCurrent, setSlideTouchCurrent] = useState<number>(0);
   // Slide carousel index
   const [currentSlide, setCurrentSlide] = useState(0);
 
@@ -278,10 +287,13 @@ const TikTokDownloader = () => {
       setHistory(prev => [{ ...data, _timestamp: Date.now() }, ...prev.slice(0, 9)]);
       toast.success('Video ready!');
 
-      // Scroll to result card after fetch
-      setTimeout(() => {
-        resultCardRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
-      }, 300);
+      // Scroll to result card after fetch — use requestAnimationFrame for reliable timing
+      // This ensures the DOM has committed the new videoInfo state before scrolling
+      requestAnimationFrame(() => {
+        requestAnimationFrame(() => {
+          resultCardRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        });
+      });
     } catch (err: unknown) {
       const errorMessage = err instanceof Error ? err.message : 'Unable to process this video. Try again.';
       setError(errorMessage);
@@ -324,7 +336,7 @@ const TikTokDownloader = () => {
         if (adTimerRef.current) clearInterval(adTimerRef.current);
         adTimerRef.current = null;
       }
-    }, 250); // Check 4x/sec for smooth display
+    }, 100); // 10x/sec for smooth countdown display
   }, [interstitialConfig.countdownDuration]);
 
   // ──── STREAMING DOWNLOAD: Direct <a> link to proxy ────
@@ -332,34 +344,36 @@ const TikTokDownloader = () => {
   // The browser starts downloading from byte 0 immediately.
   // Progress is visible in the browser's download UI.
   //
-  // For error detection, we use a two-phase approach:
-  // 1. First, do a HEAD request to verify the proxy URL is accessible
-  // 2. If OK, trigger the actual download via <a> link (streaming)
-  // 3. If error, show toast without creating a .json file
-  const triggerProxyDownload = useCallback(async (downloadUrl: string, filename: string) => {
-    try {
-      const proxyUrl = `/api/proxy?url=${encodeURIComponent(downloadUrl)}&filename=${encodeURIComponent(filename)}`;
-
-      // Quick HEAD check to detect 403/404 errors before triggering download
-      // This prevents the browser from saving error responses as .json files
-      const headRes = await fetch(proxyUrl, { method: 'HEAD' });
-      if (!headRes.ok) {
-        const text = await headRes.text().catch(() => 'Download failed');
-        toast.error('Download failed', { description: text.slice(0, 100) });
-        return;
-      }
-
-      // Streaming download via direct <a> link — browser handles progress, no buffering
-      const a = document.createElement('a');
-      a.href = proxyUrl;
-      a.download = filename;
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
-      toast.success(`Downloading ${filename}`);
-    } catch (err) {
-      toast.error('Download failed', { description: err instanceof Error ? err.message : 'Network error' });
+  // The <a> link triggers the download immediately. If the proxy returns
+  // an error (403/404), the browser will show a failed download — but since
+  // we use Content-Type: text/plain for errors, it won't create a .json file.
+  // We do a background HEAD check only to show a toast on error.
+  const triggerProxyDownload = useCallback((downloadUrl: string, filename: string) => {
+    if (!downloadUrl || downloadUrl.startsWith('#')) {
+      toast.error('Download URL not available');
+      return;
     }
+
+    const proxyUrl = `/api/proxy?url=${encodeURIComponent(downloadUrl)}&filename=${encodeURIComponent(filename)}`;
+
+    // Trigger the download IMMEDIATELY via <a> link — no waiting for HEAD check
+    const a = document.createElement('a');
+    a.href = proxyUrl;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    toast.success(`Downloading ${filename}`);
+
+    // Background HEAD check — if it fails, show a warning toast
+    // This runs after the download is already triggered, so it doesn't add latency
+    fetch(proxyUrl, { method: 'HEAD' }).then(headRes => {
+      if (!headRes.ok) {
+        toast.error('Download may have failed', { description: `Server returned ${headRes.status}` });
+      }
+    }).catch(() => {
+      // Network error — download might still work, don't show error
+    });
   }, []);
 
   const proceedAfterAd = useCallback(() => {
@@ -422,7 +436,8 @@ const TikTokDownloader = () => {
   }, []);
 
   const getDownloadFilename = useCallback((type: 'video' | 'audio' | 'image', info: VideoInfo, idx?: number, audioExt?: string): string => {
-    // Format: @username-title-tikdl.extension
+    // Format: @username-video-title-tikdl.extension
+    // For slides: @username-video-title-tikdl-slide01.jpg
     const author = (info.author || 'tiktok').replace(/^@/, '');
     const rawTitle = info.title || info.id;
     const cleanTitle = sanitizeFilename(rawTitle);
@@ -430,7 +445,7 @@ const TikTokDownloader = () => {
     switch (type) {
       case 'video': return `${base}.mp4`;
       case 'audio': return `${base}.${audioExt || 'm4a'}`;
-      case 'image': return `${base}_${(idx ?? 0) + 1}.jpg`;
+      case 'image': return `${base}-slide${String((idx ?? 0) + 1).padStart(2, '0')}.jpg`;
     }
   }, [sanitizeFilename]);
 
@@ -481,6 +496,32 @@ const TikTokDownloader = () => {
     setTouchStart(null);
   }, [touchStart]);
 
+  // Slide carousel swipe handlers — separate from tab swipe
+  const handleSlideTouchStart = useCallback((e: React.TouchEvent) => {
+    setSlideTouchStart(e.touches[0].clientX);
+    setSlideTouchCurrent(e.touches[0].clientX);
+  }, []);
+
+  const handleSlideTouchMove = useCallback((e: React.TouchEvent) => {
+    setSlideTouchCurrent(e.touches[0].clientX);
+  }, []);
+
+  const handleSlideTouchEnd = useCallback((e: React.TouchEvent) => {
+    if (slideTouchStart === null) return;
+    const diff = slideTouchStart - e.changedTouches[0].clientX;
+    if (Math.abs(diff) > 40) {
+      if (diff > 0) {
+        // Swipe left → next slide
+        setCurrentSlide(prev => prev + 1);
+      } else {
+        // Swipe right → prev slide
+        setCurrentSlide(prev => prev - 1);
+      }
+    }
+    setSlideTouchStart(null);
+    setSlideTouchCurrent(0);
+  }, [slideTouchStart]);
+
   // Countdown ring
   const circumference = 2 * Math.PI * 36;
   const progress = interstitialConfig.countdownDuration > 0
@@ -523,7 +564,7 @@ const TikTokDownloader = () => {
   };
 
   return (
-    <div className="min-h-screen bg-[#000000] text-white flex flex-col">
+    <div className="min-h-screen bg-[#000000] text-white flex flex-col pb-16 md:pb-0">
       <Toaster position="top-center" richColors closeButton />
       <div ref={topRef} />
 
@@ -744,8 +785,13 @@ const TikTokDownloader = () => {
                       {/* Photo/slide: premium carousel gallery */}
                       {videoInfo.postType === 'images' && activeTab === 'video' && imagePostMode === 'images' && videoInfo.slideImages && videoInfo.slideImages.length > 0 && (
                         <div className="space-y-3">
-                          {/* Carousel container */}
-                          <div className="relative rounded-[12px] overflow-hidden bg-zinc-900 aspect-[3/4]">
+                          {/* Carousel container — swipeable */}
+                          <div
+                            className="relative rounded-[12px] overflow-hidden bg-zinc-900 aspect-[3/4] touch-pan-y"
+                            onTouchStart={handleSlideTouchStart}
+                            onTouchMove={handleSlideTouchMove}
+                            onTouchEnd={handleSlideTouchEnd}
+                          >
                             <AnimatePresence mode="wait">
                               <motion.img
                                 key={currentSlide}
@@ -756,7 +802,7 @@ const TikTokDownloader = () => {
                                 exit={{ opacity: 0, x: -30 }}
                                 transition={{ duration: 0.2 }}
                                 className="w-full h-full object-contain"
-                                onError={(e) => { (e.target as HTMLImageElement).src = '/icon-512.png'; }}
+                                onError={(e) => { const img = e.target as HTMLImageElement; img.style.opacity = '0.3'; }}
                               />
                             </AnimatePresence>
                             {/* Nav arrows */}
@@ -826,9 +872,24 @@ const TikTokDownloader = () => {
                                 onClick={() => {
                                   const imgs = videoInfo.slideImages!;
                                   const indices = Array.from(selectedImages).sort((a, b) => a - b);
-                                  indices.forEach(idx => {
-                                    handleDownload(imgs[idx], getDownloadFilename('image', videoInfo, idx));
-                                  });
+                                  // For batch downloads: show ad once, then download all selected
+                                  if (interstitialConfig.enabled) {
+                                    // Store ALL downloads as pending, trigger first through ad flow
+                                    const downloads = indices.map(idx => ({
+                                      url: imgs[idx],
+                                      filename: getDownloadFilename('image', videoInfo, idx),
+                                    }));
+                                    setPendingDownload(downloads[0]);
+                                    startAdTimer(downloads[0].url, downloads[0].filename);
+                                    // Schedule remaining downloads after ad
+                                    downloads.slice(1).forEach((dl, i) => {
+                                      setTimeout(() => triggerProxyDownload(dl.url, dl.filename), (i + 1) * 500);
+                                    });
+                                  } else {
+                                    indices.forEach((idx, i) => {
+                                      setTimeout(() => triggerProxyDownload(imgs[idx], getDownloadFilename('image', videoInfo, idx)), i * 300);
+                                    });
+                                  }
                                 }}
                                 className="flex-1 min-w-[140px] bg-[#FE2C55] hover:bg-[#FE2C55]/90 text-white py-2.5 rounded-[12px] font-semibold text-[14px] flex items-center justify-center gap-2 transition-colors duration-150"
                               >
@@ -840,9 +901,22 @@ const TikTokDownloader = () => {
                               whileTap={{ scale: 0.98 }}
                               onClick={() => {
                                 const imgs = videoInfo.slideImages!;
-                                imgs.forEach((imgUrl, idx) => {
-                                  handleDownload(imgUrl, getDownloadFilename('image', videoInfo, idx));
-                                });
+                                // For batch downloads: show ad once, then download all
+                                if (interstitialConfig.enabled) {
+                                  const downloads = imgs.map((imgUrl, idx) => ({
+                                    url: imgUrl,
+                                    filename: getDownloadFilename('image', videoInfo, idx),
+                                  }));
+                                  setPendingDownload(downloads[0]);
+                                  startAdTimer(downloads[0].url, downloads[0].filename);
+                                  downloads.slice(1).forEach((dl, i) => {
+                                    setTimeout(() => triggerProxyDownload(dl.url, dl.filename), (i + 1) * 500);
+                                  });
+                                } else {
+                                  imgs.forEach((imgUrl, idx, arr) => {
+                                    setTimeout(() => triggerProxyDownload(imgUrl, getDownloadFilename('image', videoInfo, idx)), idx * 300);
+                                  });
+                                }
                               }}
                               className="flex-1 min-w-[140px] bg-white/10 hover:bg-white/15 text-white py-2.5 rounded-[12px] font-medium text-[14px] flex items-center justify-center gap-2 transition-colors duration-150"
                             >
@@ -871,13 +945,19 @@ const TikTokDownloader = () => {
 
                       {/* Normal video preview */}
                       {videoInfo.postType !== 'images' && activeTab === 'video' && (
-                        <div className="relative rounded-[12px] overflow-hidden bg-zinc-900">
-                          <img
-                            src={`/api/proxy?url=${encodeURIComponent(videoInfo.thumbnail)}&filename=thumbnail.jpg&mode=inline`}
-                            alt={videoInfo.title}
-                            className="w-full object-cover"
-                            onError={(e) => { (e.target as HTMLImageElement).src = '/icon-512.png'; }}
-                          />
+                        <div className="relative rounded-[12px] overflow-hidden bg-zinc-900 aspect-[9/16]">
+                          {videoInfo.thumbnail ? (
+                            <img
+                              src={`/api/proxy?url=${encodeURIComponent(videoInfo.thumbnail)}&filename=thumbnail.jpg&mode=inline`}
+                              alt={videoInfo.title}
+                              className="w-full h-full object-cover"
+                              onError={(e) => { const img = e.target as HTMLImageElement; img.style.display = 'none'; }}
+                            />
+                          ) : (
+                            <div className="w-full h-full flex items-center justify-center bg-zinc-800">
+                              <Play size={48} className="text-zinc-600" />
+                            </div>
+                          )}
                           {videoInfo.duration && (
                             <div className="absolute bottom-2 right-2 bg-black/70 px-2 py-1 rounded-lg text-xs flex items-center gap-1">
                               <Clock size={12} /> {videoInfo.duration}
@@ -908,9 +988,11 @@ const TikTokDownloader = () => {
                         )}
                         <div>
                           <div className="font-medium text-sm">{videoInfo.author}</div>
-                          <div className="text-xs text-gray-500 flex items-center gap-3">
-                            {videoInfo.views && <span className="flex items-center gap-1"><User size={12} /> {videoInfo.views}</span>}
+                          <div className="text-xs text-gray-500 flex items-center gap-3 flex-wrap">
+                            {videoInfo.views && <span className="flex items-center gap-1"><User size={12} /> {videoInfo.views} views</span>}
                             {videoInfo.likes && <span className="flex items-center gap-1"><Heart size={12} /> {videoInfo.likes}</span>}
+                            {videoInfo.comments && <span className="flex items-center gap-1">💬 {videoInfo.comments}</span>}
+                            {videoInfo.shares && <span className="flex items-center gap-1">↗ {videoInfo.shares}</span>}
                           </div>
                         </div>
                       </div>
@@ -998,7 +1080,7 @@ const TikTokDownloader = () => {
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                   {history.map((item) => (
                     <div
-                      key={item.id}
+                      key={item.id + (item._timestamp || 0)}
                       className="glass rounded-[12px] p-3 flex items-center gap-3 hover:bg-white/5 transition-colors duration-150 cursor-pointer"
                       onClick={() => {
                         resetInterface();
@@ -1012,15 +1094,24 @@ const TikTokDownloader = () => {
                         }, 100);
                       }}
                     >
-                      <img
-                        src={`/api/proxy?url=${encodeURIComponent(item.thumbnail)}&filename=thumb.jpg&mode=inline`}
-                        alt={item.title}
-                        className="w-11 h-11 rounded-[10px] object-cover bg-zinc-800"
-                        onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }}
-                      />
+                      {item.thumbnail ? (
+                        <img
+                          src={`/api/proxy?url=${encodeURIComponent(item.thumbnail)}&filename=thumb.jpg&mode=inline`}
+                          alt={item.title}
+                          className="w-11 h-11 rounded-[10px] object-cover bg-zinc-800 flex-shrink-0"
+                          onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }}
+                        />
+                      ) : (
+                        <div className="w-11 h-11 rounded-[10px] bg-zinc-800 flex-shrink-0 flex items-center justify-center">
+                          <Play size={14} className="text-zinc-600" />
+                        </div>
+                      )}
                       <div className="flex-1 min-w-0">
                         <p className="font-medium text-sm truncate">{item.title}</p>
-                        <p className="text-xs text-gray-500">{item.author}</p>
+                        <p className="text-xs text-gray-500 truncate">{item.author}</p>
+                        {item._timestamp && (
+                          <p className="text-[10px] text-gray-600 mt-0.5">{new Date(item._timestamp).toLocaleDateString()}</p>
+                        )}
                       </div>
                     </div>
                   ))}
@@ -1134,6 +1225,41 @@ const TikTokDownloader = () => {
       {/* ===== Footer ===== */}
       <SiteFooter />
 
+      {/* ===== Mobile Bottom Navigation — always visible on small screens ===== */}
+      <nav className="fixed bottom-0 left-0 right-0 z-50 md:hidden border-t border-white/10 bg-black/90 backdrop-blur-xl safe-area-bottom">
+        <div className="flex items-center justify-around py-2">
+          <a
+            href="#"
+            onClick={(e) => { e.preventDefault(); window.scrollTo({ top: 0, behavior: 'smooth' }); }}
+            className="flex flex-col items-center gap-0.5 text-white"
+          >
+            <Home size={20} />
+            <span className="text-[10px] font-medium">Home</span>
+          </a>
+          <a
+            href="#features"
+            className="flex flex-col items-center gap-0.5 text-gray-500 hover:text-white transition-colors"
+          >
+            <Zap size={20} />
+            <span className="text-[10px]">Features</span>
+          </a>
+          <a
+            href="#history"
+            className={`flex flex-col items-center gap-0.5 transition-colors ${history.length > 0 ? 'text-[#FE2C55]' : 'text-gray-500 hover:text-white'}`}
+          >
+            <History size={20} />
+            <span className="text-[10px] font-medium">History</span>
+          </a>
+          <a
+            href="#faq"
+            className="flex flex-col items-center gap-0.5 text-gray-500 hover:text-white transition-colors"
+          >
+            <Shield size={20} />
+            <span className="text-[10px]">FAQ</span>
+          </a>
+        </div>
+      </nav>
+
       {/* ===== Ad Interstitial Popup ===== */}
       <AnimatePresence>
         {showAdPopup && (
@@ -1186,7 +1312,7 @@ const TikTokDownloader = () => {
                 <div className="relative w-14 h-14">
                   <svg className="w-full h-full -rotate-90" viewBox="0 0 80 80">
                     <circle cx="40" cy="40" r="36" fill="none" stroke="rgba(255,255,255,0.08)" strokeWidth="4" />
-                    <circle cx="40" cy="40" r="36" fill="none" stroke="#FE2C55" strokeWidth="4" strokeLinecap="round" strokeDasharray={circumference} strokeDashoffset={strokeDashoffset} style={{ transition: 'stroke-dashoffset 0.5s ease-out' }} />
+                    <circle cx="40" cy="40" r="36" fill="none" stroke="#FE2C55" strokeWidth="4" strokeLinecap="round" strokeDasharray={circumference} strokeDashoffset={strokeDashoffset} style={{ transition: 'stroke-dashoffset 0.15s linear' }} />
                   </svg>
                   <div className="absolute inset-0 flex items-center justify-center">
                     {countdown > 0 ? (

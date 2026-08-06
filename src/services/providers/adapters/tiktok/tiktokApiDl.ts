@@ -158,13 +158,16 @@ export class TikTokApiDlAdapter implements NovaDLProvider {
         );
       }
 
-      // ──── Internal fallback: V2 → V3 → V1 ────
-      // Each version is tried independently. If one fails,
-      // we try the next. The frontend never sees this fallback.
+      // ──── Internal fallback: V1 → V2 → V3 ────
+      // V1 (TikTok API) has the RICHEST data: cover, duration, uniqueId, statistics.
+      // V2 (SSSTik) and V3 (MusicalDown) are HTML scrapers with sparse data
+      // (no cover, no duration, only nickname, no playCount).
+      // We try V1 first to get full metadata. If V1 fails (rate-limited/blocked),
+      // fall back to V2 then V3 for download URLs.
       const versions: Array<{ version: 'v1' | 'v2' | 'v3'; label: string }> = [
+        { version: 'v1', label: 'TikTokAPI' },
         { version: 'v2', label: 'SSSTik' },
         { version: 'v3', label: 'MusicalDown' },
-        { version: 'v1', label: 'TikTokAPI' },
       ];
 
       let lastError: string | null = null;
@@ -180,7 +183,7 @@ export class TikTokApiDlAdapter implements NovaDLProvider {
 
           if (result?.status === 'success' && result?.result) {
             console.log(`[tiktok-api-dl] ${label} (${version}) succeeded — type: ${result.result.type}`);
-            return this.mapToNovaDLResult(result, version);
+            return this.mapToNovaDLResult(result, version, inputUrl);
           }
 
           // Version returned an error — try next
@@ -253,15 +256,15 @@ export class TikTokApiDlAdapter implements NovaDLProvider {
   // RESULT MAPPING — Maps tiktok-api-dl responses to NovaDLResult
   // ========================================================================
 
-  private mapToNovaDLResult(result: any, version: 'v1' | 'v2' | 'v3'): NovaDLResult {
+  private mapToNovaDLResult(result: any, version: 'v1' | 'v2' | 'v3', inputUrl?: string): NovaDLResult {
     // Dispatch to version-specific mapper
     switch (version) {
       case 'v1':
         return this.mapV1Result(result);
       case 'v2':
-        return this.mapV2Result(result);
+        return this.mapV2Result(result, inputUrl);
       case 'v3':
-        return this.mapV3Result(result);
+        return this.mapV3Result(result, inputUrl);
     }
   }
 
@@ -373,23 +376,28 @@ export class TikTokApiDlAdapter implements NovaDLProvider {
 
   // ──── V2 Mapper (SSSTik.io) ────
 
-  private mapV2Result(result: any): NovaDLResult {
+  private mapV2Result(result: any, inputUrl?: string): NovaDLResult {
     const r = result.result;
     const title = r.desc || 'TikTok Video';
-    const author = r.author?.nickname || '@unknown';
+    // V2 only provides nickname (no uniqueId). Try to extract username from URL.
+    // If the URL contains @username, use that as the author for filenames.
+    const urlUsername = this.extractUsernameFromUrl(inputUrl);
+    const author = urlUsername || r.author?.nickname || '@unknown';
     const authorAvatar = r.author?.avatar || '';
 
     // SSSTik returns video URL directly (no-watermark by default)
     const videoUrl = this.firstString(r.video?.playAddr) || r.direct || '';
 
-    // Thumbnail — ALWAYS use video cover/originCover first.
-    // NEVER fall back to author avatar for thumbnail — that's ISSUE #3.
-    // Author avatar is for the avatar circle only.
+    // Thumbnail — V2 (SSSTik) does NOT provide video.cover or video.originCover.
+    // The SSSTik page shows the video cover as the author avatar image on the result page,
+    // but that's the PROFILE avatar, not the video cover. We cannot get the video cover
+    // from V2. Leave empty — the UI will show a proper placeholder (not favicon).
     const thumbnail = this.firstString(r.video?.originCover) ||
       this.firstString(r.video?.cover) || '';
 
-    // Duration — SSSTik V2 may provide duration in the video object.
-    // If not available, try to parse from the URL or default to empty.
+    // Duration — V2 (SSSTik) does NOT provide video.duration.
+    // Leave empty string — the UI will hide the duration badge when empty.
+    // NEVER show '0:00' unless the video is truly 0 seconds.
     const durationMs = r.video?.duration;
     const duration = durationMs
       ? `${Math.floor(durationMs / 1000 / 60)}:${String(Math.floor((durationMs / 1000) % 60)).padStart(2, '0')}`
@@ -466,13 +474,16 @@ export class TikTokApiDlAdapter implements NovaDLProvider {
 
   // ──── V3 Mapper (MusicalDown.com) ────
 
-  private mapV3Result(result: any): NovaDLResult {
+  private mapV3Result(result: any, inputUrl?: string): NovaDLResult {
     const r = result.result;
     const title = r.desc || 'TikTok Video';
-    const author = r.author?.nickname || '@unknown';
+    // V3 only provides nickname (no uniqueId). Try to extract from URL.
+    const urlUsername = this.extractUsernameFromUrl(inputUrl);
+    const author = urlUsername || r.author?.nickname || '@unknown';
     const authorAvatar = r.author?.avatar || '';
-    // Thumbnail — use video cover if available, NOT author avatar
-    const thumbnail = '';  // MusicalDown doesn't provide separate video cover
+    // V3 (MusicalDown) does NOT provide video cover at all.
+    // Leave empty — UI shows proper placeholder, NOT favicon.
+    const thumbnail = '';
 
     // Duration — MusicalDown doesn't provide duration
     const duration = '';
@@ -571,6 +582,21 @@ export class TikTokApiDlAdapter implements NovaDLProvider {
       for (const item of arr) {
         if (typeof item === 'string' && item.length > 0) return item;
       }
+    }
+    return '';
+  }
+
+  /**
+   * Extract @username from a TikTok URL.
+   * TikTok URLs are like: https://www.tiktok.com/@username/video/123...
+   * This is used when V2/V3 only return nickname but we need uniqueId for filenames.
+   */
+  private extractUsernameFromUrl(url: string | undefined): string {
+    if (!url) return '';
+    // Match /@username/ pattern in TikTok URLs
+    const match = url.match(/\/@([a-zA-Z0-9_.]+)\//);
+    if (match && match[1]) {
+      return `@${match[1]}`;
     }
     return '';
   }

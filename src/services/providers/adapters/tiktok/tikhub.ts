@@ -76,6 +76,7 @@ interface TikHubVideoData {
     avatar?: unknown;
     avatar_medium?: unknown;
     signature?: string;
+    follower_count?: number;
   };
   // Cover can be { url_list: string[] } OR plain string
   cover?: unknown;
@@ -490,6 +491,7 @@ export class TikTokTikHubAdapter implements NovaDLProvider {
       likes: stats?.digg_count ? formatCount(stats.digg_count) : undefined,
       comments: stats?.comment_count ? formatCount(stats.comment_count) : undefined,
       shares: stats?.share_count ? formatCount(stats.share_count) : undefined,
+      followers: videoData.author?.follower_count ? formatCount(videoData.author.follower_count) : undefined,
       postType: isPhotoPost ? 'images' : 'video',
       slideImages: slideImageUrls.length > 0 ? slideImageUrls : undefined,
     };
