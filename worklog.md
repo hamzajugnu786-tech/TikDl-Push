@@ -315,3 +315,38 @@ Stage Summary:
 - 4 files modified: tiktokApiDl.ts, download.ts, page.tsx, proxy/route.ts (from earlier)
 - Build passes, TypeScript passes
 - Deployment: Pushed to GitHub (commit 21e2074), Vercel auto-deploy triggered
+---
+Task ID: production-hotfix-1
+Agent: main
+Task: Fix all 12 production-verified bugs
+
+Work Log:
+- Read all source files from scratch: page.tsx (1308 lines), tiktokApiDl.ts (600 lines), result-to-display.ts (166 lines), download.ts, proxy/route.ts
+- Analyzed V2 (SSSTik) and V3 (MusicalDown) response shapes — confirmed they're missing cover, duration, uniqueId, playCount
+- Identified ROOT CAUSE: fallback order was V2→V3→V1, so sparse V2 data always won over rich V1 data
+- Changed fallback order to V1→V2→V3 (V1 has cover, duration, uniqueId, full statistics)
+- Added extractUsernameFromUrl() helper to get @username from URL for V2/V3 adapters
+- Removed /icon-512.png (favicon) fallback from all img onError handlers
+- Added Play icon placeholder when thumbnail is empty
+- Added aspect-[9/16] for mobile TikTok video preview ratio
+- Added onTouchStart/Move/End handlers on slide carousel for swipe support
+- Fixed slide swipe boundary clamping (0 to max)
+- Removed blocking HEAD check from download — <a> link triggers immediately
+- Changed duration default from '0:00' to '' — duration badge hidden when empty
+- Added comments/shares/followers to VideoInfo interface and display
+- Fixed Recent History to show thumbnail with placeholder, author, date
+- Fixed batch slide downloads with staggered timeouts (ad shown once)
+- Changed auto-scroll from setTimeout(300) to double requestAnimationFrame
+- Changed popup timer from 250ms to 100ms interval + 150ms CSS transition
+- Added mobile bottom navigation with Home/Features/History/FAQ active states
+- Added follower_count to TikHub author type and metadata mapping
+- Fixed slide filename format to @username-title-tikdl-slide01.jpg
+- TypeScript: 0 errors, Build: success, Lint: pass
+- Pushed commits: f7ab6a5, 044a1be
+
+Stage Summary:
+- All 12 issues have root cause fixes applied
+- V1→V2→V3 fallback order ensures richest data is used first
+- No more favicon fallback — proper placeholders instead
+- Mobile bottom nav added with active state highlighting
+- Download starts immediately without HEAD check latency
