@@ -16,7 +16,10 @@
  * - HttpOnly cookie prevents XSS access
  * - SameSite=Strict prevents CSRF
  * - Timing-safe password comparison prevents timing attacks
- * - Rate-limited: max 5 login attempts per minute per IP (DB-backed, persists across restarts)
+ * - Rate-limited: max 10 FAILED login attempts per 10 minutes per IP
+ *   - Successful login RESETS the failed-attempt counter
+ *   - Only failed attempts count toward the limit
+ *   - DB-backed, persists across restarts
  */
 
 import { NextRequest, NextResponse } from 'next/server';
@@ -30,25 +33,7 @@ export async function POST(request: NextRequest) {
     const adminPasswordConfigured = !!process.env.ADMIN_PASSWORD;
     console.log('[Auth/Login] ADMIN_PASSWORD configured:', adminPasswordConfigured, 'NODE_ENV:', process.env.NODE_ENV);
 
-    // Rate limit check — production-grade (DB-backed)
-    // Use spoofing-resistant IP extraction (takes last IP in XFF chain)
-    // ⚠️  Hash IP before rate limit key — raw IPs are NEVER stored anywhere (GDPR)
-    const ip = getClientIp(request);
-    const rateLimitKey = hashIpForRateLimit(ip);
-    const rateLimiter = getLoginRateLimiter();
-    const allowed = await rateLimiter.check(rateLimitKey);
-
-    // Diagnostic: Log rate limit status
-    const rlStatus = rateLimiter.getStatus(rateLimitKey);
-    console.log('[Auth/Login] Rate limit:', allowed ? 'allowed' : 'BLOCKED', 'remaining:', rlStatus?.remaining, 'resetIn:', rlStatus ? Math.round((rlStatus.resetTime - Date.now()) / 1000) + 's' : 'n/a');
-
-    if (!allowed) {
-      return NextResponse.json(
-        { success: false, error: 'Too many login attempts. Please try again later.' },
-        { status: 429 }
-      );
-    }
-
+    // Parse request body FIRST (before rate limit check)
     let body;
     try {
       body = await request.json();
@@ -67,11 +52,32 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    // Rate limit check — only check if already blocked (do NOT increment here)
+    // We only count FAILED attempts, so we use isLimited() to check
+    // and increment() only after a failed password verification.
+    const ip = getClientIp(request);
+    const rateLimitKey = hashIpForRateLimit(ip);
+    const rateLimiter = getLoginRateLimiter();
+    const isBlocked = await rateLimiter.isLimited(rateLimitKey);
+
+    // Diagnostic: Log rate limit status
+    const rlStatus = rateLimiter.getStatus(rateLimitKey);
+    console.log('[Auth/Login] Rate limit:', !isBlocked ? 'allowed' : 'BLOCKED', 'remaining:', rlStatus?.remaining, 'Banned for:', rlStatus ? Math.max(0, Math.round((rlStatus.resetTime - Date.now()) / 1000)) + 's' : 'n/a');
+
+    if (isBlocked) {
+      return NextResponse.json(
+        { success: false, error: 'Too many login attempts. Please try again later.' },
+        { status: 429 }
+      );
+    }
+
     // Verify password on the server — never exposed to client
     const isValid = verifyAdminPassword(password);
 
     if (!isValid) {
-      // Bug 5 fix: Provide a more helpful error message.
+      // ──── FAILED LOGIN — increment the failed-attempt counter ────
+      await rateLimiter.increment(rateLimitKey);
+
       // If ADMIN_PASSWORD is not configured in production, all logins will fail.
       // Include a hint so the admin knows to check their environment configuration.
       const adminPassword = process.env.ADMIN_PASSWORD;
@@ -85,6 +91,11 @@ export async function POST(request: NextRequest) {
         { status: 401 }
       );
     }
+
+    // ──── SUCCESSFUL LOGIN — reset the failed-attempt counter ────
+    // This ensures that a user who eventually enters the correct password
+    // is not penalized for earlier typos within the same window.
+    await rateLimiter.reset(rateLimitKey);
 
     // Set HttpOnly session cookie
     await setAdminSession();

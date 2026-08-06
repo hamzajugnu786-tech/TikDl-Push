@@ -36,25 +36,9 @@ export async function POST(request: NextRequest) {
   // Initialize NovaDL service layer on first request
   await initializeNovaDL();
 
-  // Initialize rate limiter (loads from DB on first call)
-  const rateLimiter = getDownloadRateLimiter();
-
   const startTime = Date.now();
 
   try {
-    // Rate limiting — production-grade (DB-backed, persists across restarts)
-    // Use spoofing-resistant IP extraction (takes last IP in XFF chain)
-    // ⚠️  Hash IP before rate limit key — raw IPs are NEVER stored anywhere (GDPR)
-    const ip = getClientIp(request);
-    const rateLimitKey = hashIpForRateLimit(ip);
-    const allowed = await rateLimiter.check(rateLimitKey);
-    if (!allowed) {
-      return NextResponse.json(
-        { success: false, error: 'Rate limit exceeded. Please try again later.' },
-        { status: 429 }
-      );
-    }
-
     let body;
     try {
       body = await request.json();
@@ -76,12 +60,11 @@ export async function POST(request: NextRequest) {
     // URL sanitization (preserved from old route)
     const sanitizedUrl = url.trim().slice(0, 500);
 
-    // Delegate to DownloadService
-    // ⚠️  BACKWARD COMPATIBILITY: In Phase 1, the frontend still only accepts
-    //     TikTok URLs. The PlatformDetector detects all platforms, but for
-    //     backward compatibility, we validate that the URL is TikTok before
-    //     passing it to DownloadService. This preserves the exact error message
-    //     the frontend expects: "Invalid TikTok URL format."
+    // ──── URL VALIDATION BEFORE RATE LIMITING ────
+    // Invalid URLs must ALWAYS show the correct "Invalid TikTok URL" error,
+    // even if the user is rate-limited. Rate limits should only apply to
+    // valid download attempts, not to URL validation errors.
+    // This ensures that an invalid URL never triggers the 429 response.
     const platformInfo = PlatformDetector.identify(sanitizedUrl);
 
     if (platformInfo.platform !== 'tiktok') {
@@ -89,6 +72,22 @@ export async function POST(request: NextRequest) {
       return NextResponse.json(
         { success: false, error: 'Invalid TikTok URL format. Please use a valid TikTok link.' },
         { status: 400 }
+      );
+    }
+
+    // ──── Rate limiting — AFTER URL validation ────
+    // Only rate-limit valid download attempts (not invalid URL probes)
+    // Production-grade (DB-backed, persists across restarts)
+    // Use spoofing-resistant IP extraction (takes last IP in XFF chain)
+    // ⚠️  Hash IP before rate limit key — raw IPs are NEVER stored anywhere (GDPR)
+    const rateLimiter = getDownloadRateLimiter();
+    const ip = getClientIp(request);
+    const rateLimitKey = hashIpForRateLimit(ip);
+    const allowed = await rateLimiter.check(rateLimitKey);
+    if (!allowed) {
+      return NextResponse.json(
+        { success: false, error: 'Rate limit exceeded. Please try again later.' },
+        { status: 429 }
       );
     }
 

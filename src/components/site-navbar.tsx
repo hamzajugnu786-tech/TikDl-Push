@@ -155,21 +155,21 @@ export default function SiteNavbar({ isHome = false, currentPage }: SiteNavbarPr
           <Link
             href="/privacy"
             onClick={closeMobile}
-            className="px-3 py-2.5 rounded-lg text-sm font-medium text-gray-400 hover:text-white hover:bg-white/8 transition-colors duration-150"
+            className={`px-3 py-2.5 rounded-lg text-sm font-medium hover:bg-white/8 transition-colors duration-150 ${currentPage === 'privacy' ? 'text-[#FE2C55]' : 'text-gray-400 hover:text-white'}`}
           >
             Privacy
           </Link>
           <Link
             href="/terms"
             onClick={closeMobile}
-            className="px-3 py-2.5 rounded-lg text-sm font-medium text-gray-400 hover:text-white hover:bg-white/8 transition-colors duration-150"
+            className={`px-3 py-2.5 rounded-lg text-sm font-medium hover:bg-white/8 transition-colors duration-150 ${currentPage === 'terms' ? 'text-[#FE2C55]' : 'text-gray-400 hover:text-white'}`}
           >
             Terms
           </Link>
           <Link
             href="/dmca"
             onClick={closeMobile}
-            className="px-3 py-2.5 rounded-lg text-sm font-medium text-gray-400 hover:text-white hover:bg-white/8 transition-colors duration-150"
+            className={`px-3 py-2.5 rounded-lg text-sm font-medium hover:bg-white/8 transition-colors duration-150 ${currentPage === 'dmca' ? 'text-[#FE2C55]' : 'text-gray-400 hover:text-white'}`}
           >
             DMCA
           </Link>

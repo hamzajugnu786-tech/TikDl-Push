@@ -386,7 +386,9 @@ const TikTokDownloader = () => {
     a.download = filename;
     document.body.appendChild(a);
     a.click();
-    document.body.removeChild(a);
+    // Keep the <a> in the DOM for 100ms before removing — removing it immediately
+    // after click() can cancel the download in Safari and some mobile browsers.
+    setTimeout(() => { if (a.parentNode) a.parentNode.removeChild(a); }, 100);
     toast.success(`Downloading ${filename}`);
 
     // Background HEAD check — if it fails, show a warning toast
@@ -443,11 +445,13 @@ const TikTokDownloader = () => {
   }, [interstitialConfig.enabled, startAdTimer, triggerProxyDownload]);
 
   const sanitizeFilename = useCallback((name: string): string => {
-    // Remove hashtags (#tag → space)
-    let safe = name.replace(/#[\w]+/g, '');
+    // Remove hashtags — Unicode-aware: # followed by any word characters (including Arabic, CJK, etc.)
+    let safe = name.replace(/#[\p{L}\p{N}_]+/gu, '');
     // Remove emojis and non-ASCII characters
     safe = safe.replace(/[\p{Emoji_Presentation}\p{Extended_Pictographic}]/gu, '');
-    // Remove invalid filename characters
+    // Remove remaining # characters (orphaned hash symbols)
+    safe = safe.replace(/#/g, '');
+    // Remove invalid filename characters (but keep Unicode letters for international titles)
     safe = safe.replace(/[\\/:*?"<>|\x00-\x1f]/g, '');
     // Collapse multiple spaces into one
     safe = safe.replace(/\s+/g, ' ').trim();
@@ -462,7 +466,7 @@ const TikTokDownloader = () => {
   const getDownloadFilename = useCallback((type: 'video' | 'audio' | 'image', info: VideoInfo, idx?: number, audioExt?: string): string => {
     // Format: VideoTitle-@username-tikdl.extension
     // For slides: VideoTitle-@username-tikdl-slide01.jpg
-    const author = (info.author || 'tiktok').replace(/^@/, '');
+    const author = sanitizeFilename((info.author || 'tiktok').replace(/^@/, ''));
     const rawTitle = info.title || info.id;
     const cleanTitle = sanitizeFilename(rawTitle);
     const base = `${cleanTitle}-@${author}-tikdl`;
