@@ -378,3 +378,23 @@ Stage Summary:
 - All 10 issues fixed with exact root cause → fix → verification
 - Build passes, TypeScript passes, lint passes
 - Deployment: Pushed to GitHub (commit c2681a3), Vercel auto-deploy triggered
+
+---
+Task ID: hotfix-sprint-2
+Agent: main
+Task: Production Hotfix — Fix 4 critical issues
+
+Work Log:
+- Issue 1: Investigated 6 vt.tiktok.com URLs — backend works correctly (API returns valid noWatermarkUrl, proxy returns 200 with video/mp4). Root cause: sanitizeFilename used ASCII-only #[\w]+ regex leaving # and Arabic text in filenames, and <a> element was removed immediately after click() which cancels downloads in Safari/mobile. Fixed with Unicode-aware regex, # cleanup, author sanitization, and 100ms delayed removal.
+- Issue 2: Privacy/Terms/DMCA sidebar links had hardcoded text-gray-400 classes. Added currentPage conditional styling matching About/Contact pattern.
+- Issue 3: Rate limiting ran BEFORE URL validation in /api/download route. Invalid URLs from rate-limited users returned 429 instead of 400. Moved URL validation before rate limiting.
+- Issue 4: Three bugs: (a) Both rate limiters shared 'ratelimit_' DB prefix causing cross-contamination — download counts blocked login. (b) check() incremented on every call including successful logins. (c) Config was 5/minute instead of required 10/10minutes. Fixed with separate prefixes (ratelimit_dl_, ratelimit_login_), isLimited()+increment()/reset() pattern, and one-time migration cleanup.
+- Build: TypeScript ✓, ESLint ✓, npm run build ✓
+- Committed as c02b325, pushed to GitHub
+
+Stage Summary:
+- All 4 issues fixed in 4?5 files
+- Issue 1: src/app/page.tsx — sanitizeFilename Unicode fix, author sanitization, <a> removal timing
+- Issue 2: src/components/site-navbar.tsx — Privacy/Terms/DMCA conditional styling
+- Issue 3: src/app/api/download/route.ts — URL validation before rate limiting
+- Issue 4: src/lib/rate-limiter.ts + src/app/api/admin/auth/login/route.ts — key prefix isolation, isLimited/increment/reset pattern, 10/10min config, migration cleanup
