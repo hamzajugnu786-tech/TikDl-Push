@@ -350,3 +350,31 @@ Stage Summary:
 - No more favicon fallback — proper placeholders instead
 - Mobile bottom nav added with active state highlighting
 - Download starts immediately without HEAD check latency
+---
+Task ID: production-hotfix-sprint-2
+Agent: Main
+Task: FINAL PRODUCTION HOTFIX SPRINT — Fix all 10 user-specified issues
+
+Work Log:
+- Read all source files completely: page.tsx (1347 lines), site-navbar.tsx (178 lines), tiktokApiDl.ts (625 lines), result-to-display.ts (172 lines), download/route.ts (161 lines), proxy/route.ts, all page files
+- ISSUE 1: Removed mobile bottom nav (<nav> with Home/Features/History/FAQ) entirely from page.tsx lines 1231-1264, removed pb-16 padding, removed Home/History imports
+- ISSUE 2: Added currentPage prop to SiteNavbar — desktop links and mobile sidebar links now highlight in TikTok Red (#FE2C55) for the active page. Updated all pages (home, about, contact, privacy, terms, dmca) to pass currentPage prop
+- ISSUE 3: Replaced entire photo post section — removed Download Mode selector, Photo Post Detected message, View Slides button. New flow: Preview Slider → Download Slides → Download As Video → Select All → Slide selection → Download button. Also removed individual download button per slide
+- ISSUE 4: Removed duplicate Download Selected/Download All buttons — slides now have single Download Slides (selected) button
+- ISSUE 5: Deleted With Watermark button entirely — only No Watermark HD remains for video downloads
+- ISSUE 6: Added provider error sanitization in both frontend (page.tsx) and backend (download/route.ts). Internal keywords (quota, tikhub, rapidapi, provider, etc.) trigger generic "Video not found" message. Non-200 responses get generic messages. Backend catch block returns 404 with generic message instead of 500 with internal details
+- ISSUE 7: Changed filename format from @username-VideoTitle-tikdl.ext to VideoTitle-@username-tikdl.ext
+- ISSUE 8: History card now shows @username (always with @ prefix) and date+time via toLocaleString() instead of just date
+- ISSUE 9: Added desktop mouse drag (onMouseDown/Move/Up/Leave) to slide carousel alongside existing touch handlers. Fixed slide downloads: Download Slides requires selection, Download As Video is independent
+- ISSUE 10: Changed popup timer from setInterval(100ms) with Math.ceil to requestAnimationFrame with float countdown. SVG ring now animates smoothly at 60fps. Display shows Math.ceil(countdown). Removed framer-motion key={countdown} re-renders. Changed countdown === 0 to countdown <= 0 for float safety
+- TypeScript: 0 errors
+- ESLint: 0 errors  
+- Build: SUCCESS (compiled in 17.6s)
+- Commit: c2681a3
+- Pushed to GitHub main branch
+
+Stage Summary:
+- 8 files modified: page.tsx, site-navbar.tsx, download/route.ts, about/page.tsx, contact/page.tsx, privacy/page.tsx, terms/page.tsx, dmca/page.tsx
+- All 10 issues fixed with exact root cause → fix → verification
+- Build passes, TypeScript passes, lint passes
+- Deployment: Pushed to GitHub (commit c2681a3), Vercel auto-deploy triggered
