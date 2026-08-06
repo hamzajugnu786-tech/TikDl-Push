@@ -511,16 +511,19 @@ const TikTokDownloader = () => {
     const diff = slideTouchStart - e.changedTouches[0].clientX;
     if (Math.abs(diff) > 40) {
       if (diff > 0) {
-        // Swipe left → next slide
-        setCurrentSlide(prev => prev + 1);
+        // Swipe left → next slide (clamped to max)
+        setCurrentSlide(prev => {
+          const max = (videoInfo?.slideImages?.length ?? 1) - 1;
+          return Math.min(prev + 1, max);
+        });
       } else {
-        // Swipe right → prev slide
-        setCurrentSlide(prev => prev - 1);
+        // Swipe right → prev slide (clamped to 0)
+        setCurrentSlide(prev => Math.max(prev - 1, 0));
       }
     }
     setSlideTouchStart(null);
     setSlideTouchCurrent(0);
-  }, [slideTouchStart]);
+  }, [slideTouchStart, videoInfo?.slideImages?.length]);
 
   // Countdown ring
   const circumference = 2 * Math.PI * 36;
