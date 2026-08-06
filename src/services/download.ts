@@ -262,78 +262,71 @@ export class DownloadService {
     for (const provider of providers) {
       lastProviderName = provider.name;
 
-      // Retry logic: up to 3 attempts with exponential backoff
-      for (let attempt = 1; attempt <= 3; attempt++) {
-        try {
-          const result = await provider.fetchVideo(platformInfo.canonicalUrl);
+      // PERFORMANCE: Only 1 attempt per provider.
+      // The tiktok-api-dl adapter already has V2→V3→V1 internal fallback.
+      // Retrying the same provider that already exhausted its internal fallback
+      // just adds latency without improving success rate.
+      // For paid fallback providers (TikHub, RapidAPI), 1 attempt is sufficient
+      // since they either work or return a definitive error.
+      try {
+        const result = await provider.fetchVideo(platformInfo.canonicalUrl);
 
-          const duration = Date.now() - startTime;
+        const duration = Date.now() - startTime;
 
-          // Log successful request
-          await this.logger.log({
-            requestId,
-            timestamp: new Date(),
-            platform: platformInfo.platform,
-            provider: provider.name,
-            url,
-            status: 'success',
-            executionTime: duration,
-            ipAddress: options?.ipAddress,
-            userAgent: options?.userAgent,
-            videoId: result.metadata.videoId,
-            videoTitle: result.title,
-          });
+        // Log successful request
+        await this.logger.log({
+          requestId,
+          timestamp: new Date(),
+          platform: platformInfo.platform,
+          provider: provider.name,
+          url,
+          status: 'success',
+          executionTime: duration,
+          ipAddress: options?.ipAddress,
+          userAgent: options?.userAgent,
+          videoId: result.metadata.videoId,
+          videoTitle: result.title,
+        });
 
-          return {
-            success: true,
-            data: result,
-            provider: provider.name,
-            platform: platformInfo.platform,
-            duration,
-            requestId,
-          };
-        } catch (err) {
-          // Handle NovaDLError (standardised)
-          if (err instanceof NovaDLError) {
-            lastError = err;
+        return {
+          success: true,
+          data: result,
+          provider: provider.name,
+          platform: platformInfo.platform,
+          duration,
+          requestId,
+        };
+      } catch (err) {
+        // Handle NovaDLError (standardised)
+        if (err instanceof NovaDLError) {
+          lastError = err;
 
-            // Don't retry on client-type errors (private/deleted content)
-            // Also don't retry on RATE_LIMITED (API quota exceeded — retrying won't help)
-            if (
-              err.code === NovaDLErrorCode.PRIVATE_CONTENT ||
-              err.code === NovaDLErrorCode.DELETED_CONTENT ||
-              err.code === NovaDLErrorCode.AGE_RESTRICTED ||
-              err.code === NovaDLErrorCode.GEO_BLOCKED ||
-              err.code === NovaDLErrorCode.AUTH_REQUIRED ||
-              err.code === NovaDLErrorCode.INVALID_URL ||
-              err.code === NovaDLErrorCode.UNSUPPORTED_PLATFORM ||
-              err.code === NovaDLErrorCode.RATE_LIMITED
-            ) {
-              break;
-            }
-
-            // Retry on transient errors (DOWNLOAD_FAILED, PROVIDER_OFFLINE)
-            if (attempt < 3) {
-              await new Promise(r => setTimeout(r, 800 * attempt));
-            }
-          } else {
-            // Handle unknown errors
-            lastError = new NovaDLError(
-              NovaDLErrorCode.UNKNOWN_ERROR,
-              err instanceof Error ? err.message : 'Unknown error',
-              platformInfo.platform,
-              requestId,
-              { provider: provider.name, originalError: err instanceof Error ? err : undefined }
-            );
-
-            if (attempt < 3) {
-              await new Promise(r => setTimeout(r, 800 * attempt));
-            }
+          // Don't try next provider on client-type errors (private/deleted content)
+          if (
+            err.code === NovaDLErrorCode.PRIVATE_CONTENT ||
+            err.code === NovaDLErrorCode.DELETED_CONTENT ||
+            err.code === NovaDLErrorCode.AGE_RESTRICTED ||
+            err.code === NovaDLErrorCode.GEO_BLOCKED ||
+            err.code === NovaDLErrorCode.AUTH_REQUIRED ||
+            err.code === NovaDLErrorCode.INVALID_URL ||
+            err.code === NovaDLErrorCode.UNSUPPORTED_PLATFORM ||
+            err.code === NovaDLErrorCode.RATE_LIMITED
+          ) {
+            break;
           }
+        } else {
+          // Handle unknown errors
+          lastError = new NovaDLError(
+            NovaDLErrorCode.UNKNOWN_ERROR,
+            err instanceof Error ? err.message : 'Unknown error',
+            platformInfo.platform,
+            requestId,
+            { provider: provider.name, originalError: err instanceof Error ? err : undefined }
+          );
         }
       }
 
-      console.warn(`[DownloadService] Provider "${provider.name}" failed after 3 attempts, trying next provider`);
+      console.warn(`[DownloadService] Provider "${provider.name}" failed, trying next provider`);
     }
 
     // All providers failed

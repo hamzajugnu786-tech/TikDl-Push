@@ -382,11 +382,18 @@ export class TikTokApiDlAdapter implements NovaDLProvider {
     // SSSTik returns video URL directly (no-watermark by default)
     const videoUrl = this.firstString(r.video?.playAddr) || r.direct || '';
 
-    // Thumbnail — SSSTik V2 sometimes provides cover via video data
-    // If not available, fall back to author avatar
-    const thumbnail = this.firstString(r.video?.cover) || authorAvatar || '';
+    // Thumbnail — ALWAYS use video cover/originCover first.
+    // NEVER fall back to author avatar for thumbnail — that's ISSUE #3.
+    // Author avatar is for the avatar circle only.
+    const thumbnail = this.firstString(r.video?.originCover) ||
+      this.firstString(r.video?.cover) || '';
 
-    const duration = '0:00'; // SSSTik doesn't provide duration
+    // Duration — SSSTik V2 may provide duration in the video object.
+    // If not available, try to parse from the URL or default to empty.
+    const durationMs = r.video?.duration;
+    const duration = durationMs
+      ? `${Math.floor(durationMs / 1000 / 60)}:${String(Math.floor((durationMs / 1000) % 60)).padStart(2, '0')}`
+      : '';
 
     // ──── Video formats ────
     const formats: NovaDLFormat[] = [];
@@ -415,20 +422,26 @@ export class TikTokApiDlAdapter implements NovaDLProvider {
     // ──── Images ────
     const images: NovaDLImage[] = [];
 
-    // Cover from video or author avatar
-    const coverUrl = this.firstString(r.video?.cover) || authorAvatar || '';
+    // Cover — use video cover, NEVER author avatar for cover image
+    const coverUrl = this.firstString(r.video?.originCover) || this.firstString(r.video?.cover) || '';
     if (coverUrl) {
       images.push({ url: coverUrl, type: NovaDLImageType.COVER, extension: 'jpg', label: 'Cover Image' });
     }
 
     // ──── Statistics ────
+    // SSSTik V2 returns stats as strings — parse them to numbers for formatCount()
     const stats = r.statistics;
+    const parseStat = (val: string | number | undefined): number | undefined => {
+      if (val === undefined || val === null) return undefined;
+      const n = typeof val === 'number' ? val : parseInt(String(val).replace(/[^0-9]/g, ''), 10);
+      return isNaN(n) ? undefined : n;
+    };
     const metadata: NovaDLMetadata = {
       videoId: String(Date.now()),
-      views: undefined,  // SSSTik returns string stats, skip formatted mapping
-      likes: stats?.likeCount || undefined,
-      comments: stats?.commentCount || undefined,
-      shares: stats?.shareCount || undefined,
+      views: parseStat(stats?.playCount) ? formatCount(parseStat(stats?.playCount)!) : undefined,
+      likes: parseStat(stats?.likeCount) ? formatCount(parseStat(stats?.likeCount)!) : undefined,
+      comments: parseStat(stats?.commentCount) ? formatCount(parseStat(stats?.commentCount)!) : undefined,
+      shares: parseStat(stats?.shareCount) ? formatCount(parseStat(stats?.shareCount)!) : undefined,
       postType: r.type === 'image' ? 'images' : r.type === 'music' ? 'video' : 'video',
       slideImages: r.type === 'image' && r.images && r.images.length > 0 ? r.images : undefined,
     };
@@ -458,9 +471,11 @@ export class TikTokApiDlAdapter implements NovaDLProvider {
     const title = r.desc || 'TikTok Video';
     const author = r.author?.nickname || '@unknown';
     const authorAvatar = r.author?.avatar || '';
-    const thumbnail = authorAvatar || ''; // MusicalDown doesn't provide separate thumbnail
+    // Thumbnail — use video cover if available, NOT author avatar
+    const thumbnail = '';  // MusicalDown doesn't provide separate video cover
 
-    const duration = '0:00'; // MusicalDown doesn't provide duration
+    // Duration — MusicalDown doesn't provide duration
+    const duration = '';
 
     // ──── Video formats ────
     const formats: NovaDLFormat[] = [];
@@ -512,9 +527,8 @@ export class TikTokApiDlAdapter implements NovaDLProvider {
     // ──── Images ────
     const images: NovaDLImage[] = [];
 
-    if (authorAvatar) {
-      images.push({ url: authorAvatar, type: NovaDLImageType.COVER, extension: 'jpg', label: 'Cover Image' });
-    }
+    // Cover — MusicalDown doesn't provide video cover separately
+    // Don't use authorAvatar as cover — that's ISSUE #3
 
     // ──── Statistics ────
     // MusicalDown doesn't provide statistics
