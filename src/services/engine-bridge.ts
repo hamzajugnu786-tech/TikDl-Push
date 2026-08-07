@@ -310,6 +310,14 @@ function engineResultToNovaDLResult(result: ExtractionResult, platform: string):
 
 /**
  * Map engine errors to NovaDLError for the service layer.
+ *
+ * IMPORTANT: The engine's providers (TikHub, RapidAPI) use 'NOT_FOUND' as
+ * a generic error code for ALL non-200 responses — including rate limits,
+ * auth failures, and timeouts. We must NOT map this to DELETED_CONTENT,
+ * because that would cause the service layer to abort the primary provider.
+ *
+ * Only map to content-level codes when the engine EXPLICITLY indicates
+ * the content is genuinely unavailable (not just a fetch failure).
  */
 function mapEngineError(error: unknown, platform: string, requestId: string): NovaDLError {
   const message = error instanceof Error ? error.message : String(error);
@@ -318,7 +326,10 @@ function mapEngineError(error: unknown, platform: string, requestId: string): No
   if (message.includes('private') || message.includes('PRIVATE')) {
     return new NovaDLError(NovaDLErrorCode.PRIVATE_CONTENT, message, platform, requestId);
   }
-  if (message.includes('deleted') || message.includes('NOT_FOUND')) {
+  // Only map to DELETED_CONTENT if the message explicitly says the content
+  // is deleted — NOT for generic 'NOT_FOUND' errors from engine providers
+  // (TikHub uses NOT_FOUND for rate limits, auth failures, etc.)
+  if (message.includes('deleted') || message.includes('DELETED')) {
     return new NovaDLError(NovaDLErrorCode.DELETED_CONTENT, message, platform, requestId);
   }
   if (message.includes('geo') || message.includes('GEO_BLOCKED')) {
@@ -340,7 +351,8 @@ function mapEngineError(error: unknown, platform: string, requestId: string): No
     return new NovaDLError(NovaDLErrorCode.UNSUPPORTED_PLATFORM, message, platform, requestId);
   }
 
-  // Default: DOWNLOAD_FAILED
+  // Default: DOWNLOAD_FAILED — covers NOT_FOUND, timeout, auth, and all
+  // other transient errors from engine providers
   return new NovaDLError(
     NovaDLErrorCode.DOWNLOAD_FAILED,
     message,
