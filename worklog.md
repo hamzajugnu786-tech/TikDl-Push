@@ -1,50 +1,63 @@
-# Production Hotfix Worklog
+# Work Log — Production Hotfix (Final Polish)
 
 ---
-Task ID: 1-9
-Agent: Main Agent
-Task: Production hotfix for 9 issues
+Task ID: 1
+Agent: main
+Task: Issue 1 — Fix TikTok fetch pipeline performance (40-60s → 2-3s target)
 
 Work Log:
-- Read all critical source files (page.tsx, download.ts, route.ts, proxy/route.ts, analytics/route.ts, logger.ts, layout.tsx, admin/page.tsx, config/ads/route.ts, etc.)
-- Analyzed screenshot evidence from 5 uploaded screenshots
-- Traced full download pipeline: Frontend → /api/download → DownloadService → Engine/Providers → result-to-display → VideoInfo → Frontend render
-- Traced proxy pipeline: triggerProxyDownload → /api/proxy → upstream CDN → browser download
-
-Issue 1 Fix (502 errors):
-- Root cause: Vercel can return 502 (HTML) when serverless times out; proxy returns 502 on upstream failure; frontend HEAD check exposes status code
-- Fix: page.tsx handles non-JSON 502 gracefully; proxy HEAD check never shows status code; download/route.ts never returns 500/502
-
-Issue 2 Fix (Invalid URLs show "Too many requests"):
-- Root cause: Frontend had `if (response.status === 429) throw 'Too many requests...'`; also catch block could leak internal errors
-- Fix: ALL non-200 responses now show "Video unavailable"; catch block filters 502/500/429/etc.; 429 from API returns "Video unavailable" not rate limit message
-
-Issue 3 Fix (Ads not appearing on frontend):
-- Root cause: /api/config/ads was missing `between_result_recent` and `between_recent_features` placements; frontend was missing `hero_section` and `native_content` rendering
-- Fix: Added missing placements to LANDING_PLACEMENTS and inlineAds filter; added hero_section and native_content rendering in page.tsx
-
-Issue 4 Fix (Settings don't affect frontend):
-- Root cause: layout.tsx had static `export const metadata` with hardcoded values; never read from DB
-- Fix: Replaced with `generateMetadata()` that reads from DB Settings table; dynamic theme-color, siteName, metaTitle, metaDescription, ogImageUrl, robotsDirective; maintenance mode renders maintenance screen
-
-Issue 5 Fix (Analytics inconsistency - Today=114, Total=0):
-- Root cause: Logger wrote Analytics with UTC date string but analytics API read with local timezone date (setHours(0,0,0,0)); Analytics table empty → totalDownloads=0 from last7Days while todayLogCount=114 from DownloadLog
-- Fix: Both logger and analytics API now use explicit UTC midnight Date objects; added DownloadLog-based fallback when Analytics table is empty
-
-Issue 6-8 Fix (Admin dashboard fake data):
-- Root cause: Mobile/Desktop 65%/35% was hardcoded estimate
-- Fix: Set to 0 with "—" display when no device data; all other data already comes from real API endpoints
-
-Issue 9 Fix (Favicon):
-- Replaced icon-192.png and icon-512.png with resized versions of uploaded logo (2000x2000 → 192x192 and 512x512)
-
-Verification:
-- ESLint: All changed files pass
-- TypeScript: tsc --noEmit passes
-- Next.js build: Compiles successfully (16.4s)
-- Git: Committed as 07d74e3, pushed to origin/main
+- Traced entire pipeline: page.tsx → /api/download → DownloadService → NovaDLEngine → providers
+- Identified 5 bottlenecks causing 40-60s delays
+- Fixed engine-bridge.ts: enabled parallelProviderTests (false→true), reduced timeouts (30s→8s per provider, 30s→10s extraction), removed retries (maxRetries 2→0), reduced backoff (1000→500ms), reduced ytdlp timeout (120s→30s)
+- Fixed tiktokApiDl.ts: changed V1→V2→V3 sequential to parallel (Promise.allSettled), added 10s timeout per version, pick first success preferring V1 for richest data
+- Fixed download.ts: eliminated double-fallback (engine→registry), when engine runs only fallback to tiktok-api-dl (skip TikHub/RapidAPI already tried)
 
 Stage Summary:
-- 9 files changed, 284 insertions, 129 deletions
-- All 9 issues addressed with verified production fixes
-- Build passes, typecheck passes, lint passes
+- Files changed: engine-bridge.ts, tiktokApiDl.ts, download.ts
+- Previous flow: Sequential V1→V2→V3 (30s each) + engine retry (3× per provider) + registry double-fallback = 40-60s
+- New flow: All providers race in parallel, no retries, single fallback path = 2-5s expected
+- Key bottleneck was parallelProviderTests:false causing sequential execution with retries
+
+---
+Task ID: 2
+Agent: main
+Task: Issue 2 — Replace PWA logo with Logo.png
+
+Work Log:
+- Generated 13 icon sizes from Logo.png (2000×2000 source): 16, 32, 48, 72, 96, 144, 192, 256, 384, 512 + apple-touch-icon (180) + favicon.ico + favicon.png
+- Updated manifest.json with all 10 icon sizes (16-512)
+- Updated layout.tsx icons metadata: favicon.png (32×32), icon-192.png, icon-512.png, apple-touch-icon.png
+- Updated apple-touch-icon link with sizes="180x180"
+
+Stage Summary:
+- Icons generated: 16×16, 32×32, 48×48, 72×72, 96×96, 144×144, 192×192, 256×256, 384×384, 512×512, apple-touch-icon (180×180), favicon.ico, favicon.png
+- Files changed: public/*.png (13 new icons), manifest.json, layout.tsx
+
+---
+Task ID: 3
+Agent: main
+Task: Issue 3 — PWA Splash Screen
+
+Work Log:
+- Generated 7 device-specific splash screens from splash-screen.png: 640×1136, 750×1334, 828×1792, 1125×2436, 1242×2688, 1536×2048, 2048×2732
+- Added 7 apple-touch-startup-image meta tags in layout.tsx with device-specific media queries
+- Added CSS-based splash overlay (#pwa-splash) in globals.css with fade-out animation
+- Added inline script to dismiss splash on window load (with 3s safety timeout)
+- Splash shows centered logo on black background, fades out after app hydrates
+
+Stage Summary:
+- Splash screens: 7 device sizes for iOS, CSS overlay for all browsers
+- Files changed: public/splash-*.png (7 files), globals.css, layout.tsx
+
+---
+Task ID: 4
+Agent: main
+Task: Final verification — TypeScript, ESLint, Production Build
+
+Work Log:
+- TypeScript: ✅ (no errors)
+- ESLint: ✅ (no errors on changed files)
+- Production Build: ✅ (compiled in 16.8s, no warnings, all 20 pages generated)
+
+Stage Summary:
+- All verification checks pass

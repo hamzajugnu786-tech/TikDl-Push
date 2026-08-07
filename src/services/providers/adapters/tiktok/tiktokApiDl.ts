@@ -158,48 +158,70 @@ export class TikTokApiDlAdapter implements NovaDLProvider {
         );
       }
 
-      // ──── Internal fallback: V1 → V2 → V3 ────
-      // V1 (TikTok API) has the RICHEST data: cover, duration, uniqueId, statistics.
-      // V2 (SSSTik) and V3 (MusicalDown) are HTML scrapers with sparse data
-      // (no cover, no duration, only nickname, no playCount).
-      // We try V1 first to get full metadata. If V1 fails (rate-limited/blocked),
-      // fall back to V2 then V3 for download URLs.
+      // ──── Internal fallback: V1 ∥ V2 ∥ V3 (parallel race) ────
+      // All three versions are tried SIMULTANEOUSLY. Each has a 10-second
+      // timeout. We use Promise.allSettled to wait for all to finish, then
+      // pick the first successful one (V1 preferred for richest metadata).
+      // This eliminates the old sequential V1→V2→V3 which caused 30-45s delays
+      // when V1 was slow/blocked and V2/V3 had to wait for V1 to fail first.
+      const VERSION_TIMEOUT_MS = 10000;
+
       const versions: Array<{ version: 'v1' | 'v2' | 'v3'; label: string }> = [
         { version: 'v1', label: 'TikTokAPI' },
         { version: 'v2', label: 'SSSTik' },
         { version: 'v3', label: 'MusicalDown' },
       ];
 
-      let lastError: string | null = null;
+      type VersionResult = { ok: true; data: any; version: 'v1' | 'v2' | 'v3' } | { ok: false; error: string };
 
-      for (const { version, label } of versions) {
-        try {
-          console.log(`[tiktok-api-dl] Trying ${label} (${version}) for: ${inputUrl.slice(0, 80)}`);
+      const allResults = await Promise.allSettled(
+        versions.map(({ version, label }) =>
+          (async (): Promise<VersionResult> => {
+            try {
+              console.log(`[tiktok-api-dl] Trying ${label} (${version}) for: ${inputUrl.slice(0, 80)}`);
 
-          // Cast to any — the package's TypeScript types are union types
-          // that are broader than our per-version interfaces. We handle
-          // the response dynamically in the version-specific mappers.
-          const result: any = await Downloader(inputUrl, { version });
+              // Wrap Downloader call with a timeout to prevent hanging
+              const result: any = await Promise.race([
+                Downloader(inputUrl, { version }),
+                new Promise<never>((_, reject) =>
+                  setTimeout(() => reject(new Error(`${label} timed out after ${VERSION_TIMEOUT_MS}ms`)), VERSION_TIMEOUT_MS)
+                ),
+              ]);
 
-          if (result?.status === 'success' && result?.result) {
-            console.log(`[tiktok-api-dl] ${label} (${version}) succeeded — type: ${result.result.type}`);
-            return this.mapToNovaDLResult(result, version, inputUrl);
-          }
+              if (result?.status === 'success' && result?.result) {
+                console.log(`[tiktok-api-dl] ${label} (${version}) succeeded — type: ${result.result.type}`);
+                return { ok: true, data: result, version };
+              }
 
-          // Version returned an error — try next
-          lastError = result?.message || `${label} returned status: ${result?.status}`;
-          console.warn(`[tiktok-api-dl] ${label} (${version}) failed: ${lastError}`);
-        } catch (versionError) {
-          const msg = versionError instanceof Error ? versionError.message : String(versionError);
-          lastError = msg;
-          console.warn(`[tiktok-api-dl] ${label} (${version}) threw: ${msg.slice(0, 200)}`);
+              const errMsg = result?.message || `${label} returned status: ${result?.status}`;
+              console.warn(`[tiktok-api-dl] ${label} (${version}) failed: ${errMsg}`);
+              return { ok: false, error: errMsg };
+            } catch (versionError) {
+              const msg = versionError instanceof Error ? versionError.message : String(versionError);
+              console.warn(`[tiktok-api-dl] ${label} (${version}) threw: ${msg.slice(0, 200)}`);
+              return { ok: false, error: msg };
+            }
+          })()
+        )
+      );
+
+      // Find the first successful result (prefer V1 for richest data)
+      for (let i = 0; i < allResults.length; i++) {
+        const r = allResults[i];
+        if (r.status === 'fulfilled' && r.value.ok) {
+          return this.mapToNovaDLResult(r.value.data, r.value.version, inputUrl);
         }
       }
 
       // All three versions failed
+      const lastError = allResults
+        .filter((r): r is PromiseFulfilledResult<VersionResult> => r.status === 'fulfilled' && !r.value.ok)
+        .map(r => (r.value as { ok: false; error: string }).error)
+        .join('; ') || 'All tiktok-api-dl versions failed';
+
       throw new NovaDLError(
         NovaDLErrorCode.DOWNLOAD_FAILED,
-        lastError || 'All tiktok-api-dl versions failed (V2→V3→V1)',
+        lastError,
         this.platform,
         requestId,
         { provider: this.name }

@@ -587,3 +587,27 @@
   background: rgba(28, 28, 28, 0.95);
   border-color: rgba(255, 255, 255, 0.12);
 }
+
+/* ─── PWA Splash Screen ─── */
+/* Shows a centered splash logo while the app loads, then fades out */
+#pwa-splash {
+  position: fixed;
+  inset: 0;
+  z-index: 9999;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: #000000;
+  transition: opacity 0.3s ease-out;
+}
+
+#pwa-splash.fade-out {
+  opacity: 0;
+  pointer-events: none;
+}
+
+#pwa-splash img {
+  width: min(60vw, 60vh, 280px);
+  height: min(60vw, 60vh, 280px);
+  object-fit: contain;
+}

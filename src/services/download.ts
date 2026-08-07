@@ -119,31 +119,31 @@ export class DownloadService {
     }
 
     // Step 3: Try the real NovaDL engine first
+    // The engine races all providers in parallel (parallelProviderTests: true).
+    // Providers: TikHub ∥ RapidAPI (parallel, no retries).
+    // If the engine succeeds, return immediately — no double-fallback.
     if (isEngineInitialized()) {
       try {
         const result = await extractWithEngine(platformInfo.canonicalUrl, platformInfo.platform);
         const duration = Date.now() - startTime;
 
-        // REGRESSION FIX: If the engine returned a result but with NO downloadable
-        // content at all (no video formats, no audio, no slide images), this is
-        // effectively a failed extraction. Fall through to the provider registry
-        // (TikHub adapter) which may have better data.
-        // This fixes the case where the native_tiktok extractor returns empty
-        // results but success=true, preventing the TikHub API from being called.
+        // If the engine returned a result but with NO downloadable content at all
+        // (no video formats, no audio, no slide images), this is a failed extraction.
+        // Fall through to the tiktok-api-dl provider only (NOT TikHub/RapidAPI —
+        // the engine already tried those).
         const hasAnyMedia = result.formats.length > 0 || result.audio.length > 0 ||
           (result.metadata.slideImages && result.metadata.slideImages.length > 0);
 
         if (!hasAnyMedia) {
-          console.warn('[DownloadService] NovaDL engine returned empty result (no formats, no audio, no images). Falling back to provider registry.');
-          // Fall through to Step 4 (provider registry)
+          console.warn('[DownloadService] NovaDL engine returned empty result (no formats, no audio, no images). Falling back to tiktok-api-dl only.');
+          // Fall through to Step 4 — but only try tiktok-api-dl, skip TikHub/RapidAPI
         } else {
           // Engine returned usable media — use it
-          // Log successful request
           await this.logger.log({
             requestId,
             timestamp: new Date(),
             platform: platformInfo.platform,
-            provider: result.metadata.videoId ? 'novadl-engine' : 'novadl-engine',
+            provider: 'novadl-engine',
             url,
             status: 'success',
             executionTime: duration,
@@ -165,7 +165,7 @@ export class DownloadService {
       } catch (engineError) {
         // Engine failed — log and fall through to old provider registry
         const engineErrorMsg = engineError instanceof Error ? engineError.message : String(engineError);
-        console.warn(`[DownloadService] NovaDL engine failed: ${engineErrorMsg}. Falling back to provider registry.`);
+        console.warn(`[DownloadService] NovaDL engine failed: ${engineErrorMsg}. Falling back to tiktok-api-dl only.`);
 
         // If the error is a content-level error (private/deleted), don't retry with other providers
         if (engineError instanceof NovaDLError) {
@@ -216,12 +216,20 @@ export class DownloadService {
           }
         }
 
-        // Transient error — fall through to old provider registry
+        // Transient error — fall through to tiktok-api-dl only (skip TikHub/RapidAPI)
       }
     }
 
-    // Step 4: Fallback to old provider registry
-    const providers = this.registry.getProviders(platformInfo.platform);
+    // Step 4: Fallback to provider registry
+    // If the engine was initialized (Step 3 ran), only try tiktok-api-dl since
+    // the engine already covered TikHub and RapidAPI. This eliminates the
+    // double-fallback that caused 30-45s of duplicate provider calls.
+    // If the engine was NOT initialized (Step 3 skipped), use all providers.
+    const allProviders = this.registry.getProviders(platformInfo.platform);
+    const engineWasUsed = isEngineInitialized();
+    const providers = engineWasUsed
+      ? allProviders.filter(p => p.name === 'tiktok-api-dl')
+      : allProviders;
 
     if (providers.length === 0) {
       const errorInfo: NovaDLErrorInfo = {
