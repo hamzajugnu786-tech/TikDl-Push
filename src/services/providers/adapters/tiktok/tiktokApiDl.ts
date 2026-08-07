@@ -158,12 +158,10 @@ export class TikTokApiDlAdapter implements NovaDLProvider {
         );
       }
 
-      // ──── Internal fallback: V1 ∥ V2 ∥ V3 (parallel race) ────
-      // All three versions are tried SIMULTANEOUSLY. Each has a 10-second
-      // timeout. We use Promise.allSettled to wait for all to finish, then
-      // pick the first successful one (V1 preferred for richest metadata).
-      // This eliminates the old sequential V1→V2→V3 which caused 30-45s delays
-      // when V1 was slow/blocked and V2/V3 had to wait for V1 to fail first.
+      // ──── Internal fallback: V1 ∥ V2 ∥ V3 (parallel, first success wins) ────
+      // All three versions start SIMULTANEOUSLY. The first one to succeed wins
+      // and we return immediately — no waiting for other versions to settle.
+      // Each version has a 10-second timeout to prevent hanging.
       const VERSION_TIMEOUT_MS = 10000;
 
       const versions: Array<{ version: 'v1' | 'v2' | 'v3'; label: string }> = [
@@ -172,11 +170,15 @@ export class TikTokApiDlAdapter implements NovaDLProvider {
         { version: 'v3', label: 'MusicalDown' },
       ];
 
-      type VersionResult = { ok: true; data: any; version: 'v1' | 'v2' | 'v3' } | { ok: false; error: string };
+      // Race: first success wins. If all fail, collect errors.
+      const collectedErrors: string[] = [];
+      const firstSuccess = await new Promise<NovaDLResult | null>((resolveRace) => {
+        let settled = false;
+        let failureCount = 0;
 
-      const allResults = await Promise.allSettled(
-        versions.map(({ version, label }) =>
-          (async (): Promise<VersionResult> => {
+        for (const { version, label } of versions) {
+          // Launch each version immediately (no await — all start at same time)
+          (async () => {
             try {
               console.log(`[tiktok-api-dl] Trying ${label} (${version}) for: ${inputUrl.slice(0, 80)}`);
 
@@ -190,38 +192,41 @@ export class TikTokApiDlAdapter implements NovaDLProvider {
 
               if (result?.status === 'success' && result?.result) {
                 console.log(`[tiktok-api-dl] ${label} (${version}) succeeded — type: ${result.result.type}`);
-                return { ok: true, data: result, version };
+                if (!settled) {
+                  settled = true;
+                  resolveRace(this.mapToNovaDLResult(result, version, inputUrl));
+                }
+                return;
               }
 
+              // This version returned an error response
               const errMsg = result?.message || `${label} returned status: ${result?.status}`;
               console.warn(`[tiktok-api-dl] ${label} (${version}) failed: ${errMsg}`);
-              return { ok: false, error: errMsg };
+              collectedErrors.push(errMsg);
             } catch (versionError) {
               const msg = versionError instanceof Error ? versionError.message : String(versionError);
               console.warn(`[tiktok-api-dl] ${label} (${version}) threw: ${msg.slice(0, 200)}`);
-              return { ok: false, error: msg };
+              collectedErrors.push(msg);
             }
-          })()
-        )
-      );
 
-      // Find the first successful result (prefer V1 for richest data)
-      for (let i = 0; i < allResults.length; i++) {
-        const r = allResults[i];
-        if (r.status === 'fulfilled' && r.value.ok) {
-          return this.mapToNovaDLResult(r.value.data, r.value.version, inputUrl);
+            // This version failed — check if all have failed
+            failureCount++;
+            if (failureCount === versions.length && !settled) {
+              settled = true;
+              resolveRace(null); // All failed
+            }
+          })();
         }
+      });
+
+      if (firstSuccess) {
+        return firstSuccess;
       }
 
       // All three versions failed
-      const lastError = allResults
-        .filter((r): r is PromiseFulfilledResult<VersionResult> => r.status === 'fulfilled' && !r.value.ok)
-        .map(r => (r.value as { ok: false; error: string }).error)
-        .join('; ') || 'All tiktok-api-dl versions failed';
-
       throw new NovaDLError(
         NovaDLErrorCode.DOWNLOAD_FAILED,
-        lastError,
+        collectedErrors.join('; ') || 'All tiktok-api-dl versions failed',
         this.platform,
         requestId,
         { provider: this.name }

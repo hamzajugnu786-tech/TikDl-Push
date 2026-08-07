@@ -700,7 +700,7 @@ const TikTokDownloader = () => {
                     ) : (
                       <Download size={16} />
                     )}
-                    {isLoading ? 'Fetching...' : 'Download'}
+                    {isLoading ? 'Processing...' : 'Download'}
                   </motion.button>
                 </form>
               </motion.div>
