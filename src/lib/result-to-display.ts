@@ -90,7 +90,9 @@ export function adaptResultForDisplay(result: NovaDLResult): VideoInfo {
     title: result.title,
     author: result.author,
     avatar: result.authorAvatar || '',
-    thumbnail: thumbnail?.url || result.thumbnail,
+    // Thumbnail for video preview: try THUMBNAIL image first, then COVER image
+    // (for TikTok, the cover image IS the video thumbnail), then result.thumbnail
+    thumbnail: thumbnail?.url || cover?.url || result.thumbnail,
     duration: result.duration || '',
     views: result.metadata.views || '',
     likes: result.metadata.likes || '',

@@ -252,34 +252,30 @@ const TikTokDownloader = () => {
             setIsUnavailable(true);
             setUnavailableReason('This video is unavailable. It was removed by the creator or is no longer available on TikTok.');
             setVideoInfo(null);
-            toast.error('This TikTok isn\'t available');
+            // NO toast — the large error card is sufficient
             return;
           }
         }
 
-        // ALL other non-200 responses (429, 502, 500, 503, etc.) —
-        // NEVER expose "Too many requests", "Server returned 502", rate limit, or any backend message.
-        // Always show "Video unavailable" to the user.
-        throw new Error('Video unavailable');
+        // ALL other non-200 responses (429, 502, 500, 503, invalid URL, etc.) —
+        // Show the large error card. NEVER leak backend details.
+        setIsUnavailable(true);
+        setUnavailableReason('This video is unavailable. It was removed by the creator or is no longer available on TikTok.');
+        setVideoInfo(null);
+        // NO toast — the large error card is sufficient
+        return;
       }
 
       const result = await response.json();
 
       if (!result.success) {
-        // Determine user-facing message — NEVER expose provider/API/quota/backend errors
-        const unavailableCodes = ['PRIVATE_CONTENT', 'DELETED_CONTENT', 'AGE_RESTRICTED', 'GEO_BLOCKED'];
-        const isUnavail = unavailableCodes.some(c => result.errorCode === c);
-
-        if (isUnavail) {
-          setIsUnavailable(true);
-          setUnavailableReason('This video is unavailable. It was removed by the creator or is no longer available on TikTok.');
-          setVideoInfo(null);
-          toast.error('This TikTok isn\'t available');
-          return;
-        }
-
-        // ALL other errors — never leak backend details. Show only "Video unavailable".
-        throw new Error('Video unavailable');
+        // ALL download failures show the large error card.
+        // NEVER leak provider/API/quota/backend error details.
+        setIsUnavailable(true);
+        setUnavailableReason('This video is unavailable. The video was removed by the creator or is no longer available on TikTok.');
+        setVideoInfo(null);
+        // NO toast — the large error card is sufficient
+        return;
       }
 
       const data: VideoInfo = result.data;
@@ -294,7 +290,7 @@ const TikTokDownloader = () => {
         setIsUnavailable(true);
         setUnavailableReason('This video is unavailable. The video was removed by the creator or is no longer available on TikTok.');
         setVideoInfo(null);
-        toast.error('This TikTok isn\'t available');
+        // NO toast — the large error card is sufficient
         return;
       }
 
@@ -320,16 +316,24 @@ const TikTokDownloader = () => {
         });
       });
     } catch (err: unknown) {
+      // Catch block handles true network/system errors (e.g. fetch() itself throws)
+      // All download-related errors are handled above with the error card.
       let errorMessage = err instanceof Error ? err.message : 'Video unavailable';
       // NEVER show provider/API/quota/backend errors to users
-      // If the message contains any internal/technical keywords, replace with generic message
-      const internalKeywords = ['quota', 'tikhub', 'rapidapi', 'provider', 'spi ', 'rate limit', 'offline', 'circuit', 'fallback', 'timeout', 'retry', 'v1 ', 'v2 ', 'v3 ', 'ssstik', 'musicaldown', 'tikcdn', 'error code', 'status:', 'http', 'api key', 'unauthorized', 'forbidden', 'internal', '502', '500', '503', '429', 'server returned', 'failed to fetch', 'network'];
+      const internalKeywords = ['quota', 'tikhub', 'rapidapi', 'provider', 'spi ', 'rate limit', 'offline', 'circuit', 'fallback', 'timeout', 'retry', 'v1 ', 'v2 ', 'v3 ', 'ssstik', 'musicaldown', 'tikcdn', 'error code', 'status:', 'http', 'api key', 'unauthorized', 'forbidden', 'internal', '502', '500', '503', '429', 'server returned', 'network'];
       const isInternalError = internalKeywords.some(k => errorMessage.toLowerCase().includes(k));
       if (isInternalError) {
         errorMessage = 'Video unavailable';
       }
-      setError(errorMessage);
-      toast.error(errorMessage);
+      // Network errors ("Failed to fetch") — show toast (transient, retry may work)
+      if (errorMessage.toLowerCase().includes('failed to fetch')) {
+        toast.error('Network error. Please check your connection and try again.');
+      } else {
+        // All other catch errors — show the large error card
+        setIsUnavailable(true);
+        setUnavailableReason('This video is unavailable. The video was removed by the creator or is no longer available on TikTok.');
+        setVideoInfo(null);
+      }
     } finally {
       setIsLoading(false);
     }
