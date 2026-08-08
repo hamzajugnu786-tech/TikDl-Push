@@ -361,6 +361,18 @@ const TikTokDownloader = () => {
                 ? { ...prev, thumbnail: thumbData.thumbnail }
                 : prev
             );
+            // ALSO patch the matching Recent Downloads / history item so its
+            // thumbnail card renders correctly. The history item was saved
+            // BEFORE enrichment completed (with an empty thumbnail), so we
+            // must update it here. Match by id+timestamp to avoid touching
+            // a different video that might have been fetched since.
+            setHistory(prev =>
+              prev.map(item =>
+                item.id === data.id && (item._timestamp || 0) >= (data._timestamp || 0)
+                  ? { ...item, thumbnail: thumbData.thumbnail }
+                  : item
+              )
+            );
             // Reset the load-error flag so the <img> renders the new thumbnail.
             setThumbnailLoadError(false);
           } catch {
