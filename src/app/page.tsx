@@ -143,6 +143,17 @@ const TikTokDownloader = () => {
   const tabContainerRef = useRef<HTMLDivElement>(null);
   const [pendingDownload, setPendingDownload] = useState<{ url: string; filename: string } | null>(null);
   const [resultHighlight, setResultHighlight] = useState(false);
+  // ── Async thumbnail enrichment ──
+  // When the primary provider (V2 SSSTik / V3 MusicalDown) wins the race,
+  // the API returns a successful video result with an EMPTY thumbnail.
+  // We fire a non-blocking POST /api/thumbnail enrichment AFTER the success
+  // card is already displayed. If it succeeds, we patch videoInfo.thumbnail
+  // in place; if it fails, the existing Play-icon placeholder remains.
+  //
+  // The ref tracks the URL of the video currently being enriched, so a
+  // stale response from a previous fetch can never overwrite a newer
+  // video's state. Cleared on every resetInterface().
+  const pendingThumbnailUrlRef = useRef<string | null>(null);
   // Swipe state
   const [touchStart, setTouchStart] = useState<number | null>(null);
   // Slide carousel swipe state (separate from tab swipe)
@@ -229,6 +240,9 @@ const TikTokDownloader = () => {
     setError('');
     setVideoInfo(null);
     setThumbnailLoadError(false);
+    // Cancel any in-flight thumbnail enrichment — its response would be
+    // stale for the new video.
+    pendingThumbnailUrlRef.current = null;
   }, []);
 
   // Fetch video info
@@ -311,6 +325,50 @@ const TikTokDownloader = () => {
       setActiveTab('video');
       setHistory(prev => [{ ...data, _timestamp: Date.now() }, ...prev.slice(0, 9)]);
       toast.success('Video ready!');
+
+      // ── ASYNC THUMBNAIL ENRICHMENT (NON-BLOCKING) ──
+      // Fired ONLY when the API returned success but with no thumbnail.
+      // This happens when V2 (SSSTik) or V3 (MusicalDown) wins the race —
+      // neither provider exposes a video cover URL. We fetch the cover via
+      // TikTok's public oEmbed endpoint and patch the success card in place.
+      //
+      // Performance contract:
+      //   - The success card is already rendered above; this NEVER blocks it.
+      //   - The video download URLs are already available; this NEVER blocks downloads.
+      //   - On any failure (timeout, 403, network), the placeholder silently remains.
+      //   - On a new fetch, pendingThumbnailUrlRef changes → stale response is discarded.
+      //   - Image/photo posts are skipped (they have their own carousel + slide URLs).
+      if (!data.thumbnail && data.postType !== 'images') {
+        const enrichmentUrl = videoUrl;
+        pendingThumbnailUrlRef.current = enrichmentUrl;
+        // Fire-and-forget — never awaited, never throws into the outer handler.
+        void (async () => {
+          try {
+            const thumbRes = await fetch('/api/thumbnail', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ url: enrichmentUrl }),
+            });
+            if (!thumbRes.ok) return;
+            const thumbData = await thumbRes.json();
+            if (!thumbData.success || typeof thumbData.thumbnail !== 'string') return;
+            // Stale-guard: a newer fetch has replaced the current video — discard.
+            if (pendingThumbnailUrlRef.current !== enrichmentUrl) return;
+            // Patch the success card in place. Use the functional form so we
+            // never clobber a newer videoInfo set by a subsequent fetch.
+            setVideoInfo(prev =>
+              prev && prev.id === data.id
+                ? { ...prev, thumbnail: thumbData.thumbnail }
+                : prev
+            );
+            // Reset the load-error flag so the <img> renders the new thumbnail.
+            setThumbnailLoadError(false);
+          } catch {
+            // Network/parse error — silent failure, placeholder remains.
+            // The video download itself is completely unaffected.
+          }
+        })();
+      }
 
       // Scroll to result card after fetch — use requestAnimationFrame for reliable timing
       // This ensures the DOM has committed the new videoInfo state before scrolling
