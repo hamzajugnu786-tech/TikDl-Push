@@ -31,7 +31,7 @@ import { PlatformDetector } from './platform-detector';
 import { getLogger } from './logger';
 import { NovaDLError, NovaDLErrorCode, generateRequestId } from './errors';
 import { ServiceResult, NovaDLErrorInfo, NovaDLResult } from './types';
-import { extractWithEngine, isEngineInitialized } from './engine-bridge';
+import { extractWithEngine } from './engine-bridge';
 
 // ============================================================================
 // DOWNLOAD SERVICE CLASS
@@ -129,7 +129,6 @@ export class DownloadService {
     // race in parallel (first success wins). We NEVER race paid providers
     // (TikHub/RapidAPI) simultaneously — they are fallback only.
     const allProviders = this.registry.getProviders(platformInfo.platform);
-    const engineReady = isEngineInitialized();
 
     // Content-level error codes — if the primary returns these, do NOT try fallback
     const contentLevelCodes = new Set([
@@ -272,45 +271,45 @@ export class DownloadService {
     // ──── Step 5: PRIMARY failed with transient error — try FALLBACK ────
     // Only use the engine (TikHub/RapidAPI) as a fallback when the primary
     // genuinely failed with a transient error (timeout, rate limit, network).
+    // extractWithEngine() handles lazy engine init via getEngine() — the
+    // engine may still be initializing in the background from initializeNovaDL().
     console.log(`[DownloadService] Primary (${primaryProvider.name}) failed with transient error, trying engine fallback`);
 
-    if (engineReady) {
-      try {
-        const result = await extractWithEngine(platformInfo.canonicalUrl, platformInfo.platform);
-        const hasAnyMedia = result.formats.length > 0 || result.audio.length > 0 ||
-          (result.metadata.slideImages && result.metadata.slideImages.length > 0);
+    try {
+      const result = await extractWithEngine(platformInfo.canonicalUrl, platformInfo.platform);
+      const hasAnyMedia = result.formats.length > 0 || result.audio.length > 0 ||
+        (result.metadata.slideImages && result.metadata.slideImages.length > 0);
 
-        if (hasAnyMedia) {
-          // FALLBACK SUCCEEDED
-          const duration = Date.now() - startTime;
-          await this.logger.log({
-            requestId,
-            timestamp: new Date(),
-            platform: platformInfo.platform,
-            provider: 'novadl-engine',
-            url,
-            status: 'success',
-            executionTime: duration,
-            ipAddress: options?.ipAddress,
-            userAgent: options?.userAgent,
-            videoId: result.metadata.videoId,
-            videoTitle: result.title,
-          });
+      if (hasAnyMedia) {
+        // FALLBACK SUCCEEDED
+        const duration = Date.now() - startTime;
+        await this.logger.log({
+          requestId,
+          timestamp: new Date(),
+          platform: platformInfo.platform,
+          provider: 'novadl-engine',
+          url,
+          status: 'success',
+          executionTime: duration,
+          ipAddress: options?.ipAddress,
+          userAgent: options?.userAgent,
+          videoId: result.metadata.videoId,
+          videoTitle: result.title,
+        });
 
-          return {
-            success: true,
-            data: result,
-            provider: 'novadl-engine',
-            platform: platformInfo.platform,
-            duration,
-            requestId,
-          };
-        }
-      } catch (engineErr: unknown) {
-        // Engine fallback also failed — fall through to return primary's error
-        const msg = engineErr instanceof Error ? engineErr.message : String(engineErr);
-        console.warn(`[DownloadService] Engine fallback also failed: ${msg.slice(0, 200)}`);
+        return {
+          success: true,
+          data: result,
+          provider: 'novadl-engine',
+          platform: platformInfo.platform,
+          duration,
+          requestId,
+        };
       }
+    } catch (engineErr: unknown) {
+      // Engine fallback also failed — fall through to return primary's error
+      const msg = engineErr instanceof Error ? engineErr.message : String(engineErr);
+      console.warn(`[DownloadService] Engine fallback also failed: ${msg.slice(0, 200)}`);
     }
 
     // ──── Step 6: ALL providers failed — return PRIMARY's error ────

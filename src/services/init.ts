@@ -37,21 +37,28 @@ export async function initializeNovaDL(): Promise<void> {
 
   console.log('[NovaDL] Initializing service layer with real NovaDL engine...');
 
-  // Step 1: Initialize the real NovaDL engine
-  try {
-    const engine = await getEngine();
-    if (engine) {
-      const providers = engine.getProviders();
-      console.log(`[NovaDL] Engine initialized with ${providers.length} providers:`);
-      for (const p of providers) {
-        console.log(`[NovaDL]   - ${p.id} (priority: ${p.priority}, platforms: ${p.platforms.join(', ')})`);
+  // Step 1: Kick off NovaDL engine initialization in the BACKGROUND.
+  // The engine is only needed as a FALLBACK when the primary provider
+  // (tiktok-api-dl) fails with a transient error. Initializing it eagerly
+  // here would block the first download request behind 24 provider
+  // inits + cookie-jar disk I/O, even on requests that never use it.
+  // extractWithEngine() will await getEngine() when a fallback is actually
+  // needed — getEngine() is idempotent and handles concurrent init.
+  void getEngine()
+    .then((engine) => {
+      if (engine) {
+        const providers = engine.getProviders();
+        console.log(`[NovaDL] Engine initialized in background with ${providers.length} providers:`);
+        for (const p of providers) {
+          console.log(`[NovaDL]   - ${p.id} (priority: ${p.priority}, platforms: ${p.platforms.join(', ')})`);
+        }
+      } else {
+        console.info('[NovaDL] Engine unavailable — using provider registry (TikHub → RapidAPI)');
       }
-    } else {
-      console.info('[NovaDL] Engine unavailable — using provider registry (TikHub → RapidAPI)');
-    }
-  } catch (error) {
-    console.warn('[NovaDL] Engine initialization error, using provider registry fallback');
-  }
+    })
+    .catch(() => {
+      console.warn('[NovaDL] Engine background initialization error, using provider registry fallback');
+    });
 
   // Step 2: Register old provider adapters as fallback
   registerTikTokProviders();

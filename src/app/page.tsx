@@ -108,6 +108,9 @@ const TikTokDownloader = () => {
   const [activeTab, setActiveTab] = useState<'video' | 'audio'>('video');
   const [isUnavailable, setIsUnavailable] = useState(false);
   const [unavailableReason, setUnavailableReason] = useState('');
+  // True when a thumbnail URL exists but the image itself failed to load —
+  // fall back to the existing Play-icon placeholder instead of an empty box.
+  const [thumbnailLoadError, setThumbnailLoadError] = useState(false);
   const [imagePostMode, setImagePostMode] = useState<'video' | 'images'>('video');
   const [selectedImages, setSelectedImages] = useState<Set<number>>(new Set());
   const [showAdPopup, setShowAdPopup] = useState(false);
@@ -225,6 +228,7 @@ const TikTokDownloader = () => {
     setUnavailableReason('');
     setError('');
     setVideoInfo(null);
+    setThumbnailLoadError(false);
   }, []);
 
   // Fetch video info
@@ -946,12 +950,12 @@ const TikTokDownloader = () => {
                       {/* Normal video preview */}
                       {videoInfo.postType !== 'images' && activeTab === 'video' && (
                         <div className="relative rounded-[12px] overflow-hidden bg-zinc-900 aspect-[9/16]">
-                          {videoInfo.thumbnail ? (
+                          {(videoInfo.thumbnail && !thumbnailLoadError) ? (
                             <img
                               src={`/api/proxy?url=${encodeURIComponent(videoInfo.thumbnail)}&filename=thumbnail.jpg&mode=inline`}
                               alt={videoInfo.title}
                               className="w-full h-full object-cover"
-                              onError={(e) => { const img = e.target as HTMLImageElement; img.style.display = 'none'; }}
+                              onError={() => setThumbnailLoadError(true)}
                             />
                           ) : (
                             <div className="w-full h-full flex items-center justify-center bg-zinc-800">
