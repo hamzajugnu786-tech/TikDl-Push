@@ -305,8 +305,51 @@ const TikTokDownloader = () => {
         setSelectedImages(new Set());
       }
       setActiveTab('video');
+      // Capture the URL used for this fetch so the async thumbnail enrichment
+      // can correlate to the correct history entry even if the user submits
+      // another URL before enrichment completes.
+      const fetchedUrl = videoUrl;
       setHistory(prev => [{ ...data, _timestamp: Date.now() }, ...prev.slice(0, 9)]);
       toast.success('Video ready!');
+
+      // ===== Async non-blocking thumbnail enrichment (Bug #6) =====
+      // If the provider race (V2/V3) won and returned an empty thumbnail,
+      // asynchronously fetch a thumbnail from /api/thumbnail (which calls
+      // V1 dynamicCover or TikTok oEmbed). This MUST be non-blocking —
+      // the success card already rendered above with a placeholder.
+      // Never awaits before returning the result; never blocks downloads.
+      if (!data.thumbnail && fetchedUrl) {
+        // Use an IIFE so the catch block below doesn't have to wait for it.
+        (async () => {
+          try {
+            const thumbRes = await fetch('/api/thumbnail', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ url: fetchedUrl }),
+              cache: 'no-store',
+            });
+            if (!thumbRes.ok) return;
+            const thumbData = await thumbRes.json();
+            if (!thumbData?.success || typeof thumbData.thumbnail !== 'string') return;
+            const newThumb = thumbData.thumbnail as string;
+            // Update videoInfo if the user is still viewing the same video.
+            setVideoInfo(prev => {
+              if (!prev || prev.id !== data.id) return prev;
+              if (prev.thumbnail) return prev; // Don't overwrite a real thumbnail
+              return { ...prev, thumbnail: newThumb };
+            });
+            // Update the matching history entry so Recent Downloads shows it.
+            setHistory(prev => prev.map(item =>
+              item.id === data.id && !item.thumbnail
+                ? { ...item, thumbnail: newThumb }
+                : item
+            ));
+          } catch {
+            // Silent failure — placeholder stays in place. Never throw
+            // to the component tree; thumbnails are non-critical.
+          }
+        })();
+      }
 
       // Scroll to result card after fetch — use requestAnimationFrame for reliable timing
       // This ensures the DOM has committed the new videoInfo state before scrolling

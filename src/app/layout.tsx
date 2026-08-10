@@ -1,6 +1,14 @@
 import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
+import { headers } from "next/headers";
 import "./globals.css";
+
+// Force dynamic rendering so admin-saved settings (siteName, metaTitle,
+// maintenanceMode, primaryColor, etc.) are read fresh from the DB on every
+// request. Without this, Next.js may statically render the layout at build
+// time and admin changes wouldn't propagate to the user-facing site until a
+// redeploy — which is exactly the symptom reported in Bug #4D.
+export const dynamic = 'force-dynamic';
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -139,6 +147,20 @@ export default async function RootLayout({
   const siteName = settings['siteName'] || DEFAULTS.siteName;
   const maintenanceMode = settings['maintenanceMode'] === 'true';
 
+  // Determine the current route path so the admin dashboard can bypass
+  // maintenance mode. Without this, an admin who enables maintenance mode
+  // cannot reach /admin to turn it back off. The pathname is exposed by
+  // src/middleware.ts as a request header (x-route-pathname).
+  let pathname = '';
+  try {
+    const headerList = await headers();
+    pathname = headerList.get('x-route-pathname') || '';
+  } catch {
+    // headers() not available in this context — skip
+  }
+  const isAdminRoute = pathname.startsWith('/admin') || pathname.startsWith('/api/admin');
+  const showMaintenance = maintenanceMode && !isAdminRoute;
+
   return (
     <html lang="en" suppressHydrationWarning className="h-full antialiased">
       <head>
@@ -148,7 +170,7 @@ export default async function RootLayout({
         <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
       </head>
       <body className="min-h-full flex flex-col bg-[#000000] text-white font-[family-name:var(--font-geist-sans)]">
-        {maintenanceMode ? (
+        {showMaintenance ? (
           <div className="min-h-screen flex items-center justify-center bg-black text-white">
             <div className="text-center p-8">
               <h1 className="text-2xl font-bold mb-4">{siteName}</h1>

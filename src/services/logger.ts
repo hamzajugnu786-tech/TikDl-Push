@@ -31,6 +31,49 @@ import { db } from '@/lib/db';
 import { hashIp } from '@/lib/privacy';
 
 // ============================================================================
+// DEVICE DETECTION (Bug #3 — Analytics device tracking)
+// ============================================================================
+//
+// Derives a coarse device category from the User-Agent string. We only need
+// three buckets: "mobile", "tablet", "desktop". The detection is intentionally
+// simple — it is NOT a full UA parser. NULL is returned when the UA is empty
+// or unclassifiable so the UI can distinguish "unknown" from real data.
+//
+// Detection rules:
+//   - iPad / Android tablet (no "Mobile" suffix) → "tablet"
+//   - iPhone / Android Mobile / Windows Phone → "mobile"
+//   - Everything else with a desktop UA token → "desktop"
+//   - Empty / unknown UA → null
+
+function detectDevice(userAgent: string | undefined | null): string | null {
+  if (!userAgent || typeof userAgent !== 'string') return null;
+  const ua = userAgent.toLowerCase();
+  if (!ua) return null;
+
+  // iPad / Android tablet — tablet UA contains "ipad" OR android without "mobile"
+  if (ua.includes('ipad')) return 'tablet';
+  if (ua.includes('android') && !ua.includes('mobile')) return 'tablet';
+  if (ua.includes('tablet')) return 'tablet';
+
+  // Mobile — iPhone, Android Mobile, Windows Phone, etc.
+  if (ua.includes('iphone')) return 'mobile';
+  if (ua.includes('android') && ua.includes('mobile')) return 'mobile';
+  if (ua.includes('windows phone')) return 'mobile';
+  if (ua.includes('blackberry')) return 'mobile';
+  if (ua.includes('opera mini')) return 'mobile';
+  if (ua.includes('mobile')) return 'mobile';
+
+  // Desktop — Windows, Macintosh, Linux x86, etc.
+  if (ua.includes('windows')) return 'desktop';
+  if (ua.includes('macintosh') || ua.includes('mac os x')) return 'desktop';
+  if (ua.includes('linux') && ua.includes('x86')) return 'desktop';
+  if (ua.includes('x11') || ua.includes('bsd')) return 'desktop';
+
+  // Unrecognized — return null so UI shows "unknown" rather than fabricate.
+  return null;
+}
+
+// ============================================================================
 // LOG ENTRY STRUCTURE
 // ============================================================================
 
@@ -125,6 +168,9 @@ export class DownloadLogger {
 
     // 2. Database log (write to DownloadLog table)
     try {
+      // Detect device category from User-Agent for analytics (Bug #3).
+      // NULL when UA is empty or unclassifiable — UI shows "unknown" for those rows.
+      const device = detectDevice(entry.userAgent);
       await db.downloadLog.create({
         data: {
           videoId: entry.videoId || null,
@@ -136,6 +182,7 @@ export class DownloadLogger {
           error: entry.errorMessage || (entry.error ? String(entry.error) : null),
           ipAddress: hashedIp,  // Store hash, NEVER raw IP
           requestId: entry.requestId,
+          device,  // NULL for unknown UA — never fabricated
         },
       });
 

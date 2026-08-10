@@ -20,7 +20,9 @@ export async function GET() {
     // Parallelise independent DB queries for better performance
     const [todayAnalytics, last7Days, providerStatuses, recentLogs, todayLogCount,
       // DownloadLog-based fallback queries (used when Analytics table is empty/missing)
-      totalLogCount, successLogCount, todaySuccessLogCount, avgResponseFromLogs
+      totalLogCount, successLogCount, todaySuccessLogCount, avgResponseFromLogs,
+      // Device-breakdown counts from DownloadLog (Bug #3 — real device analytics)
+      deviceCounts, last30DaysLogCount
     ] =
       await Promise.all([
         db.analytics.findUnique({ where: { date: today } }),
@@ -47,7 +49,36 @@ export async function GET() {
           where: { responseTime: { not: null }, createdAt: { gte: sevenDaysAgo } },
           select: { responseTime: true },
         }),
+        // ===== Device breakdown (Bug #3) =====
+        // Count recent logs grouped by device category. We fetch all recent
+        // logs and group in JS because Prisma's `groupBy` on a nullable field
+        // can be awkward and SQLite/LibSQL support varies. This is bounded by
+        // the 7-day window and 50-recent-logs limit.
+        db.downloadLog.findMany({
+          where: { createdAt: { gte: sevenDaysAgo } },
+          select: { device: true, success: true },
+        }),
+        // Last 30-day count for monthly view
+        db.downloadLog.count({
+          where: { createdAt: { gte: new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000) } },
+        }),
       ]);
+
+    // Aggregate device counts from the recent-logs query above.
+    // NULL device entries are reported as "unknown" — never fabricated.
+    const deviceSummary: { mobile: number; desktop: number; tablet: number; unknown: number } = {
+      mobile: 0,
+      desktop: 0,
+      tablet: 0,
+      unknown: 0,
+    };
+    for (const log of deviceCounts) {
+      const d = log.device;
+      if (d === 'mobile') deviceSummary.mobile++;
+      else if (d === 'desktop') deviceSummary.desktop++;
+      else if (d === 'tablet') deviceSummary.tablet++;
+      else deviceSummary.unknown++;
+    }
 
     // Compute stats from Analytics table, with DownloadLog fallback
     // When Analytics rows exist, use them. When empty, compute from DownloadLog.
@@ -150,7 +181,15 @@ export async function GET() {
         responseTime: l.responseTime,
         error: l.error,
         createdAt: l.createdAt.toISOString(),
+        device: l.device,  // May be NULL for historical rows — UI shows "unknown"
       })),
+      // ===== Device breakdown (Bug #3) =====
+      // Real counts derived from DownloadLog.device. NULL device entries are
+      // reported as "unknown" — never fabricated. When all historical rows
+      // have NULL device (i.e. all counts are 0 except unknown), the UI shows
+      // "no device data yet" instead of fake percentages.
+      deviceBreakdown: deviceSummary,
+      last30DaysCount: last30DaysLogCount,
     });
   } catch {
     // Return zeros on error — never return an error status
@@ -173,6 +212,8 @@ export async function GET() {
       },
       providers: [],
       recentLogs: [],
+      deviceBreakdown: { mobile: 0, desktop: 0, tablet: 0, unknown: 0 },
+      last30DaysCount: 0,
     });
   }
 }

@@ -69,7 +69,7 @@ export default function DmcaPage() {
           </div>
         </section>
 
-        <section className="py-8 sm:py-10 px-4 sm:px-6 text-center bg-[#0a0a0a]">
+        <section className="py-8 sm:py-10 px-4 sm:px-6 text-center">
           <p className="text-[#9CA3AF] text-sm mb-3">Non-copyright inquiries? <Link href="/contact" className="text-[#FE2C55] hover:underline">Contact us</Link>.</p>
           <Link href="/" className="inline-flex items-center gap-2 px-6 py-3 bg-[#FE2C55] hover:bg-[#FE2C55]/90 rounded-[12px] font-semibold text-sm transition-colors duration-150">Back to TikDL</Link>
         </section>

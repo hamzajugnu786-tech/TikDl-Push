@@ -26,7 +26,7 @@ export default function ContactPage() {
           </div>
         </section>
 
-        <section className="py-8 sm:py-12 px-4 sm:px-6 bg-[#0a0a0a]">
+        <section className="py-8 sm:py-12 px-4 sm:px-6">
           <div className="max-w-3xl mx-auto">
             <h2 className="text-xl sm:text-2xl font-bold mb-6 text-center">Get In Touch</h2>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -64,7 +64,7 @@ export default function ContactPage() {
           </div>
         </section>
 
-        <section className="py-8 sm:py-12 px-4 sm:px-6 bg-[#0a0a0a]">
+        <section className="py-8 sm:py-12 px-4 sm:px-6">
           <div className="max-w-3xl mx-auto">
             <h2 className="text-xl sm:text-2xl font-bold mb-6 text-center">What Are You Reaching Out About?</h2>
             <div className="space-y-3">

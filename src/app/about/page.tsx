@@ -25,7 +25,7 @@ export default function AboutPage() {
           </div>
         </section>
 
-        <section className="py-8 sm:py-12 px-4 sm:px-6 bg-[#0a0a0a]">
+        <section className="py-8 sm:py-12 px-4 sm:px-6">
           <div className="max-w-3xl mx-auto">
             <div className="glass rounded-[16px] p-6 sm:p-8">
               <h2 className="text-xl sm:text-2xl font-bold mb-4">Our Mission</h2>
@@ -55,7 +55,7 @@ export default function AboutPage() {
           </div>
         </section>
 
-        <section className="py-8 sm:py-12 px-4 sm:px-6 bg-[#0a0a0a]">
+        <section className="py-8 sm:py-12 px-4 sm:px-6">
           <div className="max-w-3xl mx-auto">
             <div className="glass rounded-[16px] p-6 sm:p-8">
               <h2 className="text-xl sm:text-2xl font-bold mb-4">Privacy & Safety</h2>

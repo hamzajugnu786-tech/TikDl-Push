@@ -68,11 +68,16 @@ model DownloadLog {
   /// PRIVACY: Must be SHA-256 hash. NEVER store raw IPs (GDPR).
   ipAddress     String?
   requestId     String?
+  /// Device category derived from User-Agent: "mobile", "desktop", or "tablet".
+  /// NULL for historical rows written before this field was added — analytics
+  /// UI treats NULL as "unknown" rather than fabricating a category.
+  device        String?
   createdAt     DateTime @default(now())
 
   @@index([createdAt])              // Date-range queries & analytics
   @@index([createdAt, success])     // Compound for success-rate analytics
   @@index([provider])              // Grouping/filtering by provider
+  @@index([device])                // Device-breakdown analytics queries
 }
 
 model Analytics {

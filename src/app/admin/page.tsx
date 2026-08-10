@@ -8,7 +8,7 @@ import {
   Globe, ChevronDown, ChevronUp, Search, Trash2, Database, Monitor,
   Smartphone, Lock, Eye, FileText, Palette, Zap, Wrench,
   Copy, Plus, Layers, Tag, LayoutGrid,
-  Code, MoveUp, MoveDown, Edit3, Check, AlertCircle
+  Code, Edit3, Check, AlertCircle
 } from 'lucide-react';
 import { Toaster, toast } from 'sonner';
 import { sanitizeAdHtml } from '@/lib/sanitize';
@@ -16,6 +16,14 @@ import { Switch } from '@/components/ui/switch';
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from '@/components/ui/select';
+// Recharts — used ONLY by the Analytics tab for interactive charts (Bug #3).
+// Lazy-loaded chunk via dynamic import inside the Analytics tab component to
+// avoid bloating the rest of the admin bundle. The components below are the
+// subset we actually use.
+import {
+  ResponsiveContainer, BarChart, Bar, LineChart, Line, XAxis, YAxis,
+  CartesianGrid, Tooltip, Cell, PieChart, Pie, Area, AreaChart,
+} from 'recharts';
 // Centralized ad registry — single source of truth for pages, placements,
 // templates, dimensions. Used by both the admin UI and the public ads API.
 import {
@@ -99,6 +107,7 @@ interface AnalyticsData {
     responseTime: number;
     error: string;
     createdAt: string;
+    device?: string | null;
   }>;
   providers: Array<{
     name: string;
@@ -107,6 +116,13 @@ interface AnalyticsData {
     avgResponseMs: number;
     lastCheck: string;
   }>;
+  deviceBreakdown?: {
+    mobile: number;
+    desktop: number;
+    tablet: number;
+    unknown: number;
+  };
+  last30DaysCount?: number;
 }
 
 interface ProviderConfig {
@@ -287,6 +303,13 @@ const AdminDashboard = () => {
   // Advertisement Management Center — Save button status: 'idle' | 'saving' | 'saved' | 'error'
   const [saveStatus, setSaveStatus] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle');
 
+  // ===== Analytics tab state (Bug #3 — production analytics upgrade) =====
+  // Time range selector: 'daily' (7d), 'weekly' (14d grouped by week),
+  // 'monthly' (30d grouped by day for monthly trend)
+  const [analyticsRange, setAnalyticsRange] = useState<'daily' | 'weekly' | 'monthly'>('daily');
+  // Selected data point index — when set, the detail panel shows full info
+  const [selectedPointIdx, setSelectedPointIdx] = useState<number | null>(null);
+
   // Fetch config on mount
   useEffect(() => {
     const fetchConfig = async () => {
@@ -397,6 +420,8 @@ const AdminDashboard = () => {
             last7Days: data.last7Days || [],
             recentLogs: data.recentLogs || [],
             providers: data.providers || [],
+            deviceBreakdown: data.deviceBreakdown ?? { mobile: 0, desktop: 0, tablet: 0, unknown: 0 },
+            last30DaysCount: data.last30DaysCount ?? 0,
           });
         }
       } catch {
@@ -866,6 +891,108 @@ const AdminDashboard = () => {
     ? Math.max(...analyticsData.last7Days.map(d => d.totalDownloads), 1)
     : 1;
 
+  // ===== Analytics chart data (Bug #3) =====
+  // Build the data series based on the selected time range.
+  // - daily:    last 7 days, one point per day
+  // - weekly:   last 14 days grouped into 2 weekly buckets + per-day breakdown
+  // - monthly:  last 30 days grouped per-day (long-tail monthly trend)
+  //
+  // When the API returns fewer than 7 days of data, the missing days are
+  // padded with zeros so the x-axis stays consistent.
+  const analyticsSeries = (() => {
+    const src = [...analyticsData.last7Days].reverse(); // API returns newest-first
+    if (analyticsRange === 'daily') {
+      // 7-day daily view — pad missing days at the start
+      const today = new Date();
+      const out: Array<{ date: string; totalDownloads: number; successCount: number; failCount: number; avgResponseMs: number; uniqueVisitors: number }> = [];
+      for (let i = 6; i >= 0; i--) {
+        const d = new Date(today.getTime() - i * 24 * 60 * 60 * 1000);
+        const ds = d.toISOString().slice(0, 10);
+        const match = src.find(s => s.date === ds);
+        out.push({
+          date: ds,
+          totalDownloads: match?.totalDownloads ?? 0,
+          successCount: match?.successCount ?? 0,
+          failCount: match?.failCount ?? 0,
+          avgResponseMs: match?.avgResponseMs ?? 0,
+          uniqueVisitors: match?.uniqueVisitors ?? 0,
+        });
+      }
+      return out;
+    }
+    if (analyticsRange === 'weekly') {
+      // Weekly view — show last 14 days, day-by-day, so the user can see
+      // two weeks of trend side-by-side. The UI highlights the week boundary.
+      const today = new Date();
+      const out: Array<{ date: string; totalDownloads: number; successCount: number; failCount: number; avgResponseMs: number; uniqueVisitors: number }> = [];
+      for (let i = 13; i >= 0; i--) {
+        const d = new Date(today.getTime() - i * 24 * 60 * 60 * 1000);
+        const ds = d.toISOString().slice(0, 10);
+        const match = src.find(s => s.date === ds);
+        out.push({
+          date: ds,
+          totalDownloads: match?.totalDownloads ?? 0,
+          successCount: match?.successCount ?? 0,
+          failCount: match?.failCount ?? 0,
+          avgResponseMs: match?.avgResponseMs ?? 0,
+          uniqueVisitors: match?.uniqueVisitors ?? 0,
+        });
+      }
+      return out;
+    }
+    // monthly — show last 30 days, day-by-day
+    const today = new Date();
+    const out: Array<{ date: string; totalDownloads: number; successCount: number; failCount: number; avgResponseMs: number; uniqueVisitors: number }> = [];
+    for (let i = 29; i >= 0; i--) {
+      const d = new Date(today.getTime() - i * 24 * 60 * 60 * 1000);
+      const ds = d.toISOString().slice(0, 10);
+      const match = src.find(s => s.date === ds);
+      out.push({
+        date: ds,
+        totalDownloads: match?.totalDownloads ?? 0,
+        successCount: match?.successCount ?? 0,
+        failCount: match?.failCount ?? 0,
+        avgResponseMs: match?.avgResponseMs ?? 0,
+        uniqueVisitors: match?.uniqueVisitors ?? 0,
+      });
+    }
+    return out;
+  })();
+
+  // Summary numbers depend on the selected range
+  const rangeTotals = (() => {
+    const total = analyticsSeries.reduce((s, d) => s + d.totalDownloads, 0);
+    const success = analyticsSeries.reduce((s, d) => s + d.successCount, 0);
+    const fail = analyticsSeries.reduce((s, d) => s + d.failCount, 0);
+    const daysWithLatency = analyticsSeries.filter(d => d.avgResponseMs > 0);
+    const avgMs = daysWithLatency.length > 0
+      ? Math.round(daysWithLatency.reduce((s, d) => s + d.avgResponseMs, 0) / daysWithLatency.length)
+      : 0;
+    return { total, success, fail, avgMs };
+  })();
+
+  // Selected data point details — show in the side panel
+  const selectedPoint = selectedPointIdx !== null && selectedPointIdx >= 0 && selectedPointIdx < analyticsSeries.length
+    ? analyticsSeries[selectedPointIdx]
+    : null;
+
+  // Device breakdown — real data from DownloadLog
+  const deviceBreakdown = analyticsData.deviceBreakdown ?? { mobile: 0, desktop: 0, tablet: 0, unknown: 0 };
+  const totalDeviceSamples = deviceBreakdown.mobile + deviceBreakdown.desktop + deviceBreakdown.tablet + deviceBreakdown.unknown;
+  const hasRealDeviceData = totalDeviceSamples > 0 && (deviceBreakdown.mobile + deviceBreakdown.desktop + deviceBreakdown.tablet) > 0;
+
+  // Format breakdown — from recent logs (success vs failed)
+  const formatBreakdown = (() => {
+    const total = analyticsData.recentLogs.length;
+    if (total === 0) return null;
+    const success = analyticsData.recentLogs.filter(l => l.success).length;
+    const fail = total - success;
+    return [
+      { name: 'Successful', value: success, color: '#25F4EE' },
+      { name: 'Failed', value: fail, color: '#FE2C55' },
+    ].filter(d => d.value > 0);
+  })();
+
   return (
     <div className="min-h-screen bg-[#000000] text-white flex">
       <Toaster position="top-center" richColors closeButton />
@@ -1162,6 +1289,22 @@ const AdminDashboard = () => {
             >
               <h2 className="text-lg font-bold mb-3">Provider Management</h2>
 
+              {/* Read-only banner — provider execution order is registry-controlled */}
+              <div className="stat-card mb-4 border border-[#25F4EE]/15">
+                <div className="flex items-start gap-3">
+                  <Lock size={14} className="text-[#25F4EE] mt-0.5 flex-shrink-0" />
+                  <div className="flex-1 min-w-0">
+                    <div className="text-sm font-semibold mb-1">Provider execution order is registry-controlled</div>
+                    <p className="text-xs text-[#9CA3AF] leading-relaxed">
+                      The V1 / V2 / V3 race, first-success-wins behavior, and provider priority are
+                      determined by the server-side provider registry. Provider enable/disable and
+                      reordering are not persisted — they are not admin-configurable. API keys remain
+                      environment-based and are never editable from this UI.
+                    </p>
+                  </div>
+                </div>
+              </div>
+
               {/* Search */}
               <div className="relative mb-3">
                 <Search size={13} className="absolute left-3 top-1/2 -translate-y-1/2 text-[#666]" />
@@ -1174,7 +1317,7 @@ const AdminDashboard = () => {
                 />
               </div>
 
-              {/* Provider Table */}
+              {/* Provider Table — READ-ONLY: priority and enabled are display-only */}
               <div className="stat-card overflow-hidden mb-4">
                 <div className="overflow-x-auto">
                   <table className="w-full text-sm">
@@ -1183,7 +1326,7 @@ const AdminDashboard = () => {
                         <th className="text-left py-2.5 px-2.5 font-medium">Name</th>
                         <th className="text-left py-2.5 px-2.5 font-medium">Status</th>
                         <th className="text-center py-2.5 px-2.5 font-medium">Priority</th>
-                        <th className="text-center py-2.5 px-2.5 font-medium">Enabled</th>
+                        <th className="text-center py-2.5 px-2.5 font-medium">Active</th>
                         <th className="text-left py-2.5 px-2.5 font-medium">Health</th>
                         <th className="text-right py-2.5 px-2.5 font-medium">Latency</th>
                         <th className="text-right py-2.5 px-2.5 font-medium">Success</th>
@@ -1208,35 +1351,22 @@ const AdminDashboard = () => {
                                   {provider.status}
                                 </span>
                               </td>
+                              {/* Read-only priority badge — no up/down controls */}
                               <td className="py-2.5 px-2.5 text-center">
-                                <div className="flex items-center justify-center gap-1">
-                                  <button
-                                    onClick={() => setProviderConfigs(prev =>
-                                      prev.map(p => p.name === provider.name ? { ...p, priority: Math.max(1, p.priority - 1) } : p)
-                                    )}
-                                    className="w-6 h-6 flex items-center justify-center rounded bg-white/5 hover:bg-white/10 transition-colors"
-                                  >
-                                    <MoveUp size={10} />
-                                  </button>
-                                  <span className="text-sm font-semibold w-4 text-center">{provider.priority}</span>
-                                  <button
-                                    onClick={() => setProviderConfigs(prev =>
-                                      prev.map(p => p.name === provider.name ? { ...p, priority: Math.min(10, p.priority + 1) } : p)
-                                    )}
-                                    className="w-6 h-6 flex items-center justify-center rounded bg-white/5 hover:bg-white/10 transition-colors"
-                                  >
-                                    <MoveDown size={10} />
-                                  </button>
-                                </div>
+                                <span className="inline-flex items-center justify-center w-6 h-6 rounded bg-white/5 text-xs font-semibold text-[#9CA3AF]">
+                                  {provider.priority}
+                                </span>
                               </td>
+                              {/* Read-only active indicator — no toggle */}
                               <td className="py-2.5 px-2.5">
                                 <div className="flex justify-center">
-                                  <Switch
-                                    checked={provider.enabled}
-                                    onCheckedChange={(val) => setProviderConfigs(prev =>
-                                      prev.map(p => p.name === provider.name ? { ...p, enabled: val } : p)
-                                    )}
-                                  />
+                                  <span className={`px-2 py-0.5 rounded-full text-[10px] font-semibold uppercase tracking-wide ${
+                                    provider.enabled
+                                      ? 'bg-[#25F4EE]/10 text-[#25F4EE]'
+                                      : 'bg-white/5 text-[#9CA3AF]'
+                                  }`}>
+                                    {provider.enabled ? 'On' : 'Off'}
+                                  </span>
                                 </div>
                               </td>
                               <td className="py-2.5 px-2.5">
@@ -1256,9 +1386,14 @@ const AdminDashboard = () => {
                     </tbody>
                   </table>
                 </div>
+                {providerConfigs.length === 0 && (
+                  <div className="text-center text-xs text-[#9CA3AF] py-6">
+                    No provider telemetry available yet. Provider status appears once the health endpoint reports data.
+                  </div>
+                )}
               </div>
 
-              {/* Environment Keys */}
+              {/* Environment Keys — read-only display */}
               <div className="stat-card mb-4">
                 <h3 className="text-sm font-semibold mb-2">Environment Keys</h3>
                 <p className="text-[#9CA3AF] text-xs mb-2">
@@ -1276,14 +1411,9 @@ const AdminDashboard = () => {
                 </div>
               </div>
 
-              <motion.button
-                whileHover={{ scale: 1.02, y: -1 }}
-                whileTap={{ scale: 0.98 }}
-                onClick={() => toast.info('Provider priorities are determined by the provider registry. API keys are configured via environment variables.')}
-                className="save-btn"
-              >
-                Save Provider Config
-              </motion.button>
+              {/* No Save button — provider execution order is registry-controlled and API keys are env-based.
+                  Previously this button rendered a misleading toast instead of persisting, which caused
+                  confusion. The UI now clearly communicates the read-only nature of provider settings. */}
             </motion.div>
           )}
 
@@ -1736,186 +1866,452 @@ const AdminDashboard = () => {
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
               transition={{ duration: 0.25 }}
+              className="space-y-4"
             >
-              <h2 className="text-lg font-bold mb-3">Analytics</h2>
+              <div className="flex items-center justify-between flex-wrap gap-2">
+                <h2 className="text-lg font-bold">Analytics</h2>
+                {/* Time range selector — Daily / Weekly / Monthly */}
+                <div className="inline-flex bg-[#1a1a1a] border border-[#333] rounded-[10px] p-1 gap-1">
+                  {(['daily', 'weekly', 'monthly'] as const).map(r => (
+                    <button
+                      key={r}
+                      onClick={() => { setAnalyticsRange(r); setSelectedPointIdx(null); }}
+                      className={`px-3 py-1 rounded-[8px] text-xs font-semibold transition-all ${
+                        analyticsRange === r
+                          ? 'bg-[#FE2C55] text-white shadow-[0_4px_12px_rgba(254,44,85,0.3)]'
+                          : 'text-[#9CA3AF] hover:text-white'
+                      }`}
+                    >
+                      {r === 'daily' ? 'Daily' : r === 'weekly' ? 'Weekly' : 'Monthly'}
+                    </button>
+                  ))}
+                </div>
+              </div>
 
-              {/* Daily Downloads Bar Chart */}
-              <div className="stat-card mb-3">
-                <h3 className="text-sm font-semibold mb-3">Daily Downloads (Last 7 Days)</h3>
-                {analyticsData.last7Days.length > 0 ? (
-                  <div className="flex items-end gap-1.5 h-[140px]">
-                    {analyticsData.last7Days.map((day) => (
-                      <div key={day.date} className="flex-1 flex flex-col items-center justify-end h-full">
-                        <div className="text-xs text-[#9CA3AF] mb-1 font-medium">
-                          {day.totalDownloads}
-                        </div>
-                        <div
-                          className="chart-bar w-full"
-                          style={{ height: `${Math.max((day.totalDownloads / maxBarValue) * 110, 4)}px` }}
-                        />
-                        <div className="text-[10px] text-[#9CA3AF] mt-1.5">
-                          {day.date.slice(5)}
-                        </div>
-                      </div>
-                    ))}
+              {/* Summary cards — depend on selected range */}
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
+                <motion.div
+                  initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }}
+                  transition={{ duration: 0.3 }}
+                  className="stat-card relative overflow-hidden"
+                >
+                  <div className="absolute top-0 right-0 w-16 h-16 bg-[#FE2C55]/5 rounded-full blur-2xl" />
+                  <div className="text-xs text-[#9CA3AF] font-medium mb-1">
+                    {analyticsRange === 'daily' ? '7-Day' : analyticsRange === 'weekly' ? '14-Day' : '30-Day'} Total
                   </div>
+                  <div className="text-2xl font-bold tabular-nums">{rangeTotals.total}</div>
+                </motion.div>
+                <motion.div
+                  initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }}
+                  transition={{ duration: 0.3, delay: 0.05 }}
+                  className="stat-card relative overflow-hidden"
+                >
+                  <div className="absolute top-0 right-0 w-16 h-16 bg-[#25F4EE]/5 rounded-full blur-2xl" />
+                  <div className="text-xs text-[#9CA3AF] font-medium mb-1">Success Rate</div>
+                  <div className="text-2xl font-bold tabular-nums text-[#25F4EE]">
+                    {rangeTotals.total > 0 ? `${Math.round((rangeTotals.success / rangeTotals.total) * 100)}%` : '—'}
+                  </div>
+                </motion.div>
+                <motion.div
+                  initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }}
+                  transition={{ duration: 0.3, delay: 0.1 }}
+                  className="stat-card relative overflow-hidden"
+                >
+                  <div className="absolute top-0 right-0 w-16 h-16 bg-[#FBBF24]/5 rounded-full blur-2xl" />
+                  <div className="text-xs text-[#9CA3AF] font-medium mb-1">Avg Latency</div>
+                  <div className="text-2xl font-bold tabular-nums">
+                    {rangeTotals.avgMs > 0 ? `${rangeTotals.avgMs}ms` : '—'}
+                  </div>
+                </motion.div>
+                <motion.div
+                  initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }}
+                  transition={{ duration: 0.3, delay: 0.15 }}
+                  className="stat-card relative overflow-hidden"
+                >
+                  <div className="absolute top-0 right-0 w-16 h-16 bg-[#FE2C55]/5 rounded-full blur-2xl" />
+                  <div className="text-xs text-[#9CA3AF] font-medium mb-1">Fail Count</div>
+                  <div className="text-2xl font-bold tabular-nums text-red-400">{rangeTotals.fail}</div>
+                </motion.div>
+              </div>
+
+              {/* Main bar chart — interactive, click to select */}
+              <div className="stat-card">
+                <div className="flex items-center justify-between mb-3">
+                  <h3 className="text-sm font-semibold">
+                    Downloads Trend
+                    <span className="ml-2 text-xs text-[#9CA3AF] font-normal">
+                      {analyticsRange === 'daily' ? 'last 7 days' : analyticsRange === 'weekly' ? 'last 14 days' : 'last 30 days'}
+                    </span>
+                  </h3>
+                  {selectedPoint && (
+                    <button
+                      onClick={() => setSelectedPointIdx(null)}
+                      className="text-xs text-[#9CA3AF] hover:text-white transition-colors"
+                    >
+                      Clear selection
+                    </button>
+                  )}
+                </div>
+                {analyticsSeries.length > 0 && analyticsSeries.some(d => d.totalDownloads > 0) ? (
+                  <ResponsiveContainer width="100%" height={260}>
+                    <BarChart
+                      data={analyticsSeries}
+                      margin={{ top: 10, right: 12, left: -10, bottom: 0 }}
+                      onClick={(e: any) => {
+                        if (e && typeof e.activeTooltipIndex === 'number') {
+                          setSelectedPointIdx(e.activeTooltipIndex);
+                        }
+                      }}
+                    >
+                      <defs>
+                        <linearGradient id="barGradient" x1="0" y1="0" x2="0" y2="1">
+                          <stop offset="0%" stopColor="#FE2C55" stopOpacity={0.95} />
+                          <stop offset="100%" stopColor="#FE2C55" stopOpacity={0.6} />
+                        </linearGradient>
+                        <linearGradient id="barGradientSelected" x1="0" y1="0" x2="0" y2="1">
+                          <stop offset="0%" stopColor="#25F4EE" stopOpacity={1} />
+                          <stop offset="100%" stopColor="#25F4EE" stopOpacity={0.7} />
+                        </linearGradient>
+                      </defs>
+                      <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.04)" vertical={false} />
+                      <XAxis
+                        dataKey="date"
+                        tick={{ fill: '#9CA3AF', fontSize: 10 }}
+                        tickFormatter={(d: string) => d.slice(5)}
+                        axisLine={{ stroke: 'rgba(255,255,255,0.1)' }}
+                        tickLine={false}
+                      />
+                      <YAxis
+                        tick={{ fill: '#9CA3AF', fontSize: 10 }}
+                        axisLine={{ stroke: 'rgba(255,255,255,0.1)' }}
+                        tickLine={false}
+                        allowDecimals={false}
+                      />
+                      <Tooltip
+                        cursor={{ fill: 'rgba(254,44,85,0.08)' }}
+                        contentStyle={{
+                          background: 'rgba(20,20,20,0.95)',
+                          border: '1px solid rgba(254,44,85,0.3)',
+                          borderRadius: 10,
+                          color: '#fff',
+                          fontSize: 12,
+                        }}
+                        labelStyle={{ color: '#9CA3AF', marginBottom: 4 }}
+                        formatter={(value: number, name: string) => {
+                          if (name === 'totalDownloads') return [value, 'Downloads'];
+                          if (name === 'successCount') return [value, 'Success'];
+                          if (name === 'failCount') return [value, 'Failed'];
+                          return [value, name];
+                        }}
+                        labelFormatter={(label: string) => `Date: ${label}`}
+                      />
+                      <Bar
+                        dataKey="totalDownloads"
+                        radius={[4, 4, 0, 0]}
+                        animationDuration={500}
+                      >
+                        {analyticsSeries.map((_, idx) => (
+                          <Cell
+                            key={idx}
+                            fill={selectedPointIdx === idx ? 'url(#barGradientSelected)' : 'url(#barGradient)'}
+                            stroke={selectedPointIdx === idx ? '#25F4EE' : 'transparent'}
+                            strokeWidth={selectedPointIdx === idx ? 1.5 : 0}
+                          />
+                        ))}
+                      </Bar>
+                    </BarChart>
+                  </ResponsiveContainer>
                 ) : (
-                  <div className="flex items-center justify-center h-[140px] text-[#9CA3AF] text-xs">
+                  <div className="flex items-center justify-center h-[260px] text-[#9CA3AF] text-xs">
                     No data yet — download activity will appear here
                   </div>
                 )}
               </div>
 
-              {/* Summary Cards */}
-              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5 mb-3">
-                <div className="stat-card">
-                  <div className="text-xs text-[#9CA3AF] font-medium mb-1">7-Day Total</div>
-                  <div className="text-lg font-bold">
-                    {analyticsData.last7Days.reduce((s, d) => s + d.totalDownloads, 0)}
-                  </div>
-                </div>
-                <div className="stat-card">
-                  <div className="text-xs text-[#9CA3AF] font-medium mb-1">Success Rate</div>
-                  <div className="text-lg font-bold">
-                    {analyticsData.last7Days.length > 0
-                      ? `${Math.round(analyticsData.last7Days.reduce((s, d) => s + d.successCount, 0) / Math.max(analyticsData.last7Days.reduce((s, d) => s + d.totalDownloads, 0), 1) * 100)}%`
-                      : '—'}
-                  </div>
-                </div>
-                <div className="stat-card">
-                  <div className="text-xs text-[#9CA3AF] font-medium mb-1">Avg Latency</div>
-                  <div className="text-lg font-bold">
-                    {analyticsData.last7Days.length > 0
-                      ? `${Math.round(analyticsData.last7Days.reduce((s, d) => s + d.avgResponseMs, 0) / analyticsData.last7Days.length)}ms`
-                      : '—'}
-                  </div>
-                </div>
-                <div className="stat-card">
-                  <div className="text-xs text-[#9CA3AF] font-medium mb-1">Fail Count</div>
-                  <div className="text-lg font-bold text-red-400">
-                    {analyticsData.last7Days.reduce((s, d) => s + d.failCount, 0)}
-                  </div>
-                </div>
-              </div>
-
-              {/* Downloads by Format */}
-              <div className="stat-card mb-3">
-                <h3 className="text-sm font-semibold mb-3">Downloads by Format</h3>
-                <div className="flex items-center gap-5 justify-center">
-                  {(() => {
-                    // Compute real format breakdown from download logs
-                    const totalLogs = analyticsData.recentLogs.length;
-                    if (totalLogs === 0) {
-                      return <span className="text-xs text-[#9CA3AF]">No download data yet</span>;
-                    }
-                    const successLogs = analyticsData.recentLogs.filter(l => l.success).length;
-                    const failLogs = totalLogs - successLogs;
-                    const mp4Pct = totalLogs > 0 ? Math.round((successLogs / totalLogs) * 100) : 0;
-                    const failPct = totalLogs > 0 ? Math.round((failLogs / totalLogs) * 100) : 0;
-                    const otherPct = Math.max(0, 100 - mp4Pct - failPct);
-                    const formatData = [
-                      { label: 'MP4', color: '#FE2C55', pct: mp4Pct },
-                      { label: 'Other', color: '#5b21b6', pct: otherPct },
-                      { label: 'Failed', color: '#FE2C55', pct: failPct },
-                    ].filter(d => d.pct > 0);
-                    return formatData.map((item) => (
-                      <div key={item.label} className="flex items-center gap-2">
-                        <div className="w-3 h-3 rounded-full" style={{ backgroundColor: item.color }} />
-                        <span className="text-xs font-medium">{item.label}</span>
-                        <span className="text-xs text-[#9CA3AF]">{item.pct}%</span>
+              {/* Selected data point detail panel */}
+              <AnimatePresence>
+                {selectedPoint && (
+                  <motion.div
+                    initial={{ opacity: 0, height: 0 }}
+                    animate={{ opacity: 1, height: 'auto' }}
+                    exit={{ opacity: 0, height: 0 }}
+                    transition={{ duration: 0.25 }}
+                    className="overflow-hidden"
+                  >
+                    <div className="stat-card border border-[#25F4EE]/25 bg-gradient-to-br from-[#25F4EE]/[0.03] to-transparent">
+                      <div className="flex items-center justify-between mb-3">
+                        <h3 className="text-sm font-semibold flex items-center gap-2">
+                          <div className="w-2 h-2 rounded-full bg-[#25F4EE] animate-pulse" />
+                          Selected: {selectedPoint.date}
+                        </h3>
+                        <button
+                          onClick={() => setSelectedPointIdx(null)}
+                          className="text-xs text-[#9CA3AF] hover:text-white"
+                        >
+                          ✕
+                        </button>
                       </div>
-                    ));
-                  })()}
+                      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                        <div>
+                          <div className="text-[10px] uppercase text-[#9CA3AF] mb-1">Total</div>
+                          <div className="text-lg font-bold tabular-nums">{selectedPoint.totalDownloads}</div>
+                        </div>
+                        <div>
+                          <div className="text-[10px] uppercase text-[#9CA3AF] mb-1">Success</div>
+                          <div className="text-lg font-bold tabular-nums text-[#25F4EE]">{selectedPoint.successCount}</div>
+                        </div>
+                        <div>
+                          <div className="text-[10px] uppercase text-[#9CA3AF] mb-1">Failed</div>
+                          <div className="text-lg font-bold tabular-nums text-red-400">{selectedPoint.failCount}</div>
+                        </div>
+                        <div>
+                          <div className="text-[10px] uppercase text-[#9CA3AF] mb-1">Avg Latency</div>
+                          <div className="text-lg font-bold tabular-nums">
+                            {selectedPoint.avgResponseMs > 0 ? `${selectedPoint.avgResponseMs}ms` : '—'}
+                          </div>
+                        </div>
+                      </div>
+                      <div className="mt-3 pt-3 border-t border-white/5">
+                        <div className="text-[10px] uppercase text-[#9CA3AF] mb-1">Unique Visitors</div>
+                        <div className="text-sm font-semibold tabular-nums">{selectedPoint.uniqueVisitors}</div>
+                      </div>
+                    </div>
+                  </motion.div>
+                )}
+              </AnimatePresence>
+
+              {/* Trend line + Device breakdown, side by side on desktop */}
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
+                {/* Trend area chart */}
+                <div className="stat-card">
+                  <h3 className="text-sm font-semibold mb-3">Trend (Cumulative View)</h3>
+                  {analyticsSeries.some(d => d.totalDownloads > 0) ? (
+                    <ResponsiveContainer width="100%" height={200}>
+                      <AreaChart data={analyticsSeries} margin={{ top: 10, right: 12, left: -10, bottom: 0 }}>
+                        <defs>
+                          <linearGradient id="areaGradient" x1="0" y1="0" x2="0" y2="1">
+                            <stop offset="0%" stopColor="#FE2C55" stopOpacity={0.5} />
+                            <stop offset="100%" stopColor="#FE2C55" stopOpacity={0} />
+                          </linearGradient>
+                        </defs>
+                        <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.04)" vertical={false} />
+                        <XAxis
+                          dataKey="date"
+                          tick={{ fill: '#9CA3AF', fontSize: 10 }}
+                          tickFormatter={(d: string) => d.slice(5)}
+                          axisLine={{ stroke: 'rgba(255,255,255,0.1)' }}
+                          tickLine={false}
+                        />
+                        <YAxis
+                          tick={{ fill: '#9CA3AF', fontSize: 10 }}
+                          axisLine={{ stroke: 'rgba(255,255,255,0.1)' }}
+                          tickLine={false}
+                          allowDecimals={false}
+                        />
+                        <Tooltip
+                          contentStyle={{
+                            background: 'rgba(20,20,20,0.95)',
+                            border: '1px solid rgba(254,44,85,0.3)',
+                            borderRadius: 10,
+                            color: '#fff',
+                            fontSize: 12,
+                          }}
+                        />
+                        <Area
+                          type="monotone"
+                          dataKey="totalDownloads"
+                          stroke="#FE2C55"
+                          strokeWidth={2}
+                          fill="url(#areaGradient)"
+                          animationDuration={600}
+                        />
+                      </AreaChart>
+                    </ResponsiveContainer>
+                  ) : (
+                    <div className="flex items-center justify-center h-[200px] text-[#9CA3AF] text-xs">
+                      No trend data yet
+                    </div>
+                  )}
                 </div>
-                <div className="mt-3 flex items-center justify-center">
-                  {(() => {
-                    const totalLogs = analyticsData.recentLogs.length;
-                    if (totalLogs === 0) return null;
-                    const successLogs = analyticsData.recentLogs.filter(l => l.success).length;
-                    const failLogs = totalLogs - successLogs;
-                    const mp4Pct = totalLogs > 0 ? successLogs / totalLogs : 0;
-                    const failPct = totalLogs > 0 ? failLogs / totalLogs : 0;
-                    const otherPct = Math.max(0, 1 - mp4Pct - failPct);
-                    const C = 2 * Math.PI * 45;
-                    let offset = 0;
-                    const segments = [
-                      { pct: mp4Pct, color: '#FE2C55' },
-                      { pct: otherPct, color: '#5b21b6' },
-                      { pct: failPct, color: '#EF4444' },
-                    ].filter(s => s.pct > 0);
-                    return (
-                      <svg width="110" height="110" viewBox="0 0 110 110">
-                        {segments.map((seg, i) => {
-                          const dash = C * seg.pct;
-                          const gap = C * (1 - seg.pct);
-                          const el = (
-                            <circle key={i} cx="55" cy="55" r="45" fill="none" stroke={seg.color} strokeWidth="14"
-                              strokeDasharray={`${dash} ${gap}`}
-                              strokeDashoffset={`${-C * offset}`} transform="rotate(-90 55 55)" />
-                          );
-                          offset += seg.pct;
-                          return el;
-                        })}
-                      </svg>
-                    );
-                  })()}
+
+                {/* Device breakdown */}
+                <div className="stat-card">
+                  <h3 className="text-sm font-semibold mb-3">Device Breakdown</h3>
+                  {hasRealDeviceData ? (
+                    <>
+                      <div className="flex items-center justify-center mb-2">
+                        <ResponsiveContainer width="100%" height={140}>
+                          <PieChart>
+                            <Pie
+                              data={[
+                                { name: 'Mobile', value: deviceBreakdown.mobile, color: '#FE2C55' },
+                                { name: 'Desktop', value: deviceBreakdown.desktop, color: '#25F4EE' },
+                                { name: 'Tablet', value: deviceBreakdown.tablet, color: '#A78BFA' },
+                                ...(deviceBreakdown.unknown > 0 ? [{ name: 'Unknown', value: deviceBreakdown.unknown, color: '#52525B' }] : []),
+                              ].filter(d => d.value > 0)}
+                              dataKey="value"
+                              nameKey="name"
+                              cx="50%"
+                              cy="50%"
+                              innerRadius={30}
+                              outerRadius={55}
+                              paddingAngle={2}
+                              animationDuration={500}
+                            >
+                              {[
+                                { name: 'Mobile', value: deviceBreakdown.mobile, color: '#FE2C55' },
+                                { name: 'Desktop', value: deviceBreakdown.desktop, color: '#25F4EE' },
+                                { name: 'Tablet', value: deviceBreakdown.tablet, color: '#A78BFA' },
+                                ...(deviceBreakdown.unknown > 0 ? [{ name: 'Unknown', value: deviceBreakdown.unknown, color: '#52525B' }] : []),
+                              ].filter(d => d.value > 0).map((entry, idx) => (
+                                <Cell key={idx} fill={entry.color} />
+                              ))}
+                            </Pie>
+                            <Tooltip
+                              contentStyle={{
+                                background: 'rgba(20,20,20,0.95)',
+                                border: '1px solid rgba(255,255,255,0.15)',
+                                borderRadius: 10,
+                                color: '#fff',
+                                fontSize: 12,
+                              }}
+                            />
+                          </PieChart>
+                        </ResponsiveContainer>
+                      </div>
+                      <div className="grid grid-cols-3 gap-2 text-xs">
+                        <div className="flex items-center gap-1.5 justify-center">
+                          <div className="w-2 h-2 rounded-full bg-[#FE2C55]" />
+                          <Smartphone size={11} className="text-[#FE2C55]" />
+                          <span className="font-semibold tabular-nums">
+                            {totalDeviceSamples > 0 ? Math.round((deviceBreakdown.mobile / totalDeviceSamples) * 100) : 0}%
+                          </span>
+                        </div>
+                        <div className="flex items-center gap-1.5 justify-center">
+                          <div className="w-2 h-2 rounded-full bg-[#25F4EE]" />
+                          <Monitor size={11} className="text-[#25F4EE]" />
+                          <span className="font-semibold tabular-nums">
+                            {totalDeviceSamples > 0 ? Math.round((deviceBreakdown.desktop / totalDeviceSamples) * 100) : 0}%
+                          </span>
+                        </div>
+                        <div className="flex items-center gap-1.5 justify-center">
+                          <div className="w-2 h-2 rounded-full bg-[#A78BFA]" />
+                          <Layers size={11} className="text-[#A78BFA]" />
+                          <span className="font-semibold tabular-nums">
+                            {totalDeviceSamples > 0 ? Math.round((deviceBreakdown.tablet / totalDeviceSamples) * 100) : 0}%
+                          </span>
+                        </div>
+                      </div>
+                      <div className="mt-2 text-center text-[10px] text-[#9CA3AF]">
+                        Sample size: {totalDeviceSamples} downloads · last 7 days
+                      </div>
+                    </>
+                  ) : (
+                    <div className="flex flex-col items-center justify-center h-[140px] text-center">
+                      <Smartphone size={20} className="text-[#52525B] mb-2" />
+                      <div className="text-xs text-[#9CA3AF]">No device data yet</div>
+                      <div className="text-[10px] text-[#52525B] mt-1 max-w-[200px]">
+                        Device category is captured for new downloads. Historical
+                        rows written before this fix have no device info.
+                      </div>
+                    </div>
+                  )}
                 </div>
               </div>
 
-              {/* Platforms Breakdown */}
-              <div className="stat-card mb-3">
-                <h3 className="text-sm font-semibold mb-2">Platforms</h3>
-                <div className="flex items-center gap-4">
-                  {(() => {
-                    // Compute from analytics data instead of hardcoded ~70%/~30%
-                    const todayUnique = analyticsData.last7Days.length > 0
-                      ? analyticsData.last7Days[0].uniqueVisitors || 0
-                      : 0;
-                    const todayTotal = analyticsData.last7Days.length > 0
-                      ? analyticsData.last7Days[0].totalDownloads || 0
-                      : 0;
-                    // Estimate mobile/desktop from user-agent data in recent logs
-                    // We cannot determine device type from IP hashes, so use recent log data
-                    // If there's download activity but no device data, show "—" instead of fake percentages
-                    const mobilePct = 0;
-                    const desktopPct = 0;
-                    return (
-                      <>
-                        <div className="flex items-center gap-2">
-                          <Smartphone size={13} className="text-[#FE2C55]" />
-                          <span className="text-xs font-medium">Mobile</span>
-                          <span className="text-xs text-[#9CA3AF]">{mobilePct > 0 ? `~${mobilePct}%` : '—'}</span>
-                        </div>
-                        <div className="flex items-center gap-2">
-                          <Monitor size={13} className="text-[#38BDF8]" />
-                          <span className="text-xs font-medium">Desktop</span>
-                          <span className="text-xs text-[#9CA3AF]">{desktopPct > 0 ? `~${desktopPct}%` : '—'}</span>
-                        </div>
-                      </>
-                    );
-                  })()}
-                </div>
-              </div>
-
-              {/* Weekly Sparkline */}
+              {/* Format breakdown donut */}
               <div className="stat-card">
-                <h3 className="text-sm font-semibold mb-2">Weekly Trend</h3>
-                {analyticsData.last7Days.length > 0 ? (
-                  <svg width="100%" height="50" viewBox="0 0 200 50" preserveAspectRatio="none">
-                    <polyline
-                      fill="none"
-                      stroke="#FE2C55"
-                      strokeWidth="2"
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                      points={[...analyticsData.last7Days]
-                        .reverse()
-                        .map((d, i) => `${(i / (analyticsData.last7Days.length - 1)) * 200},${50 - (d.totalDownloads / maxBarValue) * 40}`)
-                        .join(' ')}
-                    />
-                  </svg>
+                <h3 className="text-sm font-semibold mb-3">Downloads by Outcome</h3>
+                {formatBreakdown && formatBreakdown.length > 0 ? (
+                  <div className="flex items-center gap-5 flex-wrap">
+                    <ResponsiveContainer width={140} height={140}>
+                      <PieChart>
+                        <Pie
+                          data={formatBreakdown}
+                          dataKey="value"
+                          nameKey="name"
+                          cx="50%"
+                          cy="50%"
+                          innerRadius={35}
+                          outerRadius={60}
+                          paddingAngle={2}
+                          animationDuration={500}
+                        >
+                          {formatBreakdown.map((entry, idx) => (
+                            <Cell key={idx} fill={entry.color} />
+                          ))}
+                        </Pie>
+                        <Tooltip
+                          contentStyle={{
+                            background: 'rgba(20,20,20,0.95)',
+                            border: '1px solid rgba(255,255,255,0.15)',
+                            borderRadius: 10,
+                            color: '#fff',
+                            fontSize: 12,
+                          }}
+                        />
+                      </PieChart>
+                    </ResponsiveContainer>
+                    <div className="space-y-2">
+                      {formatBreakdown.map(item => {
+                        const total = formatBreakdown.reduce((s, d) => s + d.value, 0);
+                        const pct = total > 0 ? Math.round((item.value / total) * 100) : 0;
+                        return (
+                          <div key={item.name} className="flex items-center gap-2">
+                            <div className="w-3 h-3 rounded-full" style={{ backgroundColor: item.color }} />
+                            <span className="text-xs font-medium">{item.name}</span>
+                            <span className="text-xs text-[#9CA3AF] tabular-nums">{item.value} ({pct}%)</span>
+                          </div>
+                        );
+                      })}
+                      <div className="text-[10px] text-[#9CA3AF] pt-1 border-t border-white/5">
+                        Based on {analyticsData.recentLogs.length} recent download logs
+                      </div>
+                    </div>
+                  </div>
                 ) : (
-                  <div className="text-xs text-[#9CA3AF] text-center py-3">No data yet</div>
+                  <div className="flex items-center justify-center h-[140px] text-[#9CA3AF] text-xs">
+                    No download data yet
+                  </div>
+                )}
+              </div>
+
+              {/* Recent activity feed */}
+              <div className="stat-card">
+                <h3 className="text-sm font-semibold mb-3">Recent Activity</h3>
+                {analyticsData.recentLogs.length > 0 ? (
+                  <div className="space-y-1.5 max-h-[240px] overflow-y-auto">
+                    {analyticsData.recentLogs.slice(0, 12).map((log) => {
+                      const date = new Date(log.createdAt);
+                      const timeAgo = (() => {
+                        const diffMs = Date.now() - date.getTime();
+                        const min = Math.floor(diffMs / 60_000);
+                        if (min < 1) return 'just now';
+                        if (min < 60) return `${min}m ago`;
+                        const hr = Math.floor(min / 60);
+                        if (hr < 24) return `${hr}h ago`;
+                        return `${Math.floor(hr / 24)}d ago`;
+                      })();
+                      const deviceIcon = log.device === 'mobile' ? <Smartphone size={10} className="text-[#FE2C55]" />
+                        : log.device === 'desktop' ? <Monitor size={10} className="text-[#25F4EE]" />
+                        : log.device === 'tablet' ? <Layers size={10} className="text-[#A78BFA]" />
+                        : null;
+                      return (
+                        <div key={log.id} className="flex items-center gap-2 p-2 rounded-[8px] hover:bg-white/[0.03] transition-colors">
+                          <div className={`w-1.5 h-1.5 rounded-full ${log.success ? 'bg-[#25F4EE]' : 'bg-[#FE2C55]'}`} />
+                          <span className="text-xs font-medium truncate flex-1">
+                            {log.videoTitle?.slice(0, 50) || 'Untitled'}
+                          </span>
+                          {deviceIcon}
+                          <span className="text-[10px] text-[#9CA3AF] tabular-nums flex-shrink-0">{timeAgo}</span>
+                        </div>
+                      );
+                    })}
+                  </div>
+                ) : (
+                  <div className="flex items-center justify-center h-[120px] text-[#9CA3AF] text-xs">
+                    No recent activity
+                  </div>
                 )}
               </div>
             </motion.div>

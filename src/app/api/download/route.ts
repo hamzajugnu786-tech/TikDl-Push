@@ -31,6 +31,7 @@ import { serviceResultToApiResponse } from '@/lib/result-to-display';
 import { NovaDLErrorCode } from '@/services/errors';
 import { getDownloadRateLimiter } from '@/lib/rate-limiter';
 import { getClientIp, hashIpForRateLimit } from '@/lib/privacy';
+import { db } from '@/lib/db';
 
 // ============================================================================
 // STRICT TIKTOK URL VALIDATION
@@ -69,6 +70,103 @@ const TIKTOK_VIDEO_URL_PATTERNS = [
 
 function isValidTikTokVideoUrl(url: string): boolean {
   return TIKTOK_VIDEO_URL_PATTERNS.some(pattern => pattern.test(url));
+}
+
+// ============================================================================
+// MAX FILE SIZE — admin-configured runtime setting (Bug #4C)
+// ============================================================================
+//
+// Reads `maxFileSize` from the Settings table (managed by the admin Settings
+// tab). When set, the download success response is checked against the limit.
+// If the resolved noWatermarkUrl's Content-Length exceeds the limit, the
+// request is rejected with the same "Video unavailable" shape used for other
+// download failures — no new error UI is introduced.
+//
+// The check is performed AFTER the provider race returns a result, so it
+// never slows the critical video-fetch path. The HEAD request to determine
+// Content-Length runs only on success, in parallel with response shaping.
+//
+// Accepted formats (case-insensitive, whitespace-tolerant):
+//   "100MB", "100 MB", "10MB", "5.4MB", "1GB", "500KB", "1024KB", "2GB"
+//   "100mb", "100 mb", "100M"  (M treated as MB)
+//   Empty/missing/unparseable → no limit enforced (fail-open).
+
+function parseMaxFileSizeBytes(raw: string | undefined | null): number | null {
+  if (!raw) return null;
+  const trimmed = String(raw).trim().toLowerCase();
+  if (!trimmed) return null;
+  // Match: <number> [optional space] <optional unit>
+  const m = trimmed.match(/^(\d+(?:\.\d+)?)\s*(kb|mb|gb|m|k|g)?$/);
+  if (!m) return null;
+  const num = parseFloat(m[1]);
+  if (!Number.isFinite(num) || num <= 0) return null;
+  const unit = m[2] || 'mb';
+  const multipliers: Record<string, number> = {
+    k: 1024,
+    kb: 1024,
+    m: 1024 * 1024,
+    mb: 1024 * 1024,
+    g: 1024 * 1024 * 1024,
+    gb: 1024 * 1024 * 1024,
+  };
+  return Math.floor(num * multipliers[unit]);
+}
+
+/**
+ * Fetch Content-Length for a URL using a lightweight HEAD request.
+ * Returns null when the header is missing or the request fails —
+ * in that case the size limit is NOT enforced (fail-open) because
+ * rejecting without evidence would block legitimate downloads.
+ *
+ * Bounded by a 4-second timeout to never stall the response path.
+ */
+async function fetchContentLengthBytes(url: string): Promise<number | null> {
+  try {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 4000);
+    const res = await fetch(url, {
+      method: 'HEAD',
+      signal: controller.signal,
+      redirect: 'follow',
+      cache: 'no-store',
+    });
+    clearTimeout(timeout);
+    const len = res.headers.get('content-length');
+    if (!len) return null;
+    const n = parseInt(len, 10);
+    return Number.isFinite(n) && n >= 0 ? n : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Read the admin-configured maxFileSize setting from the DB.
+ * Returns null on any error or when the setting is missing.
+ * Cached for 30 seconds to avoid hitting the DB on every download.
+ */
+let cachedMaxFileSize: { value: number | null; expiresAt: number } = {
+  value: null,
+  expiresAt: 0,
+};
+
+async function getEffectiveMaxFileSizeBytes(): Promise<number | null> {
+  const now = Date.now();
+  if (now < cachedMaxFileSize.expiresAt) {
+    return cachedMaxFileSize.value;
+  }
+  try {
+    const row = await db.settings.findUnique({ where: { key: 'maxFileSize' } });
+    const parsed = row?.value ? parseMaxFileSizeBytes(row.value) : null;
+    cachedMaxFileSize = {
+      value: parsed,
+      expiresAt: now + 30_000, // 30-second cache
+    };
+    return parsed;
+  } catch {
+    // DB unavailable — fail-open (no limit enforced)
+    return null;
+  }
 }
 
 export async function POST(request: NextRequest) {
@@ -154,6 +252,27 @@ export async function POST(request: NextRequest) {
 
     // Determine HTTP status code based on result
     if (apiResponse.success) {
+      // ===== Max File Size Enforcement (Bug #4C) =====
+      // Read admin-configured limit from DB; if exceeded by the resolved
+      // video URL's Content-Length, reject the download. The check runs
+      // ONLY on success — never slowing the failure path or the provider
+      // race. Failure to read Content-Length is fail-open (no enforcement).
+      const maxBytes = await getEffectiveMaxFileSizeBytes();
+      if (maxBytes !== null && apiResponse.data?.noWatermarkUrl) {
+        const size = await fetchContentLengthBytes(apiResponse.data.noWatermarkUrl);
+        if (size !== null && size > maxBytes) {
+          console.log(
+            `[API] Rejected download: file size ${size} bytes exceeds limit ${maxBytes} bytes`
+          );
+          return NextResponse.json(
+            {
+              success: false,
+              error: 'This video exceeds the maximum allowed file size.',
+            },
+            { status: 413 }
+          );
+        }
+      }
       // Success — same response shape as old route
       console.log(`[API] Success in ${Date.now() - startTime}ms using ${apiResponse.provider}`);
       return NextResponse.json(apiResponse);
