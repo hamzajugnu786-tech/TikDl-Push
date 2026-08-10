@@ -61,3 +61,27 @@ Work Log:
 
 Stage Summary:
 - All verification checks pass
+
+---
+Task ID: 5
+Agent: main
+Task: FINAL TASK — Centralized page-aware ad management + content-page ads
+
+Work Log:
+- Read-only audit: inspected ad schema, /api/config/ads, /api/admin/config, admin UI, homepage ad rendering, content pages (about, contact, privacy, terms, dmca), Recent Downloads rendering
+- Extended Prisma schema: added `page String @default("homepage")` to AdPlacement + new index [page, placement, enabled] — backward-compatible default keeps existing ads working
+- Created src/lib/ad-placements.ts — single source of truth for PAGE_KEYS + PLACEMENT_KEYS, used by admin UI + API + frontend
+- Updated /api/config/ads (public GET): accepts ?pages= query, returns existing shape PLUS new adsByPage map (page-aware). Homepage ads filter now includes 'all' page bucket + new 'history_interval' placement. Backward-compatible.
+- Updated /api/admin/config (auth): GET + POST handle the new `page` field
+- Created src/components/ad-slot.tsx — reusable client component. Module-level fetch cache (one fetch per page, shared across AdSlot instances on same page). Lazy, non-blocking, renders null on no ad. Never throws.
+- Added 6 ad slots to each content page (about, contact, privacy, terms, dmca): header_banner, after_intro, between_sections (×2), above_cta, above_footer
+- Added history_interval ad slot to Recent Downloads on homepage — renders after every 4 history cards, suppressed on the last card
+- Updated admin UI: added Page selector per ad card; Placement dropdown now filters by selected page; applyTemplate only sets placement when valid for current page
+- Validation: TypeScript clean, ESLint clean, production build succeeds (20 pages generated)
+- Frozen files verified untouched: init.ts, download.ts, engine-bridge.ts, tiktokApiDl.ts, /api/download/route.ts, /api/proxy/route.ts — all zero diff
+
+Stage Summary:
+- Files changed: prisma/schema.prisma, src/app/api/config/ads/route.ts, src/app/api/admin/config/route.ts, src/app/page.tsx, src/app/about/page.tsx, src/app/contact/page.tsx, src/app/privacy/page.tsx, src/app/terms/page.tsx, src/app/dmca/page.tsx, src/app/admin/page.tsx
+- Files created: src/components/ad-slot.tsx, src/lib/ad-placements.ts
+- Architecture: page key + placement key system; centralized registry drives both admin UI SELECT options and frontend AdSlot usage; adding a new page/placement requires only an edit to ad-placements.ts — no schema migration, no API change
+- Zero regression: existing homepage ads continue to render via the same landingAds state + same /api/config/ads response shape

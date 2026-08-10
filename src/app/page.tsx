@@ -1151,43 +1151,55 @@ const TikTokDownloader = () => {
                   <button onClick={clearHistory} className="text-xs text-gray-500 hover:text-red-400 transition-colors duration-150">Clear</button>
                 </div>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                  {history.map((item) => (
-                    <div
-                      key={item.id + (item._timestamp || 0)}
-                      className="glass rounded-[12px] p-3 flex items-center gap-3 hover:bg-white/5 transition-colors duration-150 cursor-pointer"
-                      onClick={() => {
-                        resetInterface();
-                        setVideoInfo(item);
-                        setActiveTab('video');
-                        setUrl('');
-                        setTimeout(() => {
-                          window.scrollTo({ top: 0, behavior: 'smooth' });
-                          setResultHighlight(true);
-                          setTimeout(() => setResultHighlight(false), 1500);
-                        }, 100);
-                      }}
-                    >
-                      {item.thumbnail ? (
-                        <img
-                          src={`/api/proxy?url=${encodeURIComponent(item.thumbnail)}&filename=thumb.jpg&mode=inline`}
-                          alt={item.title}
-                          className="w-11 h-11 rounded-[10px] object-cover bg-zinc-800 flex-shrink-0"
-                          onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }}
-                        />
-                      ) : (
-                        <div className="w-11 h-11 rounded-[10px] bg-zinc-800 flex-shrink-0 flex items-center justify-center">
-                          <Play size={14} className="text-zinc-600" />
+                  {history.map((item, idx) => {
+                    // Insert a history_interval ad after every 4 cards.
+                    // The last card never gets a trailing ad (avoids empty slots).
+                    const showIntervalAd =
+                      (idx + 1) % 4 === 0 && idx < history.length - 1;
+                    return (
+                      <React.Fragment key={item.id + (item._timestamp || 0) + '-' + idx}>
+                        <div
+                          className="glass rounded-[12px] p-3 flex items-center gap-3 hover:bg-white/5 transition-colors duration-150 cursor-pointer"
+                          onClick={() => {
+                            resetInterface();
+                            setVideoInfo(item);
+                            setActiveTab('video');
+                            setUrl('');
+                            setTimeout(() => {
+                              window.scrollTo({ top: 0, behavior: 'smooth' });
+                              setResultHighlight(true);
+                              setTimeout(() => setResultHighlight(false), 1500);
+                            }, 100);
+                          }}
+                        >
+                          {item.thumbnail ? (
+                            <img
+                              src={`/api/proxy?url=${encodeURIComponent(item.thumbnail)}&filename=thumb.jpg&mode=inline`}
+                              alt={item.title}
+                              className="w-11 h-11 rounded-[10px] object-cover bg-zinc-800 flex-shrink-0"
+                              onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }}
+                            />
+                          ) : (
+                            <div className="w-11 h-11 rounded-[10px] bg-zinc-800 flex-shrink-0 flex items-center justify-center">
+                              <Play size={14} className="text-zinc-600" />
+                            </div>
+                          )}
+                          <div className="flex-1 min-w-0">
+                            <p className="font-medium text-sm truncate">{item.title}</p>
+                            <p className="text-xs text-gray-500 truncate">{item.author?.startsWith('@') ? item.author : `@${item.author}`}</p>
+                            {item._timestamp && (
+                              <p className="text-[10px] text-gray-600 mt-0.5">{new Date(item._timestamp).toLocaleString()}</p>
+                            )}
+                          </div>
                         </div>
-                      )}
-                      <div className="flex-1 min-w-0">
-                        <p className="font-medium text-sm truncate">{item.title}</p>
-                        <p className="text-xs text-gray-500 truncate">{item.author?.startsWith('@') ? item.author : `@${item.author}`}</p>
-                        {item._timestamp && (
-                          <p className="text-[10px] text-gray-600 mt-0.5">{new Date(item._timestamp).toLocaleString()}</p>
+                        {showIntervalAd && landingAds.inlineAds.filter(a => a.placement === 'history_interval').length > 0 && (
+                          <div className="sm:col-span-2 my-1">
+                            {landingAds.inlineAds.filter(a => a.placement === 'history_interval').map(ad => renderAdSlot(ad))}
+                          </div>
                         )}
-                      </div>
-                    </div>
-                  ))}
+                      </React.Fragment>
+                    );
+                  })}
                 </div>
               </div>
             </section>

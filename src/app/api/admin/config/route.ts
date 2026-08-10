@@ -34,6 +34,7 @@ export async function GET() {
         template: ad.template,
         enabled: ad.enabled,
         type: ad.type,
+        page: ad.page,
         placement: ad.placement,
         position: ad.position,
         dimensions: ad.dimensions,
@@ -85,7 +86,7 @@ export async function POST(request: Request) {
     }
 
     // Upsert AdPlacement records — use DB lookup to determine create vs update
-    const savedAds: Array<{ id: string; name: string; template: string; enabled: boolean; type: string; placement: string; position: string; dimensions: string; adCode: string; description: string; priority: number }> = [];
+    const savedAds: Array<{ id: string; name: string; template: string; enabled: boolean; type: string; page: string; placement: string; position: string; dimensions: string; adCode: string; description: string; priority: number }> = [];
 
     if (body.ads && Array.isArray(body.ads)) {
       // Fetch all existing ad IDs for efficient lookup
@@ -104,6 +105,7 @@ export async function POST(request: Request) {
               template: adData.template ?? 'medium_rectangle',
               enabled: adData.enabled ?? true,
               type: adData.type ?? 'display',
+              page: typeof adData.page === 'string' && adData.page ? adData.page : 'homepage',
               placement: adData.placement ?? 'interstitial_popup',
               position: adData.position ?? 'center',
               dimensions: adData.dimensions ?? '300x250',
@@ -114,9 +116,10 @@ export async function POST(request: Request) {
           });
           savedAds.push({
             id: updated.id, name: updated.name, template: updated.template,
-            enabled: updated.enabled, type: updated.type, placement: updated.placement,
-            position: updated.position, dimensions: updated.dimensions,
-            adCode: updated.adCode, description: updated.description, priority: updated.priority,
+            enabled: updated.enabled, type: updated.type, page: updated.page,
+            placement: updated.placement, position: updated.position,
+            dimensions: updated.dimensions, adCode: updated.adCode,
+            description: updated.description, priority: updated.priority,
           });
         } else {
           // Create new ad (ignore any stale/invalid id)
@@ -126,6 +129,7 @@ export async function POST(request: Request) {
               template: adData.template ?? 'medium_rectangle',
               enabled: adData.enabled ?? true,
               type: adData.type ?? 'display',
+              page: typeof adData.page === 'string' && adData.page ? adData.page : 'homepage',
               placement: adData.placement ?? 'interstitial_popup',
               position: adData.position ?? 'center',
               dimensions: adData.dimensions ?? '300x250',
@@ -136,9 +140,10 @@ export async function POST(request: Request) {
           });
           savedAds.push({
             id: created.id, name: created.name, template: created.template,
-            enabled: created.enabled, type: created.type, placement: created.placement,
-            position: created.position, dimensions: created.dimensions,
-            adCode: created.adCode, description: created.description, priority: created.priority,
+            enabled: created.enabled, type: created.type, page: created.page,
+            placement: created.placement, position: created.position,
+            dimensions: created.dimensions, adCode: created.adCode,
+            description: created.description, priority: created.priority,
           });
         }
       }

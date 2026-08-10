@@ -16,6 +16,11 @@ import { Switch } from '@/components/ui/switch';
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from '@/components/ui/select';
+import {
+  PAGE_KEYS,
+  PLACEMENT_KEYS,
+  getPlacementsForPage,
+} from '@/lib/ad-placements';
 
 // ===== Ad Templates =====
 const AD_TEMPLATES = [
@@ -82,6 +87,8 @@ interface AdPlacementConfig {
   template: string;
   enabled: boolean;
   type: string;
+  /** Page id this ad targets. 'homepage' preserves legacy behavior. */
+  page: string;
   placement: string;
   position: string;
   dimensions: string;
@@ -255,6 +262,7 @@ const AdminDashboard = () => {
       template: 'medium_rectangle',
       enabled: true,
       type: 'display',
+      page: 'homepage',
       placement: 'interstitial_popup',
       position: 'center',
       dimensions: '300x250',
@@ -323,6 +331,7 @@ const AdminDashboard = () => {
               template: ad.template || 'medium_rectangle',
               enabled: ad.enabled,
               type: ad.type || 'display',
+              page: ad.page || 'homepage',
               placement: ad.placement || 'interstitial_popup',
               position: ad.position || 'center',
               dimensions: ad.dimensions || '300x250',
@@ -470,6 +479,7 @@ const AdminDashboard = () => {
             template: ad.template,
             enabled: ad.enabled,
             type: ad.type,
+            page: ad.page,
             placement: ad.placement,
             position: ad.position,
             dimensions: ad.dimensions,
@@ -490,6 +500,7 @@ const AdminDashboard = () => {
             template: ad.template || 'medium_rectangle',
             enabled: ad.enabled,
             type: ad.type || 'display',
+            page: ad.page || 'homepage',
             placement: ad.placement || 'interstitial_popup',
             position: ad.position || 'center',
             dimensions: ad.dimensions || '300x250',
@@ -523,6 +534,7 @@ const AdminDashboard = () => {
       template: 'medium_rectangle',
       enabled: false,
       type: 'display',
+      page: 'homepage',
       placement: 'interstitial_popup',
       position: 'center',
       dimensions: '300x250',
@@ -560,6 +572,7 @@ const AdminDashboard = () => {
       template: ad.template,
       enabled: false,
       type: ad.type,
+      page: ad.page,
       placement: ad.placement,
       position: ad.position,
       dimensions: ad.dimensions,
@@ -575,18 +588,28 @@ const AdminDashboard = () => {
     setAds(prev => prev.map((ad, i) => i === index ? { ...ad, [field]: value } : ad));
   };
 
-  // Apply template to ad
+  // Apply template to ad — preserves the selected page, but snaps placement
+  // to the template's default placement if that placement is valid for the page.
+  // If the template's default placement is not valid for the page (e.g. picking
+  // the "Half Page" template which defaults to right_sidebar, on a content page),
+  // we leave the placement alone so the admin can choose.
   const applyTemplate = (index: number, templateId: string) => {
     const template = AD_TEMPLATES.find(t => t.id === templateId);
     if (!template) return;
-    setAds(prev => prev.map((ad, i) => i === index ? {
-      ...ad,
-      template: templateId,
-      dimensions: template.dimensions,
-      placement: template.placement,
-      description: template.desc,
-      name: ad.name || template.label.replace(/^[^\s]+\s/, ''),
-    } : ad));
+    setAds(prev => prev.map((ad, i) => {
+      if (i !== index) return ad;
+      const validPlacements = getPlacementsForPage(ad.page);
+      const templatePlacementValid = validPlacements.some(p => p.id === template.placement);
+      return {
+        ...ad,
+        template: templateId,
+        dimensions: template.dimensions,
+        // Only override placement with the template default if it's valid for the current page.
+        placement: templatePlacementValid ? template.placement : ad.placement,
+        description: template.desc,
+        name: ad.name || template.label.replace(/^[^\s]+\s/, ''),
+      };
+    }));
   };
 
   // Save settings
@@ -681,6 +704,7 @@ const AdminDashboard = () => {
             template: 'medium_rectangle',
             enabled: true,
             type: 'display',
+            page: 'homepage',
             placement: 'interstitial_popup',
             position: 'center',
             dimensions: '300x250',
@@ -705,6 +729,7 @@ const AdminDashboard = () => {
           template: 'medium_rectangle',
           enabled: true,
           type: 'display',
+          page: 'homepage',
           placement: 'interstitial_popup',
           position: 'center',
           dimensions: '300x250',
@@ -1465,10 +1490,40 @@ const AdminDashboard = () => {
                         </Select>
                       </div>
 
-                      {/* Placement */}
+                      {/* Page — centralized ad targeting */}
+                      <div>
+                        <label className="text-xs text-[#9CA3AF] mb-1">Page</label>
+                        <p className="text-[10px] text-[#9CA3AF] mb-1">Which page this ad renders on. Pick &quot;All Pages&quot; to show the same ad across every page.</p>
+                        <Select
+                          value={ad.page}
+                          onValueChange={(val) => {
+                            // When page changes, snap placement to a valid value for the new page
+                            // (avoids rendering an ad on a placement that doesn't exist there).
+                            const validPlacements = getPlacementsForPage(val);
+                            const currentPlacementStillValid = validPlacements.some(p => p.id === ad.placement);
+                            updateAd(index, 'page', val);
+                            if (!currentPlacementStillValid && validPlacements.length > 0) {
+                              updateAd(index, 'placement', validPlacements[0].id);
+                            }
+                          }}
+                        >
+                          <SelectTrigger className="w-full bg-[#1a1a1a] border-[#333]">
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent className="bg-[#1a1a1a] border-[#333]">
+                            {PAGE_KEYS.map((p) => (
+                              <SelectItem key={p.id} value={p.id}>
+                                {p.label} — {p.desc}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      </div>
+
+                      {/* Placement — filtered by selected Page */}
                       <div>
                         <label className="text-xs text-[#9CA3AF] mb-1">Placement</label>
-                        <p className="text-[10px] text-[#9CA3AF] mb-1">Where this ad will appear on the landing page</p>
+                        <p className="text-[10px] text-[#9CA3AF] mb-1">Where on the page this ad appears. Options are filtered by the selected page.</p>
                         <Select
                           value={ad.placement}
                           onValueChange={(val) => updateAd(index, 'placement', val)}
@@ -1477,7 +1532,12 @@ const AdminDashboard = () => {
                             <SelectValue />
                           </SelectTrigger>
                           <SelectContent className="bg-[#1a1a1a] border-[#333]">
-                            {AD_PLACEMENTS.map((p) => (
+                            {/* Filter the legacy AD_PLACEMENTS list by what's valid for the current page.
+                                Falls back to the full PLACEMENT_KEYS registry for new pages. */}
+                            {(ad.page === 'homepage'
+                              ? AD_PLACEMENTS.map(ap => PLACEMENT_KEYS.find(pk => pk.id === ap.id)).filter(Boolean)
+                              : getPlacementsForPage(ad.page)
+                            ).map((p: any) => (
                               <SelectItem key={p.id} value={p.id}>
                                 {p.label} — {p.desc}
                               </SelectItem>

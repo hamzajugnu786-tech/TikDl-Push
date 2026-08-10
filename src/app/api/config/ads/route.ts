@@ -1,5 +1,9 @@
 import { NextResponse } from 'next/server';
 import { db } from '@/lib/db';
+import {
+  PAGE_IDS,
+  HOMEPAGE_PLACEMENTS,
+} from '@/lib/ad-placements';
 
 const DEFAULT_CONFIG = {
   enabled: true,
@@ -9,53 +13,111 @@ const DEFAULT_CONFIG = {
   popupDescription: 'Your download will start automatically...',
 };
 
-// Landing page placements — which placements to show on public pages
-// MUST include every placement that the frontend renders.
-const LANDING_PLACEMENTS = [
-  'header_banner',
-  'hero_section',
-  'between_url_download',
-  'between_result_recent',
-  'between_recent_features',
-  'between_features_faq',
-  'above_footer',
-  'left_sidebar',
-  'right_sidebar',
-  'interstitial_popup',
-  'native_content',
-];
+/**
+ * Parse `?pages=` query parameter into a list of valid page ids.
+ * Returns null when the parameter is missing — caller should fall back
+ * to the legacy "homepage-only" behavior so existing callers keep working.
+ */
+function parsePagesParam(searchParams: URLSearchParams | undefined): string[] | null {
+  if (!searchParams) return null;
+  const raw = searchParams.get('pages');
+  if (!raw) return null;
+  const requested = raw
+    .split(',')
+    .map(p => p.trim().toLowerCase())
+    .filter(Boolean);
+  if (requested.length === 0) return null;
+  // Only accept known page ids; unknown values are silently ignored to avoid
+  // leaking data about pages that don't exist.
+  const valid = requested.filter(p => PAGE_IDS.includes(p));
+  // Always include 'all' ads in the per-page response so an admin can show a
+  // single ad across every page without re-creating it. The 'all' bucket is
+  // merged into each requested page's array below.
+  return valid.length > 0 ? valid : null;
+}
 
-export async function GET() {
+/**
+ * Strip fields that should never reach the public ad API.
+ * adCode is intentionally included — the frontend needs it to render ads.
+ */
+function publicAd(ad: any) {
+  return {
+    id: ad.id,
+    name: ad.name,
+    type: ad.type,
+    page: ad.page,
+    placement: ad.placement,
+    position: ad.position,
+    dimensions: ad.dimensions,
+    adCode: ad.adCode,
+    priority: ad.priority,
+  };
+}
+
+export async function GET(request: Request) {
   try {
     const interstitialConfig = await db.interstitialConfig.findFirst();
     const allAds = await db.adPlacement.findMany({
       orderBy: { priority: 'asc' },
     });
 
-    // Separate: enabled ads for landing page vs. all ads for admin
-    const landingAds = allAds.filter(
-      (ad) => ad.enabled && LANDING_PLACEMENTS.includes(ad.placement)
+    // ===== Backwards-compatible homepage buckets =====
+    // Existing homepage code reads `ads`, `interstitialAd`, `sidebarAds`,
+    // `bannerAds`, `inlineAds`. We must keep returning these in the same
+    // shape so the homepage keeps rendering with zero regression.
+    const homepageAds = allAds.filter(
+      (ad) => ad.enabled
+        && (ad.page === 'homepage' || ad.page === 'all')
+        && HOMEPAGE_PLACEMENTS.includes(ad.placement)
     );
 
-    // Interstitial popup ad (for the countdown popup)
     const interstitialAd = allAds.find(
-      (ad) => ad.enabled && ad.placement === 'interstitial_popup'
+      (ad) => ad.enabled
+        && (ad.page === 'homepage' || ad.page === 'all')
+        && ad.placement === 'interstitial_popup'
     );
 
-    // Sidebar ads (desktop only)
     const sidebarAds = allAds.filter(
-      (ad) => ad.enabled && (ad.placement === 'left_sidebar' || ad.placement === 'right_sidebar')
+      (ad) => ad.enabled
+        && (ad.page === 'homepage' || ad.page === 'all')
+        && (ad.placement === 'left_sidebar' || ad.placement === 'right_sidebar')
     );
 
-    // Banner ads
     const bannerAds = allAds.filter(
-      (ad) => ad.enabled && ['header_banner', 'above_footer'].includes(ad.placement)
+      (ad) => ad.enabled
+        && (ad.page === 'homepage' || ad.page === 'all')
+        && ['header_banner', 'above_footer'].includes(ad.placement)
     );
 
-    // Inline ads — includes ALL inline/content placements the frontend renders
+    // Inline ads on homepage — every inline/content placement that the
+    // homepage JSX actually renders. Includes the new `history_interval`
+    // slot used inside the Recent Downloads grid.
     const inlineAds = allAds.filter(
-      (ad) => ad.enabled && ['hero_section', 'between_url_download', 'between_result_recent', 'between_recent_features', 'between_features_faq', 'native_content'].includes(ad.placement)
+      (ad) => ad.enabled
+        && (ad.page === 'homepage' || ad.page === 'all')
+        && [
+          'hero_section',
+          'between_url_download',
+          'between_result_recent',
+          'between_recent_features',
+          'between_features_faq',
+          'native_content',
+          'history_interval',
+        ].includes(ad.placement)
     );
+
+    // ===== New page-aware bucket =====
+    // `adsByPage[page]` = enabled ads assigned to that page OR to 'all'.
+    // Used by the AdSlot component on content pages. Backwards compatible
+    // (homepage can also use this if/when migrated).
+    const requestedPages = parsePagesParam(new URL(request.url).searchParams);
+    const pagesToList = requestedPages ?? PAGE_IDS;
+    const adsByPage: Record<string, ReturnType<typeof publicAd>[]> = {};
+    for (const pageId of pagesToList) {
+      adsByPage[pageId] = allAds
+        .filter(ad => ad.enabled && (ad.page === pageId || ad.page === 'all'))
+        .map(publicAd);
+    }
 
     return NextResponse.json({
       success: true,
@@ -68,42 +130,20 @@ export async function GET() {
             popupDescription: interstitialConfig.popupDescription,
           }
         : DEFAULT_CONFIG,
-      ads: landingAds.map((ad) => ({
-        id: ad.id,
-        name: ad.name,
-        type: ad.type,
-        placement: ad.placement,
-        position: ad.position,
-        dimensions: ad.dimensions,
-        adCode: ad.adCode,
-        priority: ad.priority,
-      })),
-      interstitialAd: interstitialAd ? {
-        id: interstitialAd.id,
-        dimensions: interstitialAd.dimensions,
-        adCode: interstitialAd.adCode,
-      } : null,
-      sidebarAds: sidebarAds.map((ad) => ({
-        id: ad.id,
-        name: ad.name,
-        dimensions: ad.dimensions,
-        adCode: ad.adCode,
-        placement: ad.placement,
-      })),
-      bannerAds: bannerAds.map((ad) => ({
-        id: ad.id,
-        name: ad.name,
-        dimensions: ad.dimensions,
-        adCode: ad.adCode,
-        placement: ad.placement,
-      })),
-      inlineAds: inlineAds.map((ad) => ({
-        id: ad.id,
-        name: ad.name,
-        dimensions: ad.dimensions,
-        adCode: ad.adCode,
-        placement: ad.placement,
-      })),
+      ads: homepageAds.map(publicAd),
+      interstitialAd: interstitialAd
+        ? {
+            id: interstitialAd.id,
+            dimensions: interstitialAd.dimensions,
+            adCode: interstitialAd.adCode,
+          }
+        : null,
+      sidebarAds: sidebarAds.map(publicAd),
+      bannerAds: bannerAds.map(publicAd),
+      inlineAds: inlineAds.map(publicAd),
+      // Page-aware bucket — used by content pages via the AdSlot component.
+      // Empty for any page with no configured ads (the AdSlot renders null).
+      adsByPage,
     });
   } catch {
     return NextResponse.json({
@@ -114,6 +154,7 @@ export async function GET() {
       sidebarAds: [],
       bannerAds: [],
       inlineAds: [],
+      adsByPage: {},
     });
   }
 }

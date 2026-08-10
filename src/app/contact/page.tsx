@@ -2,6 +2,7 @@ import type { Metadata } from 'next';
 import Link from 'next/link';
 import SiteNavbar from '@/components/site-navbar';
 import SiteFooter from '@/components/site-footer';
+import { AdSlot } from '@/components/ad-slot';
 import { Mail, MessageSquare, ExternalLink } from 'lucide-react';
 
 export const metadata: Metadata = {
@@ -15,6 +16,12 @@ export default function ContactPage() {
     <div className="min-h-screen bg-[#000000] text-white flex flex-col">
       <SiteNavbar currentPage="contact" />
       <div className="h-[52px]" />
+
+      {/* ===== Ad Slot 1: Header banner ===== */}
+      <div className="max-w-6xl mx-auto px-4 sm:px-6 mt-2">
+        <AdSlot page="contact" placement="header_banner" />
+      </div>
+
       <main className="flex-1">
         <section className="pt-12 sm:pt-16 pb-8 px-4 sm:px-6">
           <div className="max-w-3xl mx-auto text-center">
@@ -23,6 +30,11 @@ export default function ContactPage() {
             <p className="text-[#9CA3AF] text-base sm:text-lg leading-relaxed max-w-xl mx-auto">Have a question, feedback, or bug report? We would love to hear from you.</p>
           </div>
         </section>
+
+        {/* ===== Ad Slot 2: After intro ===== */}
+        <div className="max-w-3xl mx-auto px-4 sm:px-6 my-3">
+          <AdSlot page="contact" placement="after_intro" />
+        </div>
 
         <section className="py-8 sm:py-12 px-4 sm:px-6 bg-[#0a0a0a]">
           <div className="max-w-3xl mx-auto">
@@ -48,6 +60,11 @@ export default function ContactPage() {
           </div>
         </section>
 
+        {/* ===== Ad Slot 3: Between sections ===== */}
+        <div className="max-w-3xl mx-auto px-4 sm:px-6 my-3">
+          <AdSlot page="contact" placement="between_sections" />
+        </div>
+
         <section className="py-8 sm:py-12 px-4 sm:px-6">
           <div className="max-w-3xl mx-auto">
             <div className="glass rounded-[16px] p-6 sm:p-8">
@@ -61,6 +78,11 @@ export default function ContactPage() {
             </div>
           </div>
         </section>
+
+        {/* ===== Ad Slot 4: Between sections ===== */}
+        <div className="max-w-3xl mx-auto px-4 sm:px-6 my-3">
+          <AdSlot page="contact" placement="between_sections" />
+        </div>
 
         <section className="py-8 sm:py-12 px-4 sm:px-6 bg-[#0a0a0a]">
           <div className="max-w-3xl mx-auto">
@@ -81,12 +103,23 @@ export default function ContactPage() {
           </div>
         </section>
 
+        {/* ===== Ad Slot 5: Above final CTA ===== */}
+        <div className="max-w-3xl mx-auto px-4 sm:px-6 my-3">
+          <AdSlot page="contact" placement="above_cta" />
+        </div>
+
         <section className="py-10 sm:py-14 px-4 sm:px-6 text-center">
           <h2 className="text-xl sm:text-2xl font-bold mb-3">Need to download a video?</h2>
           <p className="text-[#9CA3AF] text-sm mb-5">Head back to the homepage.</p>
           <Link href="/" className="inline-flex items-center gap-2 px-6 py-3 bg-[#FE2C55] hover:bg-[#FE2C55]/90 rounded-[12px] font-semibold text-sm transition-colors duration-150">Start Downloading</Link>
         </section>
       </main>
+
+      {/* ===== Ad Slot 6: Above footer ===== */}
+      <div className="max-w-6xl mx-auto px-4 sm:px-6 mb-2">
+        <AdSlot page="contact" placement="above_footer" />
+      </div>
+
       <SiteFooter />
     </div>
   );
