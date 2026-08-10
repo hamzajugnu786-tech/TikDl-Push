@@ -1,11 +1,23 @@
 import { NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import { requireAuth } from '@/lib/auth';
+import { reconcileSchema } from '@/lib/migrate';
+
+// Always run dynamically — analytics must reflect latest DB state
+export const dynamic = 'force-dynamic';
+export const revalidate = 0;
 
 export async function GET() {
   // Authentication guard — analytics are admin-only data
   const authError = await requireAuth();
   if (authError) return authError;
+
+  // Reconcile DB schema (idempotent — adds missing columns/tables)
+  try {
+    await reconcileSchema();
+  } catch (error) {
+    console.error('[Analytics] Schema reconciliation failed:', error);
+  }
 
   try {
     // Use UTC-consistent date normalization to match how the logger writes Analytics rows

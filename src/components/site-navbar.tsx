@@ -11,9 +11,38 @@ interface SiteNavbarProps {
   currentPage?: 'home' | 'features' | 'faq' | 'history' | 'about' | 'contact' | 'privacy' | 'terms' | 'dmca';
 }
 
+// Default branding — used before /api/config/settings loads or if DB is empty
+const DEFAULT_BRANDING = {
+  siteName: 'TikDL',
+  logoText: 'TikDL',
+  primaryColor: '#FE2C55',
+};
+
 export default function SiteNavbar({ isHome = false, currentPage }: SiteNavbarProps) {
   const [mobileOpen, setMobileOpen] = useState(false);
+  const [branding, setBranding] = useState(DEFAULT_BRANDING);
   const sidebarRef = useRef<HTMLDivElement>(null);
+
+  // Fetch DB-backed site branding on mount (client-side fetch, no static caching)
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch('/api/config/settings', { cache: 'no-store' });
+        const data = await res.json();
+        if (cancelled || !data?.success) return;
+        const s = data.settings || {};
+        setBranding({
+          siteName: s.siteName || DEFAULT_BRANDING.siteName,
+          logoText: s.logoText || s.siteName || DEFAULT_BRANDING.logoText,
+          primaryColor: s.primaryColor || DEFAULT_BRANDING.primaryColor,
+        });
+      } catch {
+        // Use defaults
+      }
+    })();
+    return () => { cancelled = true; };
+  }, []);
 
   // ESC key closes mobile sidebar
   useEffect(() => {
@@ -49,8 +78,8 @@ export default function SiteNavbar({ isHome = false, currentPage }: SiteNavbarPr
           {/* Logo */}
           <div className="flex items-center gap-2.5">
             <Link href="/" className="flex items-center gap-2.5">
-              <div className="w-7 h-7 bg-[#FE2C55] rounded-lg flex items-center justify-center text-base font-bold">♪</div>
-              <span className="font-bold text-lg tracking-tighter">TikDL</span>
+              <div className="w-7 h-7 rounded-lg flex items-center justify-center text-base font-bold" style={{ backgroundColor: branding.primaryColor }}>♪</div>
+              <span className="font-bold text-lg tracking-tighter">{branding.logoText}</span>
             </Link>
             {isHome && (
               <button
@@ -65,11 +94,11 @@ export default function SiteNavbar({ isHome = false, currentPage }: SiteNavbarPr
 
           {/* Desktop links */}
           <div className="hidden md:flex items-center gap-6 text-sm font-medium text-gray-400">
-            <a href={homeHref('#features')} className={`transition-colors duration-150 ${currentPage === 'features' ? 'text-[#FE2C55]' : 'hover:text-[#FE2C55]'}`}>Features</a>
-            <a href={homeHref('#faq')} className={`transition-colors duration-150 ${currentPage === 'faq' ? 'text-[#FE2C55]' : 'hover:text-[#FE2C55]'}`}>FAQ</a>
-            <a href={homeHref('#history')} className={`transition-colors duration-150 ${currentPage === 'history' ? 'text-[#FE2C55]' : 'hover:text-[#FE2C55]'}`}>History</a>
-            <Link href="/about" className={`transition-colors duration-150 ${currentPage === 'about' ? 'text-[#FE2C55]' : 'hover:text-[#FE2C55]'}`}>About</Link>
-            <Link href="/contact" className={`transition-colors duration-150 ${currentPage === 'contact' ? 'text-[#FE2C55]' : 'hover:text-[#FE2C55]'}`}>Contact</Link>
+            <a href={homeHref('#features')} style={{ color: currentPage === 'features' ? branding.primaryColor : undefined }}>Features</a>
+            <a href={homeHref('#faq')} style={{ color: currentPage === 'faq' ? branding.primaryColor : undefined }}>FAQ</a>
+            <a href={homeHref('#history')} style={{ color: currentPage === 'history' ? branding.primaryColor : undefined }}>History</a>
+            <Link href="/about" style={{ color: currentPage === 'about' ? branding.primaryColor : undefined }}>About</Link>
+            <Link href="/contact" style={{ color: currentPage === 'contact' ? branding.primaryColor : undefined }}>Contact</Link>
           </div>
 
           {/* Mobile hamburger */}
@@ -99,8 +128,8 @@ export default function SiteNavbar({ isHome = false, currentPage }: SiteNavbarPr
         {/* Sidebar header with close button */}
         <div className="flex items-center justify-between px-5 py-4 border-b border-white/10">
           <div className="flex items-center gap-2.5">
-            <div className="w-7 h-7 bg-[#FE2C55] rounded-lg flex items-center justify-center text-base font-bold">♪</div>
-            <span className="font-bold text-lg tracking-tighter">TikDL</span>
+            <div className="w-7 h-7 rounded-lg flex items-center justify-center text-base font-bold" style={{ backgroundColor: branding.primaryColor }}>♪</div>
+            <span className="font-bold text-lg tracking-tighter">{branding.logoText}</span>
           </div>
           <button
             onClick={closeMobile}
@@ -116,35 +145,40 @@ export default function SiteNavbar({ isHome = false, currentPage }: SiteNavbarPr
           <a
             href={homeHref('#features')}
             onClick={closeMobile}
-            className={`px-3 py-2.5 rounded-lg text-sm font-medium hover:bg-white/8 transition-colors duration-150 ${currentPage === 'features' ? 'text-[#FE2C55]' : 'text-gray-300 hover:text-white'}`}
+            className="px-3 py-2.5 rounded-lg text-sm font-medium hover:bg-white/8 transition-colors duration-150 text-gray-300 hover:text-white"
+            style={currentPage === 'features' ? { color: branding.primaryColor } : undefined}
           >
             Features
           </a>
           <a
             href={homeHref('#faq')}
             onClick={closeMobile}
-            className={`px-3 py-2.5 rounded-lg text-sm font-medium hover:bg-white/8 transition-colors duration-150 ${currentPage === 'faq' ? 'text-[#FE2C55]' : 'text-gray-300 hover:text-white'}`}
+            className="px-3 py-2.5 rounded-lg text-sm font-medium hover:bg-white/8 transition-colors duration-150 text-gray-300 hover:text-white"
+            style={currentPage === 'faq' ? { color: branding.primaryColor } : undefined}
           >
             FAQ
           </a>
           <a
             href={homeHref('#history')}
             onClick={closeMobile}
-            className={`px-3 py-2.5 rounded-lg text-sm font-medium hover:bg-white/8 transition-colors duration-150 ${currentPage === 'history' ? 'text-[#FE2C55]' : 'text-gray-300 hover:text-white'}`}
+            className="px-3 py-2.5 rounded-lg text-sm font-medium hover:bg-white/8 transition-colors duration-150 text-gray-300 hover:text-white"
+            style={currentPage === 'history' ? { color: branding.primaryColor } : undefined}
           >
             History
           </a>
           <Link
             href="/about"
             onClick={closeMobile}
-            className={`px-3 py-2.5 rounded-lg text-sm font-medium hover:bg-white/8 transition-colors duration-150 ${currentPage === 'about' ? 'text-[#FE2C55]' : 'text-gray-300 hover:text-white'}`}
+            className="px-3 py-2.5 rounded-lg text-sm font-medium hover:bg-white/8 transition-colors duration-150 text-gray-300 hover:text-white"
+            style={currentPage === 'about' ? { color: branding.primaryColor } : undefined}
           >
             About
           </Link>
           <Link
             href="/contact"
             onClick={closeMobile}
-            className={`px-3 py-2.5 rounded-lg text-sm font-medium hover:bg-white/8 transition-colors duration-150 ${currentPage === 'contact' ? 'text-[#FE2C55]' : 'text-gray-300 hover:text-white'}`}
+            className="px-3 py-2.5 rounded-lg text-sm font-medium hover:bg-white/8 transition-colors duration-150 text-gray-300 hover:text-white"
+            style={currentPage === 'contact' ? { color: branding.primaryColor } : undefined}
           >
             Contact
           </Link>
@@ -155,21 +189,24 @@ export default function SiteNavbar({ isHome = false, currentPage }: SiteNavbarPr
           <Link
             href="/privacy"
             onClick={closeMobile}
-            className={`px-3 py-2.5 rounded-lg text-sm font-medium hover:bg-white/8 transition-colors duration-150 ${currentPage === 'privacy' ? 'text-[#FE2C55]' : 'text-gray-400 hover:text-white'}`}
+            className="px-3 py-2.5 rounded-lg text-sm font-medium hover:bg-white/8 transition-colors duration-150 text-gray-400 hover:text-white"
+            style={currentPage === 'privacy' ? { color: branding.primaryColor } : undefined}
           >
             Privacy
           </Link>
           <Link
             href="/terms"
             onClick={closeMobile}
-            className={`px-3 py-2.5 rounded-lg text-sm font-medium hover:bg-white/8 transition-colors duration-150 ${currentPage === 'terms' ? 'text-[#FE2C55]' : 'text-gray-400 hover:text-white'}`}
+            className="px-3 py-2.5 rounded-lg text-sm font-medium hover:bg-white/8 transition-colors duration-150 text-gray-400 hover:text-white"
+            style={currentPage === 'terms' ? { color: branding.primaryColor } : undefined}
           >
             Terms
           </Link>
           <Link
             href="/dmca"
             onClick={closeMobile}
-            className={`px-3 py-2.5 rounded-lg text-sm font-medium hover:bg-white/8 transition-colors duration-150 ${currentPage === 'dmca' ? 'text-[#FE2C55]' : 'text-gray-400 hover:text-white'}`}
+            className="px-3 py-2.5 rounded-lg text-sm font-medium hover:bg-white/8 transition-colors duration-150 text-gray-400 hover:text-white"
+            style={currentPage === 'dmca' ? { color: branding.primaryColor } : undefined}
           >
             DMCA
           </Link>

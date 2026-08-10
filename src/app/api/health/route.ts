@@ -22,7 +22,12 @@
 
 import { NextResponse } from 'next/server';
 import { db } from '@/lib/db';
+import { reconcileSchema } from '@/lib/migrate';
 import { initializeNovaDL, getRegistry } from '@/services';
+
+// Always run dynamically — health must reflect real DB state at request time
+export const dynamic = 'force-dynamic';
+export const revalidate = 0;
 
 // ============================================================================
 // APPLICATION STARTUP TIME
@@ -48,12 +53,23 @@ export async function GET() {
   // Initialize NovaDL if not already done
   await initializeNovaDL();
 
+  // Reconcile DB schema (idempotent, additive only — adds missing columns/tables)
+  try {
+    await reconcileSchema();
+  } catch (error) {
+    console.error('[Health] Schema reconciliation failed:', error);
+  }
+
   try {
     // ========================================================================
-    // 1. DATABASE CHECK
+    // 1. DATABASE CHECK — REAL Prisma query against production DB
     // ========================================================================
+    // Use Settings.count() instead of User.count() — Settings is a small table
+    // that always exists in production (populated by admin Settings tab).
+    // User table was the old default-model table and may not exist on older DBs.
+    // Settings.count() proves Prisma can actually query the production DB.
     const dbStart = Date.now();
-    await db.user.count();
+    await db.settings.count();
     const dbLatency = Date.now() - dbStart;
 
     // ========================================================================

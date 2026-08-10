@@ -110,3 +110,51 @@ Stage Summary:
 - Frozen files untouched: src/services/init.ts, src/services/download.ts, src/services/engine-bridge.ts, src/services/providers/**, src/engine/**, src/app/api/proxy/route.ts, src/app/api/thumbnail/route.ts, src/lib/auth.ts, src/lib/rate-limiter.ts, src/lib/privacy.ts
 - Database migration: prepared additive SQL migration; verified locally with SQLite that existing ads/logs are preserved; production Turso DB requires user to run `DATABASE_URL=<turso> DATABASE_AUTH_TOKEN=<token> npx prisma db push` — NOT applied from this environment (no production credentials available)
 - Video fetching architecture preserved: V1/V2/V3 race, first-success-wins, provider priority, thumbnail non-blocking enrichment — all untouched
+
+---
+Task ID: HOTFIX-DB-PERSIST
+Agent: main
+Task: URGENT FINAL PRODUCTION HOTFIX — BACKEND/PERSISTENCE FIRST
+
+Work Log:
+- Audit (read-only) completed:
+  - prisma/schema.prisma: NO `page` field on AdPlacement. Schema has all expected columns (placement, name, template, adCode, description, etc.). User's "page column missing" error indicates production DB schema is BEHIND the Prisma schema (older DB). Need additive migration.
+  - package.json: `prisma generate &&` prefix is MISSING from build script (was lost since commit 333f7b8). Must restore.
+  - src/lib/db.ts: Correctly uses libsql:// adapter when DATABASE_URL starts with libsql://, falls back to local SQLite otherwise. NO silent fallback in production if env var is set.
+  - src/app/api/health/route.ts: Uses `db.user.count()` for DB check — User table may not exist in older production DB. Need safer query (e.g., $queryRaw SELECT 1 or use a guaranteed-existing table).
+  - src/app/api/admin/config/route.ts: GET/POST handlers look correct. Upsert pattern for InterstitialConfig and Settings is fine. Ad create/update pattern is correct.
+  - src/app/api/analytics/route.ts: Has proper DownloadLog fallback when Analytics table is empty. Returns zeros on error. Will work once DB connection is fixed.
+  - src/services/logger.ts: Writes DownloadLog + aggregates Analytics table. Looks correct.
+  - src/services/providers/registry.ts: Has loadFromConfig() that reads provider_<platform>_enabled/_primary/_fallback from Settings. Has reloadConfig() but it's NEVER called after admin saves.
+  - src/app/admin/page.tsx line ~1290: "Save Provider Config" button ONLY shows toast.info() — does NOT persist to DB!
+  - src/app/layout.tsx: Has generateMetadata() that reads DB Settings. Has maintenance mode block. Good.
+  - src/components/site-navbar.tsx: HARDCODED "TikDL" and "#FE2C55". Never reads from DB Settings. THIS is why site name/color changes don't appear on user side.
+  - Content pages (about/contact/privacy/terms/dmca): NO `---` separators found, NO inline shadow styles. Visual shadow issue likely from `.glass` class background (rgba(28,28,28,0.8)) vs section `bg-[#0a0a0a]` mismatch — subtle, may not actually be a bug.
+  - Local env: DATABASE_URL points to local SQLite file. NO DATABASE_AUTH_TOKEN, NO TIKHUB_API_KEY, NO ADMIN_PASSWORD set locally.
+  - Production Turso credentials NOT available in this environment. Cannot run migration against production DB directly. Will provide migration SQL + runtime auto-migration helper.
+
+Stage Summary:
+- Audit complete. Proceeding with minimal fixes only.
+
+---
+Task ID: HOTFIX-DB-PERSIST (RESOLUTION)
+Agent: main
+Task: URGENT FINAL PRODUCTION HOTFIX — Implementation complete
+
+Work Log:
+- Phase 2: Restored `prisma generate &&` in package.json build script (was lost since 333f7b8). Added postinstall hook. Created `src/lib/migrate.ts` runtime additive migration helper.
+- Phase 3: Fixed health check — replaced `db.user.count()` with `db.settings.count()` (User table may not exist in prod). Added `reconcileSchema()` call.
+- Phase 4: Added `reconcileSchema()` to analytics route + logger (so DownloadLog writes trigger schema reconciliation).
+- Phase 5: Wired Providers tab "Save Provider Config" button to actual DB persistence. Saves `provider_tiktok_enabled`, `provider_tiktok_primary`, `provider_tiktok_fallback`, and per-provider `provider_tiktok_<name>_enabled` to Settings table. Added load of saved state on mount so toggles reflect DB.
+- Phase 5b: Updated `registry.ts` `loadFromConfig()` to filter out per-provider disabled providers (purely additive — does NOT touch V1/V2/V3 race logic).
+- Phase 6: Added `reconcileSchema()` + `dynamic = 'force-dynamic'` to `/api/config/ads` (was silently swallowing errors).
+- Phase 7: Created public `/api/config/settings` endpoint (returns only browser-safe settings). Updated `SiteNavbar` + `SiteFooter` to fetch branding (siteName, logoText, primaryColor) from this endpoint. Injected CSS custom properties `--brand-primary` / `--brand-accent` from layout.tsx.
+- Phase 8: Added `dynamic = 'force-dynamic'` + `revalidate = 0` to all admin/config/analytics/health routes to prevent static caching of runtime config.
+- Phase 9: TypeScript PASS, ESLint PASS, Build PASS. Frozen files verified UNCHANGED.
+- Local migration test: drifted DB (AdPlacement missing 5 cols, DownloadLog missing 2 cols, old data present) → reconcileSchema() added all 7 missing columns → old data preserved → adPlacement.create() works → settings.count() works.
+
+Stage Summary:
+- Files changed: package.json, package-lock.json, src/lib/migrate.ts (NEW), src/app/api/config/settings/route.ts (NEW), src/app/api/health/route.ts, src/app/api/admin/config/route.ts, src/app/api/analytics/route.ts, src/app/api/config/ads/route.ts, src/app/admin/page.tsx, src/app/layout.tsx, src/components/site-navbar.tsx, src/components/site-footer.tsx, src/services/logger.ts, src/services/providers/registry.ts
+- Frozen files verified unchanged: src/services/init.ts, src/services/download.ts, src/services/engine-bridge.ts, src/app/api/download/route.ts, src/app/api/proxy/route.ts, src/services/providers/adapters/**, src/engine/**
+- V1/V2/V3 race, first-success-wins, provider fallback, download hot path: ALL UNCHANGED
+- Production DB migration: CANNOT be applied from this environment (DATABASE_URL is local SQLite, no DATABASE_AUTH_TOKEN). Runtime reconcileSchema() will apply migration on first cold start in production.

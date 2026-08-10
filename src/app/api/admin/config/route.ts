@@ -3,6 +3,11 @@ import { db } from '@/lib/db';
 import { requireAuth } from '@/lib/auth';
 import { sanitizeAdHtmlServer } from '@/lib/sanitize';
 import { GLOBAL_PAGE_KEY } from '@/lib/ad-registry';
+import { reconcileSchema } from '@/lib/migrate';
+
+// Always run dynamically — admin config must reflect DB state at request time
+export const dynamic = 'force-dynamic';
+export const revalidate = 0;
 
 // ============================================================================
 // Ad field normalizer — guarantees every saved ad has valid field values,
@@ -31,6 +36,13 @@ export async function GET() {
   // Authentication guard — unauthenticated users receive 401
   const authError = await requireAuth();
   if (authError) return authError;
+
+  // Reconcile DB schema (idempotent — adds missing columns/tables if drifted)
+  try {
+    await reconcileSchema();
+  } catch (error) {
+    console.error('[Admin Config] Schema reconciliation failed:', error);
+  }
 
   try {
     // Parallelise independent DB queries for better performance
@@ -81,6 +93,14 @@ export async function POST(request: Request) {
   // Authentication guard — unauthenticated users receive 401
   const authError = await requireAuth();
   if (authError) return authError;
+
+  // Reconcile DB schema before any write — ensures missing columns are added
+  // so creates/updates don't fail with "column X does not exist"
+  try {
+    await reconcileSchema();
+  } catch (error) {
+    console.error('[Admin Config POST] Schema reconciliation failed:', error);
+  }
 
   let body: any;
   try {

@@ -29,6 +29,7 @@
 import { NovaDLErrorCode } from './errors';
 import { db } from '@/lib/db';
 import { hashIp } from '@/lib/privacy';
+import { reconcileSchema } from '@/lib/migrate';
 
 // ============================================================================
 // DEVICE DETECTION (Bug #3 — Analytics device tracking)
@@ -171,6 +172,11 @@ export class DownloadLogger {
       // Detect device category from User-Agent for analytics (Bug #3).
       // NULL when UA is empty or unclassifiable — UI shows "unknown" for those rows.
       const device = detectDevice(entry.userAgent);
+
+      // Ensure DownloadLog + Analytics tables exist with all required columns.
+      // Idempotent and additive — safe to call on every log write.
+      await reconcileSchema();
+
       await db.downloadLog.create({
         data: {
           videoId: entry.videoId || null,

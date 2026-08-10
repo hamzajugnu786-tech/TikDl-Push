@@ -168,6 +168,13 @@ export default async function RootLayout({
         <link rel="apple-touch-icon" href="/apple-touch-icon.png" sizes="180x180" />
         <meta name="apple-mobile-web-app-capable" content="yes" />
         <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+        {/* Inject DB-backed brand colors as CSS custom properties.
+            This allows admin to change primaryColor/accentColor in Settings
+            and have them propagate to the user-facing site on next page load.
+            Components can use `var(--brand-primary)` / `var(--brand-accent)` in inline styles. */}
+        <style dangerouslySetInnerHTML={{
+          __html: `:root{--brand-primary:${primaryColor};--brand-accent:${settings['accentColor'] || '#25F4EE'};}`
+        }} />
       </head>
       <body className="min-h-full flex flex-col bg-[#000000] text-white font-[family-name:var(--font-geist-sans)]">
         {showMaintenance ? (

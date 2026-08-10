@@ -154,6 +154,27 @@ export class ProviderRegistry {
               this.providers.set(platform, reordered);
             }
           }
+
+          // Filter out providers explicitly disabled per-provider:
+          // provider_<platform>_<name>_enabled = "false"
+          const currentProviders = this.providers.get(platform) || [];
+          const filteredProviders: NovaDLProvider[] = [];
+          for (const p of currentProviders) {
+            const perProviderKey = `provider_${platform}_${p.name}_enabled`;
+            const perProviderEnabled = settingsMap.get(perProviderKey);
+            if (perProviderEnabled === 'false') {
+              console.log(`[Registry] Provider "${p.name}" disabled in DB config. Removing from registry.`);
+              this.providersByName.delete(p.name);
+              continue;
+            }
+            filteredProviders.push(p);
+          }
+          if (filteredProviders.length > 0) {
+            this.providers.set(platform, filteredProviders);
+          } else if (currentProviders.length > 0) {
+            // All providers for this platform were disabled — keep registry empty for this platform
+            this.providers.set(platform, filteredProviders);
+          }
         }
       } else {
         // No DB config — fall back to environment variables

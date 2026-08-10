@@ -6,6 +6,11 @@ import {
   UNIVERSAL_PLACEMENTS,
   HOMEPAGE_ONLY_PLACEMENTS,
 } from '@/lib/ad-registry';
+import { reconcileSchema } from '@/lib/migrate';
+
+// Always run dynamically — ads config must reflect DB state at request time
+export const dynamic = 'force-dynamic';
+export const revalidate = 0;
 
 const DEFAULT_CONFIG = {
   enabled: true,
@@ -50,6 +55,13 @@ function parsePagesParam(searchParams: URLSearchParams | undefined): string[] | 
 }
 
 export async function GET(request: Request) {
+  // Reconcile DB schema (idempotent — ensures AdPlacement table + columns exist)
+  try {
+    await reconcileSchema();
+  } catch (error) {
+    console.error('[Public Ads Config] Schema reconciliation failed:', error);
+  }
+
   try {
     const interstitialConfig = await db.interstitialConfig.findFirst();
     const allAds = await db.adPlacement.findMany({

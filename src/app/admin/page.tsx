@@ -429,21 +429,45 @@ const AdminDashboard = () => {
       }
     };
 
-    // Fetch real provider status from the health API
+    // Fetch real provider status from the health API + saved provider config from /api/admin/config
     const fetchProviders = async () => {
       try {
-        const res = await fetch('/api/health');
-        const data = await handleApiResponse(res);
-        if (!data || !data.providers) return;
+        // 1. Fetch live health data (provider online/offline status)
+        const healthRes = await fetch('/api/health');
+        const healthData = await handleApiResponse(healthRes);
+        if (!healthData || !healthData.providers) return;
+
+        // 2. Fetch saved provider config from Settings DB
+        //    (overrides live health status with admin's saved enabled/disabled state)
+        let savedProviderSettings: Record<string, string> = {};
+        try {
+          const configRes = await fetch('/api/admin/config');
+          const configData = await handleApiResponse(configRes);
+          if (configData?.success && Array.isArray(configData.settings)) {
+            for (const s of configData.settings) {
+              savedProviderSettings[s.key] = s.value;
+            }
+          }
+        } catch {
+          // Config fetch failed — use live health data only
+        }
 
         // Convert health API provider data into ProviderConfig format
-        const providerEntries = Object.entries(data.providers) as [string, any][];
-        const configs: ProviderConfig[] = providerEntries.map(([name, info], index) => ({
-          name: info.platform === 'tiktok' ? name : `${name} (${info.platform || 'unknown'})`,
-          enabled: info.status === 'online',
-          priority: index + 1,
-          status: info.status === 'online' ? 'Active' as const : 'Fallback' as const,
-        }));
+        const providerEntries = Object.entries(healthData.providers) as [string, any][];
+        const configs: ProviderConfig[] = providerEntries.map(([name, info], index) => {
+          // Check if admin has explicitly saved an enabled/disabled state for this provider
+          const savedEnabled = savedProviderSettings[`provider_tiktok_${name}_enabled`];
+          const isEnabled = savedEnabled !== undefined
+            ? savedEnabled === 'true'
+            : info.status === 'online';
+
+          return {
+            name: info.platform === 'tiktok' ? name : `${name} (${info.platform || 'unknown'})`,
+            enabled: isEnabled,
+            priority: index + 1,
+            status: info.status === 'online' ? 'Active' as const : 'Fallback' as const,
+          };
+        });
         setProviderConfigs(configs.length > 0 ? configs : []);
       } catch {
         // Keep empty provider list — will show "no data" message
@@ -692,6 +716,62 @@ const AdminDashboard = () => {
       return newSet;
     });
   }, []);
+
+  // Save provider config — persists provider_<platform>_enabled/_primary/_fallback
+  // to the Settings table. The provider registry reads these on next load.
+  const handleSaveProviders = async () => {
+    setIsSaving(true);
+    try {
+      if (providerConfigs.length === 0) {
+        toast.error('No providers to save');
+        return;
+      }
+
+      // Determine platform — all current providers are tiktok platform
+      // Future: extend to multi-platform when registry supports it
+      const platform = 'tiktok';
+
+      // Sort providers by priority (lowest priority number = primary)
+      const sorted = [...providerConfigs].sort((a, b) => a.priority - b.priority);
+      const enabledProviders = sorted.filter(p => p.enabled);
+      const primary = enabledProviders[0]?.name || '';
+      const fallback = enabledProviders[1]?.name || '';
+
+      const settings = [
+        // Platform-level enable/disable
+        { key: `provider_${platform}_enabled`, value: String(enabledProviders.length > 0) },
+        // Primary + fallback provider names
+        { key: `provider_${platform}_primary`, value: primary },
+        { key: `provider_${platform}_fallback`, value: fallback },
+      ];
+
+      // Also persist per-provider enable/disable state
+      for (const p of providerConfigs) {
+        settings.push({
+          key: `provider_${platform}_${p.name}_enabled`,
+          value: String(p.enabled),
+        });
+      }
+
+      const res = await fetch('/api/admin/config', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ settings }),
+      });
+      const data = await res.json();
+      if (data.success) {
+        toast.success('Provider config saved', {
+          description: `Primary: ${primary || 'none'} · Fallback: ${fallback || 'none'}`,
+        });
+      } else {
+        toast.error(data.error || 'Failed to save provider config');
+      }
+    } catch {
+      toast.error('Network error — failed to save');
+    } finally {
+      setIsSaving(false);
+    }
+  };
 
   // Quick actions
   const handleHealthCheck = async () => {
@@ -1411,9 +1491,15 @@ const AdminDashboard = () => {
                 </div>
               </div>
 
-              {/* No Save button — provider execution order is registry-controlled and API keys are env-based.
-                  Previously this button rendered a misleading toast instead of persisting, which caused
-                  confusion. The UI now clearly communicates the read-only nature of provider settings. */}
+              <motion.button
+                whileHover={{ scale: 1.02, y: -1 }}
+                whileTap={{ scale: 0.98 }}
+                onClick={handleSaveProviders}
+                disabled={isSaving || providerConfigs.length === 0}
+                className="save-btn disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                {isSaving ? 'Saving...' : 'Save Provider Config'}
+              </motion.button>
             </motion.div>
           )}
 
