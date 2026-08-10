@@ -2,6 +2,30 @@ import { NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import { requireAuth } from '@/lib/auth';
 import { sanitizeAdHtmlServer } from '@/lib/sanitize';
+import { GLOBAL_PAGE_KEY } from '@/lib/ad-registry';
+
+// ============================================================================
+// Ad field normalizer — guarantees every saved ad has valid field values,
+// even if the client sends partial / malformed data. This is the primary
+// defense against "Failed to update config" errors caused by missing or
+// invalid fields. Never throws — always returns a safe, persistable shape.
+// ============================================================================
+
+function normalizeAdFields(adData: any) {
+  return {
+    name:        typeof adData.name === 'string' && adData.name.trim() ? adData.name.slice(0, 200) : 'Untitled Ad',
+    template:    typeof adData.template === 'string' && adData.template ? adData.template : 'medium_rectangle',
+    enabled:     typeof adData.enabled === 'boolean' ? adData.enabled : true,
+    type:        typeof adData.type === 'string' && adData.type ? adData.type : 'display',
+    page:        typeof adData.page === 'string' && adData.page.trim() ? adData.page.trim().toLowerCase() : GLOBAL_PAGE_KEY,
+    placement:   typeof adData.placement === 'string' && adData.placement ? adData.placement : 'interstitial_popup',
+    position:    typeof adData.position === 'string' && adData.position ? adData.position : 'center',
+    dimensions:  typeof adData.dimensions === 'string' && adData.dimensions ? adData.dimensions : '300x250',
+    adCode:      sanitizeAdHtmlServer(typeof adData.adCode === 'string' ? adData.adCode : ''),
+    description: typeof adData.description === 'string' ? adData.description.slice(0, 2000) : '',
+    priority:    Number.isInteger(adData.priority) ? adData.priority : (typeof adData.priority === 'number' ? Math.floor(adData.priority) : 1),
+  };
+}
 
 export async function GET() {
   // Authentication guard — unauthenticated users receive 401
@@ -58,17 +82,24 @@ export async function POST(request: Request) {
   const authError = await requireAuth();
   if (authError) return authError;
 
+  let body: any;
   try {
-    const body = await request.json();
+    body = await request.json();
+  } catch {
+    return NextResponse.json(
+      { success: false, error: 'Invalid JSON body' },
+      { status: 400 }
+    );
+  }
 
-    // Upsert InterstitialConfig
+  try {
+    // ===== Upsert InterstitialConfig =====
     const interstitialData = {
-      enabled: body.interstitial?.enabled ?? true,
+      enabled:           body.interstitial?.enabled ?? true,
       countdownDuration: body.interstitial?.countdownDuration ?? 5,
-      autoDownload: body.interstitial?.autoDownload ?? true,
-      popupTitle: body.interstitial?.popupTitle ?? 'Support free downloads',
-      popupDescription:
-        body.interstitial?.popupDescription ?? 'Your download will start automatically...',
+      autoDownload:      body.interstitial?.autoDownload ?? true,
+      popupTitle:        body.interstitial?.popupTitle ?? 'Support free downloads',
+      popupDescription:  body.interstitial?.popupDescription ?? 'Your download will start automatically...',
     };
 
     const existingConfig = await db.interstitialConfig.findFirst();
@@ -85,34 +116,29 @@ export async function POST(request: Request) {
       });
     }
 
-    // Upsert AdPlacement records — use DB lookup to determine create vs update
-    const savedAds: Array<{ id: string; name: string; template: string; enabled: boolean; type: string; page: string; placement: string; position: string; dimensions: string; adCode: string; description: string; priority: number }> = [];
+    // ===== Upsert AdPlacement records =====
+    // Use DB lookup to determine create vs update — never blindly trust
+    // the client-provided id; if it doesn't exist in the DB, create a new
+    // row instead of crashing with "record not found".
+    const savedAds: Array<{
+      id: string; name: string; template: string; enabled: boolean;
+      type: string; page: string; placement: string; position: string;
+      dimensions: string; adCode: string; description: string; priority: number;
+    }> = [];
 
     if (body.ads && Array.isArray(body.ads)) {
-      // Fetch all existing ad IDs for efficient lookup
       const existingAds = await db.adPlacement.findMany({ select: { id: true } });
       const existingIds = new Set(existingAds.map(a => a.id));
 
       for (const adData of body.ads) {
-        const isExisting = adData.id && typeof adData.id === 'string' && existingIds.has(adData.id);
+        // Normalize all fields — never throw on bad input
+        const normalized = normalizeAdFields(adData);
+        const isExisting = typeof adData.id === 'string' && adData.id && existingIds.has(adData.id);
 
         if (isExisting) {
-          // Update existing ad
           const updated = await db.adPlacement.update({
             where: { id: adData.id },
-            data: {
-              name: adData.name ?? 'Untitled Ad',
-              template: adData.template ?? 'medium_rectangle',
-              enabled: adData.enabled ?? true,
-              type: adData.type ?? 'display',
-              page: typeof adData.page === 'string' && adData.page ? adData.page : 'homepage',
-              placement: adData.placement ?? 'interstitial_popup',
-              position: adData.position ?? 'center',
-              dimensions: adData.dimensions ?? '300x250',
-              adCode: sanitizeAdHtmlServer(adData.adCode ?? ''),  // Server-side defense-in-depth
-              description: adData.description ?? '',
-              priority: adData.priority ?? 1,
-            },
+            data: normalized,
           });
           savedAds.push({
             id: updated.id, name: updated.name, template: updated.template,
@@ -122,21 +148,8 @@ export async function POST(request: Request) {
             description: updated.description, priority: updated.priority,
           });
         } else {
-          // Create new ad (ignore any stale/invalid id)
           const created = await db.adPlacement.create({
-            data: {
-              name: adData.name ?? 'Untitled Ad',
-              template: adData.template ?? 'medium_rectangle',
-              enabled: adData.enabled ?? true,
-              type: adData.type ?? 'display',
-              page: typeof adData.page === 'string' && adData.page ? adData.page : 'homepage',
-              placement: adData.placement ?? 'interstitial_popup',
-              position: adData.position ?? 'center',
-              dimensions: adData.dimensions ?? '300x250',
-              adCode: sanitizeAdHtmlServer(adData.adCode ?? ''),  // Server-side defense-in-depth
-              description: adData.description ?? '',
-              priority: adData.priority ?? 1,
-            },
+            data: normalized,
           });
           savedAds.push({
             id: created.id, name: created.name, template: created.template,
@@ -149,24 +162,24 @@ export async function POST(request: Request) {
       }
     }
 
-    // Delete ad placements — validate each ID is a string before DB lookup
+    // ===== Delete ad placements =====
+    // Validate each ID is a string before DB lookup — skip silently on
+    // invalid input rather than crashing the whole save.
     if (body.deleteAds && Array.isArray(body.deleteAds)) {
       for (const adId of body.deleteAds) {
-        if (typeof adId !== 'string' || !adId.trim()) continue; // Skip invalid IDs
-        // Verify the ad exists before deleting to avoid Prisma errors
-        const exists = await db.adPlacement.findUnique({ where: { id: adId } });
-        if (exists) {
-          await db.adPlacement.delete({
-            where: { id: adId },
-          });
+        if (typeof adId !== 'string' || !adId.trim()) continue;
+        try {
+          await db.adPlacement.delete({ where: { id: adId } });
+        } catch {
+          // Record already gone — not an error, just skip
         }
       }
     }
 
-    // Upsert Settings entries
+    // ===== Upsert Settings entries =====
     if (body.settings && Array.isArray(body.settings)) {
       for (const setting of body.settings) {
-        if (setting.key && typeof setting.key === 'string') {
+        if (setting && typeof setting.key === 'string' && setting.key) {
           await db.settings.upsert({
             where: { key: setting.key },
             update: { value: String(setting.value ?? '') },
@@ -189,9 +202,13 @@ export async function POST(request: Request) {
       ads: savedAds,
     });
   } catch (error) {
-    console.error('Failed to update config:', error);
+    // Surface the actual Prisma error message so the admin can see what
+    // failed (instead of the generic "Failed to update config" that hid
+    // the real cause during the previous build).
+    const message = error instanceof Error ? error.message : 'Unknown error';
+    console.error('Failed to update config:', message, error);
     return NextResponse.json(
-      { success: false, error: 'Failed to update config' },
+      { success: false, error: `Failed to update config: ${message}` },
       { status: 500 }
     );
   }

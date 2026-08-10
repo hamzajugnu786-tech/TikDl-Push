@@ -1,9 +1,11 @@
 import { NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import {
-  PAGE_IDS,
-  HOMEPAGE_PLACEMENTS,
-} from '@/lib/ad-placements';
+  GLOBAL_PAGE_KEY,
+  KNOWN_PAGES,
+  UNIVERSAL_PLACEMENTS,
+  HOMEPAGE_ONLY_PLACEMENTS,
+} from '@/lib/ad-registry';
 
 const DEFAULT_CONFIG = {
   enabled: true,
@@ -14,31 +16,8 @@ const DEFAULT_CONFIG = {
 };
 
 /**
- * Parse `?pages=` query parameter into a list of valid page ids.
- * Returns null when the parameter is missing — caller should fall back
- * to the legacy "homepage-only" behavior so existing callers keep working.
- */
-function parsePagesParam(searchParams: URLSearchParams | undefined): string[] | null {
-  if (!searchParams) return null;
-  const raw = searchParams.get('pages');
-  if (!raw) return null;
-  const requested = raw
-    .split(',')
-    .map(p => p.trim().toLowerCase())
-    .filter(Boolean);
-  if (requested.length === 0) return null;
-  // Only accept known page ids; unknown values are silently ignored to avoid
-  // leaking data about pages that don't exist.
-  const valid = requested.filter(p => PAGE_IDS.includes(p));
-  // Always include 'all' ads in the per-page response so an admin can show a
-  // single ad across every page without re-creating it. The 'all' bucket is
-  // merged into each requested page's array below.
-  return valid.length > 0 ? valid : null;
-}
-
-/**
- * Strip fields that should never reach the public ad API.
- * adCode is intentionally included — the frontend needs it to render ads.
+ * Strip internal fields that should never reach the public ad API.
+ * `adCode` is intentionally included — the frontend needs it to render ads.
  */
 function publicAd(ad: any) {
   return {
@@ -54,6 +33,22 @@ function publicAd(ad: any) {
   };
 }
 
+/**
+ * Parse `?pages=` query parameter into a list of valid page ids.
+ * Returns null when the parameter is missing — caller should fall back
+ * to returning ads for every known page.
+ */
+function parsePagesParam(searchParams: URLSearchParams | undefined): string[] | null {
+  if (!searchParams) return null;
+  const raw = searchParams.get('pages');
+  if (!raw) return null;
+  const requested = raw
+    .split(',')
+    .map(p => p.trim().toLowerCase())
+    .filter(Boolean);
+  return requested.length > 0 ? requested : null;
+}
+
 export async function GET(request: Request) {
   try {
     const interstitialConfig = await db.interstitialConfig.findFirst();
@@ -63,38 +58,35 @@ export async function GET(request: Request) {
 
     // ===== Backwards-compatible homepage buckets =====
     // Existing homepage code reads `ads`, `interstitialAd`, `sidebarAds`,
-    // `bannerAds`, `inlineAds`. We must keep returning these in the same
-    // shape so the homepage keeps rendering with zero regression.
+    // `bannerAds`, `inlineAds`. We MUST keep returning these in the same
+    // shape so the homepage JSX keeps rendering with zero regression.
     const homepageAds = allAds.filter(
       (ad) => ad.enabled
-        && (ad.page === 'homepage' || ad.page === 'all')
-        && HOMEPAGE_PLACEMENTS.includes(ad.placement)
+        && (ad.page === 'homepage' || ad.page === GLOBAL_PAGE_KEY)
+        && [...UNIVERSAL_PLACEMENTS, ...HOMEPAGE_ONLY_PLACEMENTS].some(p => p.id === ad.placement)
     );
 
     const interstitialAd = allAds.find(
       (ad) => ad.enabled
-        && (ad.page === 'homepage' || ad.page === 'all')
+        && (ad.page === 'homepage' || ad.page === GLOBAL_PAGE_KEY)
         && ad.placement === 'interstitial_popup'
     );
 
     const sidebarAds = allAds.filter(
       (ad) => ad.enabled
-        && (ad.page === 'homepage' || ad.page === 'all')
+        && (ad.page === 'homepage' || ad.page === GLOBAL_PAGE_KEY)
         && (ad.placement === 'left_sidebar' || ad.placement === 'right_sidebar')
     );
 
     const bannerAds = allAds.filter(
       (ad) => ad.enabled
-        && (ad.page === 'homepage' || ad.page === 'all')
+        && (ad.page === 'homepage' || ad.page === GLOBAL_PAGE_KEY)
         && ['header_banner', 'above_footer'].includes(ad.placement)
     );
 
-    // Inline ads on homepage — every inline/content placement that the
-    // homepage JSX actually renders. Includes the new `history_interval`
-    // slot used inside the Recent Downloads grid.
     const inlineAds = allAds.filter(
       (ad) => ad.enabled
-        && (ad.page === 'homepage' || ad.page === 'all')
+        && (ad.page === 'homepage' || ad.page === GLOBAL_PAGE_KEY)
         && [
           'hero_section',
           'between_url_download',
@@ -107,15 +99,20 @@ export async function GET(request: Request) {
     );
 
     // ===== New page-aware bucket =====
-    // `adsByPage[page]` = enabled ads assigned to that page OR to 'all'.
-    // Used by the AdSlot component on content pages. Backwards compatible
-    // (homepage can also use this if/when migrated).
+    // `adsByPage[page]` = enabled ads whose `page` is either that page OR
+    // the global fallback "all". Used by the AdSlot component on content
+    // pages. Resolution (section → page → global) happens client-side.
     const requestedPages = parsePagesParam(new URL(request.url).searchParams);
-    const pagesToList = requestedPages ?? PAGE_IDS;
+    const knownPageKeys = KNOWN_PAGES.map(p => p.key);
+    const dbPageKeys = allAds
+      .map(ad => ad.page)
+      .filter(p => p && p !== GLOBAL_PAGE_KEY && !knownPageKeys.includes(p));
+    const pagesToList = requestedPages ?? Array.from(new Set([...knownPageKeys, ...dbPageKeys]));
+
     const adsByPage: Record<string, ReturnType<typeof publicAd>[]> = {};
     for (const pageId of pagesToList) {
       adsByPage[pageId] = allAds
-        .filter(ad => ad.enabled && (ad.page === pageId || ad.page === 'all'))
+        .filter(ad => ad.enabled && (ad.page === pageId || ad.page === GLOBAL_PAGE_KEY))
         .map(publicAd);
     }
 
@@ -130,6 +127,7 @@ export async function GET(request: Request) {
             popupDescription: interstitialConfig.popupDescription,
           }
         : DEFAULT_CONFIG,
+      // Legacy homepage buckets — preserved for zero regression
       ads: homepageAds.map(publicAd),
       interstitialAd: interstitialAd
         ? {
@@ -141,11 +139,12 @@ export async function GET(request: Request) {
       sidebarAds: sidebarAds.map(publicAd),
       bannerAds: bannerAds.map(publicAd),
       inlineAds: inlineAds.map(publicAd),
-      // Page-aware bucket — used by content pages via the AdSlot component.
-      // Empty for any page with no configured ads (the AdSlot renders null).
+      // New page-aware bucket — used by content pages via AdSlot component.
+      // Empty for any page with no configured ads (AdSlot renders null).
       adsByPage,
     });
   } catch {
+    // Never crash the public ads endpoint — return safe empty defaults.
     return NextResponse.json({
       success: true,
       interstitial: DEFAULT_CONFIG,

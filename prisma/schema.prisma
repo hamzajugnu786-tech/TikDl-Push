@@ -38,9 +38,10 @@ model AdPlacement {
   template    String   @default("medium_rectangle")
   enabled     Boolean  @default(true)
   type        String   @default("display")
-  // Page this ad targets. 'homepage' preserves legacy behavior.
-  // Other values: about, contact, privacy, terms, dmca, history, all.
-  page        String   @default("homepage")
+  // Page this ad targets. 'all' = global fallback rendered on every page.
+  // Other values: homepage, about, contact, privacy, terms, dmca, history,
+  // or any custom page key. New content pages are auto-eligible.
+  page        String   @default("all")
   placement   String   @default("interstitial_popup")
   position    String   @default("center")
   dimensions  String   @default("300x250")
@@ -50,8 +51,9 @@ model AdPlacement {
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
-  @@index([placement, enabled])     // Most common ad query pattern
-  @@index([page, placement, enabled])  // Page-aware lookup
+  @@index([placement, enabled])       // Most common ad query pattern
+  @@index([page, placement, enabled]) // Page-aware lookup
+  @@index([page, enabled])            // All-ads-for-page queries
 }
 
 model DownloadLog {

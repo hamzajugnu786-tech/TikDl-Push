@@ -2,7 +2,7 @@ import type { Metadata } from 'next';
 import Link from 'next/link';
 import SiteNavbar from '@/components/site-navbar';
 import SiteFooter from '@/components/site-footer';
-import { AdSlot } from '@/components/ad-slot';
+import ContentPageAds from '@/components/ContentPageAds';
 import { Shield } from 'lucide-react';
 
 export const metadata: Metadata = {
@@ -16,13 +16,8 @@ export default function DmcaPage() {
     <div className="min-h-screen bg-[#000000] text-white flex flex-col">
       <SiteNavbar currentPage="dmca" />
       <div className="h-[52px]" />
-
-      {/* ===== Ad Slot 1: Header banner ===== */}
-      <div className="max-w-6xl mx-auto px-4 sm:px-6 mt-2">
-        <AdSlot page="dmca" placement="header_banner" />
-      </div>
-
       <main className="flex-1">
+        <ContentPageAds page="dmca">
         <section className="pt-12 sm:pt-16 pb-8 px-4 sm:px-6">
           <div className="max-w-3xl mx-auto text-center">
             <div className="w-14 h-14 bg-[#FE2C55] rounded-2xl flex items-center justify-center text-2xl font-bold mx-auto mb-5"><Shield size={28} /></div>
@@ -31,22 +26,12 @@ export default function DmcaPage() {
           </div>
         </section>
 
-        {/* ===== Ad Slot 2: After intro ===== */}
-        <div className="max-w-3xl mx-auto px-4 sm:px-6 my-3">
-          <AdSlot page="dmca" placement="after_intro" />
-        </div>
-
         <section className="py-8 sm:py-12 px-4 sm:px-6">
           <div className="max-w-3xl mx-auto space-y-6">
             <div className="glass rounded-[16px] p-6 sm:p-8">
               <h2 className="text-lg sm:text-xl font-bold mb-4">1. Our Policy</h2>
               <p className="text-[#9CA3AF] leading-relaxed mb-3">TikDL responds to valid DMCA takedown notices. We take copyright seriously and will remove or disable access to material that is claimed to be infringing.</p>
               <p className="text-[#9CA3AF] leading-relaxed">TikDL does not host or store any downloaded content. We act as a conduit between TikTok and your browser. However, we cooperate with valid takedown requests within our capabilities.</p>
-            </div>
-
-            {/* ===== Ad Slot 3: Between content sections ===== */}
-            <div className="py-1">
-              <AdSlot page="dmca" placement="between_sections" />
             </div>
 
             <div className="glass rounded-[16px] p-6 sm:p-8">
@@ -61,11 +46,6 @@ export default function DmcaPage() {
                 <li><strong className="text-white">Your signature</strong> — Physical or electronic (typing your full legal name suffices).</li>
               </ul>
               <p className="text-[#9CA3AF] leading-relaxed">Send your notice to: <strong className="text-white">dmca@tikdl.app</strong></p>
-            </div>
-
-            {/* ===== Ad Slot 4: Between content sections ===== */}
-            <div className="py-1">
-              <AdSlot page="dmca" placement="between_sections" />
             </div>
 
             <div className="glass rounded-[16px] p-6 sm:p-8">
@@ -89,22 +69,12 @@ export default function DmcaPage() {
           </div>
         </section>
 
-        {/* ===== Ad Slot 5: Above final CTA ===== */}
-        <div className="max-w-3xl mx-auto px-4 sm:px-6 my-3">
-          <AdSlot page="dmca" placement="above_cta" />
-        </div>
-
         <section className="py-8 sm:py-10 px-4 sm:px-6 text-center bg-[#0a0a0a]">
           <p className="text-[#9CA3AF] text-sm mb-3">Non-copyright inquiries? <Link href="/contact" className="text-[#FE2C55] hover:underline">Contact us</Link>.</p>
           <Link href="/" className="inline-flex items-center gap-2 px-6 py-3 bg-[#FE2C55] hover:bg-[#FE2C55]/90 rounded-[12px] font-semibold text-sm transition-colors duration-150">Back to TikDL</Link>
         </section>
+        </ContentPageAds>
       </main>
-
-      {/* ===== Ad Slot 6: Above footer ===== */}
-      <div className="max-w-6xl mx-auto px-4 sm:px-6 mb-2">
-        <AdSlot page="dmca" placement="above_footer" />
-      </div>
-
       <SiteFooter />
     </div>
   );

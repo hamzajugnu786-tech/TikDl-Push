@@ -16,38 +16,23 @@ import { Switch } from '@/components/ui/switch';
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from '@/components/ui/select';
+// Centralized ad registry — single source of truth for pages, placements,
+// templates, dimensions. Used by both the admin UI and the public ads API.
 import {
-  PAGE_KEYS,
-  PLACEMENT_KEYS,
-  getPlacementsForPage,
-} from '@/lib/ad-placements';
-
-// ===== Ad Templates =====
-const AD_TEMPLATES = [
-  { id: 'mobile_banner', label: '📱 Mobile Banner', dimensions: '320x100', placement: 'header_banner', desc: 'Compact banner optimized for mobile screens. Best for header or footer placement.' },
-  { id: 'medium_rectangle', label: '🖼️ Medium Rectangle', dimensions: '300x250', placement: 'interstitial_popup', desc: 'The most common ad size. Versatile for popups, sidebars, and inline placements.' },
-  { id: 'large_rectangle', label: '📏 Large Rectangle', dimensions: '336x280', placement: 'interstitial_popup', desc: 'Slightly larger than medium rectangle. Higher visibility for important placements.' },
-  { id: 'leaderboard', label: '🖥️ Leaderboard', dimensions: '728x90', placement: 'header_banner', desc: 'Wide horizontal banner ideal for header placement on desktop.' },
-  { id: 'large_leaderboard', label: '🎯 Large Leaderboard', dimensions: '970x250', placement: 'header_banner', desc: 'Premium large banner for maximum desktop visibility.' },
-  { id: 'half_page', label: '📐 Half Page', dimensions: '300x600', placement: 'right_sidebar', desc: 'Tall vertical ad perfect for sidebar placement.' },
-  { id: 'skyscraper', label: '🏢 Skyscraper', dimensions: '160x600', placement: 'right_sidebar', desc: 'Slim vertical ad designed for sidebar placement.' },
-  { id: 'responsive_banner', label: '🌐 Responsive Banner', dimensions: 'responsive', placement: 'native_content', desc: 'Fluid ad that adapts to any container width. Best for flexible layouts.' },
-  { id: 'interstitial', label: '📺 Interstitial', dimensions: '300x250', placement: 'interstitial_popup', desc: 'Full-screen overlay ad shown during the countdown popup.' },
-  { id: 'native_ad', label: '📰 Native Ad', dimensions: 'responsive', placement: 'native_content', desc: 'Content-integrated ad that blends naturally with the page layout.' },
-];
-
-// ===== Ad Placements =====
-const AD_PLACEMENTS = [
-  { id: 'header_banner', label: 'Header Banner', desc: 'Top of page, above the hero section', icon: Monitor },
-  { id: 'hero_section', label: 'Hero Section', desc: 'Inside the hero/download area', icon: LayoutGrid },
-  { id: 'between_url_download', label: 'Between URL & Download', desc: 'Between input field and download button', icon: Zap },
-  { id: 'between_features_faq', label: 'Between Features & FAQ', desc: 'Inline placement between sections', icon: FileText },
-  { id: 'above_footer', label: 'Above Footer', desc: 'Bottom banner before the footer', icon: Globe },
-  { id: 'left_sidebar', label: 'Left Desktop Sidebar', desc: 'Left sidebar ad (desktop only)', icon: Layers },
-  { id: 'right_sidebar', label: 'Right Desktop Sidebar', desc: 'Right sidebar ad (desktop only)', icon: Layers },
-  { id: 'interstitial_popup', label: 'Interstitial Popup', desc: 'Inside the countdown popup modal', icon: Megaphone },
-  { id: 'native_content', label: 'Native Content', desc: 'Blends with page content naturally', icon: Tag },
-];
+  KNOWN_PAGES,
+  GLOBAL_PAGE_KEY,
+  UNIVERSAL_PLACEMENTS,
+  HOMEPAGE_ONLY_PLACEMENTS,
+  ALL_PLACEMENTS,
+  AD_TEMPLATES,
+  AD_DIMENSIONS,
+  AD_TYPES,
+  placementsForPage,
+  pageLabel,
+  placementLabel,
+  parseDimensions,
+  type PageMeta,
+} from '@/lib/ad-registry';
 
 // ===== Future Platforms =====
 const FUTURE_PLATFORMS = [
@@ -87,7 +72,6 @@ interface AdPlacementConfig {
   template: string;
   enabled: boolean;
   type: string;
-  /** Page id this ad targets. 'homepage' preserves legacy behavior. */
   page: string;
   placement: string;
   position: string;
@@ -132,14 +116,8 @@ interface ProviderConfig {
   status: 'Active' | 'Fallback';
 }
 
-// ===== Dynamic dimension parser =====
-function parseDimensions(dimStr: string): { w: number; h: number } {
-  if (dimStr === 'responsive' || dimStr === 'native') return { w: 300, h: 150 };
-  const parts = dimStr.split('x');
-  return { w: parseInt(parts[0]) || 300, h: parseInt(parts[1]) || 250 };
-}
-
 // ===== Placement mockup generator =====
+// parseDimensions is imported from '@/lib/ad-registry' — single source of truth.
 function PlacementMockup({ placementId }: { placementId: string }) {
   const mockups: Record<string, React.ReactNode> = {
     header_banner: (
@@ -272,6 +250,11 @@ const AdminDashboard = () => {
     },
   ]);
 
+  // Advertisement Management Center — currently selected page tab
+  const [activeAdPage, setActiveAdPage] = useState<string>('homepage');
+  // Dynamically discovered page list (KNOWN_PAGES + DB-distinct + fs scan)
+  const [adPages, setAdPages] = useState<PageMeta[]>(KNOWN_PAGES);
+
   // Providers config state — initialized empty, populated from /api/health
   const [providerConfigs, setProviderConfigs] = useState<ProviderConfig[]>([]);
   const [providerSearch, setProviderSearch] = useState('');
@@ -301,6 +284,8 @@ const AdminDashboard = () => {
   const [openSettingsSections, setOpenSettingsSections] = useState<Set<string>>(new Set(['site']));
 
   const [isSaving, setIsSaving] = useState(false);
+  // Advertisement Management Center — Save button status: 'idle' | 'saving' | 'saved' | 'error'
+  const [saveStatus, setSaveStatus] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle');
 
   // Fetch config on mount
   useEffect(() => {
@@ -331,7 +316,7 @@ const AdminDashboard = () => {
               template: ad.template || 'medium_rectangle',
               enabled: ad.enabled,
               type: ad.type || 'display',
-              page: ad.page || 'homepage',
+              page: ad.page || 'all',
               placement: ad.placement || 'interstitial_popup',
               position: ad.position || 'center',
               dimensions: ad.dimensions || '300x250',
@@ -373,6 +358,24 @@ const AdminDashboard = () => {
     if (isAuthenticated) {
       fetchConfig();
     }
+  }, [isAuthenticated]);
+
+  // Fetch dynamically discovered pages for the Advertisement Management Center
+  // (KNOWN_PAGES + DB-distinct page values + filesystem scan of src/app/<dir>/page.tsx)
+  useEffect(() => {
+    if (!isAuthenticated) return;
+    const fetchPages = async () => {
+      try {
+        const res = await fetch('/api/config/pages');
+        const data = await handleApiResponse(res);
+        if (data?.success && Array.isArray(data.pages) && data.pages.length > 0) {
+          setAdPages(data.pages);
+        }
+      } catch {
+        // Fall back to KNOWN_PAGES already in state
+      }
+    };
+    fetchPages();
   }, [isAuthenticated]);
 
   // Fetch analytics stats and real provider data
@@ -467,6 +470,7 @@ const AdminDashboard = () => {
   // Save interstitial + ads config
   const handleSaveAdsConfig = async () => {
     setIsSaving(true);
+    setSaveStatus('saving');
     try {
       const res = await fetch('/api/admin/config', {
         method: 'POST',
@@ -479,7 +483,7 @@ const AdminDashboard = () => {
             template: ad.template,
             enabled: ad.enabled,
             type: ad.type,
-            page: ad.page,
+            page: ad.page || GLOBAL_PAGE_KEY,
             placement: ad.placement,
             position: ad.position,
             dimensions: ad.dimensions,
@@ -500,7 +504,7 @@ const AdminDashboard = () => {
             template: ad.template || 'medium_rectangle',
             enabled: ad.enabled,
             type: ad.type || 'display',
-            page: ad.page || 'homepage',
+            page: ad.page || GLOBAL_PAGE_KEY,
             placement: ad.placement || 'interstitial_popup',
             position: ad.position || 'center',
             dimensions: ad.dimensions || '300x250',
@@ -517,32 +521,40 @@ const AdminDashboard = () => {
           ...prev,
           countdownDuration: interstitialConfig.countdownDuration,
         }));
+        setSaveStatus('saved');
+        setTimeout(() => setSaveStatus('idle'), 2000);
       } else {
         toast.error(data.error || 'Failed to save configuration');
+        setSaveStatus('error');
+        setTimeout(() => setSaveStatus('idle'), 3000);
       }
     } catch {
       toast.error('Network error — failed to save');
+      setSaveStatus('error');
+      setTimeout(() => setSaveStatus('idle'), 3000);
     } finally {
       setIsSaving(false);
     }
   };
 
-  // Add new ad
-  const addNewAd = () => {
+  // Add new ad — defaults to the currently selected page in the Ad Management Center
+  const addNewAd = (page?: string, placement?: string) => {
+    const targetPage = page || activeAdPage || GLOBAL_PAGE_KEY;
+    const targetPlacement = placement || 'above_footer';
     setAds(prev => [...prev, {
       name: 'New Advertisement',
       template: 'medium_rectangle',
       enabled: false,
       type: 'display',
-      page: 'homepage',
-      placement: 'interstitial_popup',
+      page: targetPage,
+      placement: targetPlacement,
       position: 'center',
       dimensions: '300x250',
       adCode: '',
       description: '',
       priority: prev.length + 1,
     }]);
-    toast.success('New advertisement added');
+    toast.success(`New advertisement added to ${pageLabel(targetPage)} → ${placementLabel(targetPlacement)}`);
   };
 
   // Delete ad
@@ -588,28 +600,18 @@ const AdminDashboard = () => {
     setAds(prev => prev.map((ad, i) => i === index ? { ...ad, [field]: value } : ad));
   };
 
-  // Apply template to ad — preserves the selected page, but snaps placement
-  // to the template's default placement if that placement is valid for the page.
-  // If the template's default placement is not valid for the page (e.g. picking
-  // the "Half Page" template which defaults to right_sidebar, on a content page),
-  // we leave the placement alone so the admin can choose.
+  // Apply template to ad
   const applyTemplate = (index: number, templateId: string) => {
     const template = AD_TEMPLATES.find(t => t.id === templateId);
     if (!template) return;
-    setAds(prev => prev.map((ad, i) => {
-      if (i !== index) return ad;
-      const validPlacements = getPlacementsForPage(ad.page);
-      const templatePlacementValid = validPlacements.some(p => p.id === template.placement);
-      return {
-        ...ad,
-        template: templateId,
-        dimensions: template.dimensions,
-        // Only override placement with the template default if it's valid for the current page.
-        placement: templatePlacementValid ? template.placement : ad.placement,
-        description: template.desc,
-        name: ad.name || template.label.replace(/^[^\s]+\s/, ''),
-      };
-    }));
+    setAds(prev => prev.map((ad, i) => i === index ? {
+      ...ad,
+      template: templateId,
+      dimensions: template.dimensions,
+      placement: template.placement,
+      description: template.desc,
+      name: ad.name || template.label.replace(/^[^\s]+\s/, ''),
+    } : ad));
   };
 
   // Save settings
@@ -1293,357 +1295,438 @@ const AdminDashboard = () => {
               transition={{ duration: 0.25 }}
               className="space-y-4"
             >
-              <div className="flex items-center justify-between">
-                <h2 className="text-lg font-bold">Advertisements</h2>
-                <motion.button
-                  whileHover={{ scale: 1.02 }}
-                  whileTap={{ scale: 0.98 }}
-                  onClick={addNewAd}
-                  className="px-3 py-2 bg-[#FE2C55] hover:bg-[#FE2C55]/95 rounded-[10px] text-sm font-semibold flex items-center gap-1.5 transition-colors duration-150 shadow-[0_4px_16px_rgba(254,44,85,0.25)]"
+              {/* ===== HEADER: Title + Sticky Save Changes (top) ===== */}
+              <div className="sticky top-0 z-30 -mx-4 sm:-mx-6 px-4 sm:px-6 py-3 bg-[#000000]/95 backdrop-blur-md border-b border-white/[0.06] flex items-center justify-between gap-3">
+                <div className="flex items-center gap-2 min-w-0">
+                  <Megaphone size={16} className="text-[#FE2C55] flex-shrink-0" />
+                  <h2 className="text-base sm:text-lg font-bold truncate">Advertisement Management Center</h2>
+                  <span className="hidden sm:inline-block text-[10px] text-[#9CA3AF] ml-2 px-2 py-0.5 rounded-full bg-white/5 border border-white/10">
+                    {ads.length} ad{ads.length !== 1 ? 's' : ''} · {adPages.length} pages
+                  </span>
+                </div>
+                <button
+                  onClick={handleSaveAdsConfig}
+                  disabled={isSaving}
+                  className={`flex items-center gap-2 px-4 py-2 rounded-[10px] text-sm font-semibold transition-all duration-150 shadow-[0_4px_16px_rgba(254,44,85,0.25)] ${
+                    saveStatus === 'saved' ? 'bg-[#10b981] text-black'
+                    : saveStatus === 'error' ? 'bg-red-500 text-white'
+                    : 'bg-[#FE2C55] hover:bg-[#FE2C55]/95 text-white'
+                  } ${isSaving ? 'opacity-80 cursor-wait' : 'cursor-pointer'}`}
                 >
-                  <Plus size={14} /> Add Advertisement
-                </motion.button>
+                  {saveStatus === 'saving' && <RefreshCw className="animate-spin" size={14} />}
+                  {saveStatus === 'saved' && <Check size={14} />}
+                  {saveStatus === 'error' && <AlertCircle size={14} />}
+                  {saveStatus === 'idle' && <Shield size={14} />}
+                  <span className="hidden sm:inline">
+                    {saveStatus === 'saving' ? 'Saving…' : saveStatus === 'saved' ? 'Saved' : saveStatus === 'error' ? 'Failed — retry' : 'Save Changes'}
+                  </span>
+                  <span className="sm:hidden">
+                    {saveStatus === 'saving' ? '…' : saveStatus === 'saved' ? '✓' : saveStatus === 'error' ? '!' : 'Save'}
+                  </span>
+                </button>
               </div>
 
-              {/* Interstitial Config */}
-              <div className="stat-card">
-                <h3 className="text-sm font-semibold mb-4">Interstitial Popup</h3>
-                <div className="space-y-4">
-                  {/* Enabled switch */}
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <div className="font-medium text-sm">Interstitial Enabled</div>
-                      <div className="text-xs text-[#9CA3AF]">Show countdown popup before downloads</div>
-                    </div>
-                    <Switch
-                      checked={interstitialConfig.enabled}
-                      onCheckedChange={(val) => setInterstitialConfig(prev => ({ ...prev, enabled: val }))}
-                    />
-                  </div>
+              {/* ===== PAGE TABS — horizontal scroll (mobile swipeable, desktop compact) ===== */}
+              <div className="overflow-x-auto scrollbar-thin -mx-1 px-1 pb-1">
+                <div className="flex gap-1.5 min-w-max items-center">
+                  {adPages.map(page => {
+                    const isActive = activeAdPage === page.key;
+                    return (
+                      <button
+                        key={page.key}
+                        onClick={() => setActiveAdPage(page.key)}
+                        className={`flex-shrink-0 px-3.5 py-2 rounded-[10px] text-xs font-semibold transition-all duration-150 whitespace-nowrap ${
+                          isActive
+                            ? 'bg-[#FE2C55] text-black shadow-[0_4px_16px_rgba(254,44,85,0.35)]'
+                            : 'bg-white/[0.04] text-white border border-white/[0.08] hover:bg-white/[0.08] hover:border-white/[0.12]'
+                        }`}
+                        aria-current={isActive ? 'page' : undefined}
+                      >
+                        {page.label}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
 
-                  {/* Timer dropdown */}
-                  <div>
-                    <label className="font-medium text-sm">Countdown Duration</label>
-                    <p className="text-xs text-[#9CA3AF] mb-1.5">Seconds users wait before auto-download</p>
-                    <Select
-                      value={String(interstitialConfig.countdownDuration)}
-                      onValueChange={(val) => setInterstitialConfig(prev => ({ ...prev, countdownDuration: parseInt(val) }))}
-                    >
-                      <SelectTrigger className="w-[130px] bg-[#1a1a1a] border-[#333]">
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent className="bg-[#1a1a1a] border-[#333]">
-                        {[5, 10, 15, 20, 25, 30].map((val) => (
-                          <SelectItem key={val} value={String(val)}>
-                            {val} seconds
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </div>
-
-                  {/* Auto-download switch */}
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <div className="font-medium text-sm">Auto-Download After Timer</div>
-                      <div className="text-xs text-[#9CA3AF]">Automatically trigger download when countdown reaches 0</div>
-                    </div>
-                    <Switch
-                      checked={interstitialConfig.autoDownload}
-                      onCheckedChange={(val) => setInterstitialConfig(prev => ({ ...prev, autoDownload: val }))}
-                    />
-                  </div>
-
-                  {/* Popup title */}
-                  <div>
-                    <label className="font-medium text-sm">Popup Title</label>
-                    <p className="text-xs text-[#9CA3AF] mb-1.5">Heading displayed in the interstitial popup</p>
-                    <input
-                      type="text"
-                      value={interstitialConfig.popupTitle}
-                      onChange={(e) => setInterstitialConfig(prev => ({ ...prev, popupTitle: e.target.value }))}
-                      className="w-full bg-[#1a1a1a] border border-[#333] rounded-[10px] px-3 py-2 text-sm outline-none input-focus-ring"
-                      placeholder="Support free downloads"
-                    />
-                  </div>
-
-                  {/* Popup description */}
-                  <div>
-                    <label className="font-medium text-sm">Popup Description</label>
-                    <p className="text-xs text-[#9CA3AF] mb-1.5">Subtext shown below the countdown</p>
-                    <textarea
-                      value={interstitialConfig.popupDescription}
-                      onChange={(e) => setInterstitialConfig(prev => ({ ...prev, popupDescription: e.target.value }))}
-                      className="w-full bg-[#1a1a1a] border border-[#333] rounded-[10px] px-3 py-2 text-sm outline-none input-focus-ring resize-none"
-                      rows={2}
-                      placeholder="Your download will start automatically..."
-                    />
+              {/* ===== PAGE CONTEXT BANNER ===== */}
+              <div className="stat-card !py-3 !px-4 flex items-center justify-between gap-3">
+                <div className="min-w-0">
+                  <div className="text-xs text-[#9CA3AF] uppercase tracking-wider">Managing ads for</div>
+                  <div className="font-bold text-base truncate">{pageLabel(activeAdPage)}</div>
+                </div>
+                <div className="text-right text-[10px] text-[#9CA3AF] flex-shrink-0">
+                  <div>Page key: <code className="text-white/70">{activeAdPage}</code></div>
+                  <div className="mt-0.5">
+                    {placementsForPage(activeAdPage).length} placement{placementsForPage(activeAdPage).length !== 1 ? 's' : ''} available
                   </div>
                 </div>
               </div>
 
-              {/* ===== Individual Ad Cards ===== */}
-              {ads.map((ad, index) => {
-                const dim = parseDimensions(ad.dimensions);
-                const templateInfo = AD_TEMPLATES.find(t => t.id === ad.template);
-                const placementInfo = AD_PLACEMENTS.find(p => p.id === ad.placement);
+              {/* ===== INTERSTITIAL CONFIG (only on homepage tab — it's a homepage-only feature) ===== */}
+              {activeAdPage === 'homepage' && (
+                <details className="stat-card group" open>
+                  <summary className="flex items-center justify-between cursor-pointer list-none">
+                    <div className="flex items-center gap-2">
+                      <Clock size={14} className="text-[#FE2C55]" />
+                      <h3 className="text-sm font-semibold">Interstitial Popup</h3>
+                      <span className="text-[10px] text-[#9CA3AF] px-2 py-0.5 rounded-full bg-white/5">Homepage only</span>
+                    </div>
+                    <ChevronDown size={14} className="text-[#9CA3AF] group-open:rotate-180 transition-transform" />
+                  </summary>
+                  <div className="space-y-4 mt-4">
+                    {/* Enabled switch */}
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <div className="font-medium text-sm">Interstitial Enabled</div>
+                        <div className="text-xs text-[#9CA3AF]">Show countdown popup before downloads</div>
+                      </div>
+                      <Switch
+                        checked={interstitialConfig.enabled}
+                        onCheckedChange={(val) => setInterstitialConfig(prev => ({ ...prev, enabled: val }))}
+                      />
+                    </div>
+
+                    {/* Timer dropdown */}
+                    <div>
+                      <label className="font-medium text-sm">Countdown Duration</label>
+                      <p className="text-xs text-[#9CA3AF] mb-1.5">Seconds users wait before auto-download</p>
+                      <Select
+                        value={String(interstitialConfig.countdownDuration)}
+                        onValueChange={(val) => setInterstitialConfig(prev => ({ ...prev, countdownDuration: parseInt(val) }))}
+                      >
+                        <SelectTrigger className="w-[130px] bg-[#1a1a1a] border-[#333]">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent className="bg-[#1a1a1a] border-[#333]">
+                          {[5, 10, 15, 20, 25, 30].map((val) => (
+                            <SelectItem key={val} value={String(val)}>
+                              {val} seconds
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+
+                    {/* Auto-download switch */}
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <div className="font-medium text-sm">Auto-Download After Timer</div>
+                        <div className="text-xs text-[#9CA3AF]">Automatically trigger download when countdown reaches 0</div>
+                      </div>
+                      <Switch
+                        checked={interstitialConfig.autoDownload}
+                        onCheckedChange={(val) => setInterstitialConfig(prev => ({ ...prev, autoDownload: val }))}
+                      />
+                    </div>
+
+                    {/* Popup title */}
+                    <div>
+                      <label className="font-medium text-sm">Popup Title</label>
+                      <p className="text-xs text-[#9CA3AF] mb-1.5">Heading displayed in the interstitial popup</p>
+                      <input
+                        type="text"
+                        value={interstitialConfig.popupTitle}
+                        onChange={(e) => setInterstitialConfig(prev => ({ ...prev, popupTitle: e.target.value }))}
+                        className="w-full bg-[#1a1a1a] border border-[#333] rounded-[10px] px-3 py-2 text-sm outline-none input-focus-ring"
+                        placeholder="Support free downloads"
+                      />
+                    </div>
+
+                    {/* Popup description */}
+                    <div>
+                      <label className="font-medium text-sm">Popup Description</label>
+                      <p className="text-xs text-[#9CA3AF] mb-1.5">Subtext shown below the countdown</p>
+                      <textarea
+                        value={interstitialConfig.popupDescription}
+                        onChange={(e) => setInterstitialConfig(prev => ({ ...prev, popupDescription: e.target.value }))}
+                        className="w-full bg-[#1a1a1a] border border-[#333] rounded-[10px] px-3 py-2 text-sm outline-none input-focus-ring resize-none"
+                        rows={2}
+                        placeholder="Your download will start automatically..."
+                      />
+                    </div>
+                  </div>
+                </details>
+              )}
+
+              {/* ===== SECTION-GROUPED AD CARDS =====
+                   Ads for the currently selected page are grouped by placement.
+                   Each placement is a "section" with its own heading and its own
+                   "+ Add Advertisement" secondary action. The page key is implicit
+                   (always activeAdPage) — no per-card page selector. */}
+              {placementsForPage(activeAdPage).map(placement => {
+                const sectionAds = ads
+                  .map((ad, i) => ({ ad, i }))
+                  .filter(({ ad }) => ad.page === activeAdPage && ad.placement === placement.id);
+                const placementInfo = ALL_PLACEMENTS.find(p => p.id === placement.id);
 
                 return (
-                  <div key={ad.id || `new-${index}`} className="stat-card space-y-4">
-                    {/* Ad Header */}
-                    <div className="flex items-center justify-between">
-                      <div className="flex items-center gap-2">
-                        <Megaphone size={14} className="text-[#9CA3AF]" />
-                        <h3 className="text-sm font-semibold">{ad.name}</h3>
+                  <div key={placement.id} className="space-y-3">
+                    {/* Section heading */}
+                    <div className="flex items-center justify-between gap-3 px-1">
+                      <div className="flex items-center gap-2 min-w-0">
+                        <div className="w-1 h-5 rounded-full bg-[#FE2C55]" />
+                        <h3 className="text-sm font-bold uppercase tracking-wide text-white/90">{placement.label}</h3>
+                        <span className="text-[10px] text-[#9CA3AF] px-2 py-0.5 rounded-full bg-white/5 border border-white/[0.08]">
+                          {sectionAds.length} ad{sectionAds.length !== 1 ? 's' : ''}
+                        </span>
                       </div>
-                      <div className="flex items-center gap-2">
-                        <Switch
-                          checked={ad.enabled}
-                          onCheckedChange={(val) => updateAd(index, 'enabled', val)}
-                        />
-                        <button
-                          onClick={() => duplicateAd(index)}
-                          className="w-7 h-7 flex items-center justify-center rounded-lg bg-white/5 hover:bg-white/10 transition-colors"
-                          title="Duplicate"
-                        >
-                          <Copy size={12} className="text-[#9CA3AF]" />
-                        </button>
-                        <button
-                          onClick={() => deleteAd(index)}
-                          className="w-7 h-7 flex items-center justify-center rounded-lg bg-white/5 hover:bg-red-500/20 transition-colors"
-                          title="Delete"
-                        >
-                          <Trash2 size={12} className="text-[#9CA3AF] hover:text-red-400" />
-                        </button>
-                      </div>
+                      <button
+                        onClick={() => addNewAd(activeAdPage, placement.id)}
+                        className="flex items-center gap-1 px-2.5 py-1.5 text-[11px] font-semibold rounded-[8px] bg-white/[0.04] hover:bg-white/[0.08] border border-white/[0.08] text-[#9CA3AF] hover:text-white transition-colors"
+                        title={`Add ad to ${placement.label}`}
+                      >
+                        <Plus size={11} /> Add
+                      </button>
                     </div>
-
-                    {/* Dynamic Preview */}
-                    <div className="p-3 bg-[#0d0d0d] rounded-[12px] border border-white/8">
-                      <div className="text-xs text-[#9CA3AF] mb-1.5 flex items-center gap-1.5">
-                        <Eye size={11} /> Dynamic Preview
-                      </div>
-                      {ad.adCode ? (
-                        <div className="rounded-[8px] overflow-hidden" style={{ maxWidth: Math.min(dim.w, 380), minHeight: Math.min(dim.h, 280) }}>
-                          <div dangerouslySetInnerHTML={{ __html: sanitizeAdHtml(ad.adCode) }} />
-                        </div>
-                      ) : (
-                        <div
-                          className="template-preview-mini mx-auto flex items-center justify-center"
-                          style={{
-                            width: Math.min(dim.w, 380),
-                            height: Math.min(dim.h, 280),
-                            maxWidth: '100%',
-                          }}
-                        >
-                          <div className="flex flex-col items-center gap-1">
-                            <Globe size={16} className="text-gray-600" />
-                            <span className="text-xs text-[#9CA3AF]">{ad.dimensions === 'responsive' ? 'Responsive' : `${dim.w} × ${dim.h}`}</span>
-                            <span className="text-[10px] text-gray-500">{templateInfo?.label || ad.template}</span>
-                          </div>
-                        </div>
-                      )}
-                    </div>
-
-                    {/* Placement Mockup */}
-                    {placementInfo && (
-                      <div className="p-3 bg-[#1a1a1a] rounded-[10px]">
-                        <div className="text-xs text-[#9CA3AF] mb-1.5 flex items-center gap-1.5">
-                          <LayoutGrid size={11} /> Where this appears
-                        </div>
-                        <div className="text-xs text-[#9CA3AF] mb-1">{placementInfo.desc}</div>
-                        <PlacementMockup placementId={ad.placement} />
-                      </div>
+                    {placementInfo?.desc && (
+                      <p className="text-[11px] text-[#9CA3AF] -mt-2 px-1">{placementInfo.desc}</p>
                     )}
 
-                    {/* Ad Config Fields */}
-                    <div className="space-y-3">
-                      {/* Name */}
-                      <div>
-                        <label className="text-xs text-[#9CA3AF] mb-1">Name</label>
-                        <input
-                          type="text"
-                          value={ad.name}
-                          onChange={(e) => updateAd(index, 'name', e.target.value)}
-                          className="w-full bg-[#1a1a1a] border border-[#333] rounded-[10px] px-3 py-2 text-sm outline-none input-focus-ring"
-                        />
+                    {/* Section ad cards (or empty state) */}
+                    {sectionAds.length === 0 ? (
+                      <div className="stat-card !py-6 text-center">
+                        <Megaphone size={20} className="text-gray-700 mx-auto mb-2" />
+                        <p className="text-xs text-[#9CA3AF]">No ads configured for this section.</p>
+                        <p className="text-[10px] text-gray-600 mt-1">
+                          {activeAdPage === GLOBAL_PAGE_KEY
+                            ? 'A global ad here will render on every page that has this placement.'
+                            : 'A page-specific ad here overrides any global ad for the same placement.'}
+                        </p>
                       </div>
+                    ) : (
+                      sectionAds.map(({ ad, i: index }) => {
+                        const dim = parseDimensions(ad.dimensions);
+                        const templateInfo = AD_TEMPLATES.find(t => t.id === ad.template);
 
-                      {/* Template */}
-                      <div>
-                        <label className="text-xs text-[#9CA3AF] mb-1">Template</label>
-                        <p className="text-[10px] text-[#9CA3AF] mb-1">Select a built-in template — auto-configures dimensions, placement & description</p>
-                        <Select
-                          value={ad.template}
-                          onValueChange={(val) => applyTemplate(index, val)}
-                        >
-                          <SelectTrigger className="w-full bg-[#1a1a1a] border-[#333]">
-                            <SelectValue />
-                          </SelectTrigger>
-                          <SelectContent className="bg-[#1a1a1a] border-[#333]">
-                            {AD_TEMPLATES.map((t) => (
-                              <SelectItem key={t.id} value={t.id}>
-                                {t.label} — {t.dimensions}
-                              </SelectItem>
-                            ))}
-                          </SelectContent>
-                        </Select>
-                      </div>
+                        return (
+                          <div key={ad.id || `new-${index}`} className="stat-card space-y-4">
+                            {/* Ad Header */}
+                            <div className="flex items-center justify-between">
+                              <div className="flex items-center gap-2 min-w-0">
+                                <Megaphone size={14} className="text-[#9CA3AF] flex-shrink-0" />
+                                <h3 className="text-sm font-semibold truncate">{ad.name}</h3>
+                                {!ad.enabled && (
+                                  <span className="text-[9px] text-[#9CA3AF] px-1.5 py-0.5 rounded-full bg-white/5 border border-white/10 uppercase tracking-wider">Disabled</span>
+                                )}
+                              </div>
+                              <div className="flex items-center gap-2 flex-shrink-0">
+                                <Switch
+                                  checked={ad.enabled}
+                                  onCheckedChange={(val) => updateAd(index, 'enabled', val)}
+                                />
+                                <button
+                                  onClick={() => duplicateAd(index)}
+                                  className="w-7 h-7 flex items-center justify-center rounded-lg bg-white/5 hover:bg-white/10 transition-colors"
+                                  title="Duplicate"
+                                >
+                                  <Copy size={12} className="text-[#9CA3AF]" />
+                                </button>
+                                <button
+                                  onClick={() => deleteAd(index)}
+                                  className="w-7 h-7 flex items-center justify-center rounded-lg bg-white/5 hover:bg-red-500/20 transition-colors"
+                                  title="Delete"
+                                >
+                                  <Trash2 size={12} className="text-[#9CA3AF] hover:text-red-400" />
+                                </button>
+                              </div>
+                            </div>
 
-                      {/* Page — centralized ad targeting */}
-                      <div>
-                        <label className="text-xs text-[#9CA3AF] mb-1">Page</label>
-                        <p className="text-[10px] text-[#9CA3AF] mb-1">Which page this ad renders on. Pick &quot;All Pages&quot; to show the same ad across every page.</p>
-                        <Select
-                          value={ad.page}
-                          onValueChange={(val) => {
-                            // When page changes, snap placement to a valid value for the new page
-                            // (avoids rendering an ad on a placement that doesn't exist there).
-                            const validPlacements = getPlacementsForPage(val);
-                            const currentPlacementStillValid = validPlacements.some(p => p.id === ad.placement);
-                            updateAd(index, 'page', val);
-                            if (!currentPlacementStillValid && validPlacements.length > 0) {
-                              updateAd(index, 'placement', validPlacements[0].id);
-                            }
-                          }}
-                        >
-                          <SelectTrigger className="w-full bg-[#1a1a1a] border-[#333]">
-                            <SelectValue />
-                          </SelectTrigger>
-                          <SelectContent className="bg-[#1a1a1a] border-[#333]">
-                            {PAGE_KEYS.map((p) => (
-                              <SelectItem key={p.id} value={p.id}>
-                                {p.label} — {p.desc}
-                              </SelectItem>
-                            ))}
-                          </SelectContent>
-                        </Select>
-                      </div>
+                            {/* Dynamic Preview */}
+                            <div className="p-3 bg-[#0d0d0d] rounded-[12px] border border-white/8">
+                              <div className="text-xs text-[#9CA3AF] mb-1.5 flex items-center gap-1.5">
+                                <Eye size={11} /> Dynamic Preview
+                              </div>
+                              {ad.adCode ? (
+                                <div className="rounded-[8px] overflow-hidden" style={{ maxWidth: Math.min(dim.w, 380), minHeight: Math.min(dim.h, 280) }}>
+                                  <div dangerouslySetInnerHTML={{ __html: sanitizeAdHtml(ad.adCode) }} />
+                                </div>
+                              ) : (
+                                <div
+                                  className="template-preview-mini mx-auto flex items-center justify-center"
+                                  style={{
+                                    width: Math.min(dim.w, 380),
+                                    height: Math.min(dim.h, 280),
+                                    maxWidth: '100%',
+                                  }}
+                                >
+                                  <div className="flex flex-col items-center gap-1">
+                                    <Globe size={16} className="text-gray-600" />
+                                    <span className="text-xs text-[#9CA3AF]">{ad.dimensions === 'responsive' ? 'Responsive' : `${dim.w} × ${dim.h}`}</span>
+                                    <span className="text-[10px] text-gray-500">{templateInfo?.label || ad.template}</span>
+                                  </div>
+                                </div>
+                              )}
+                            </div>
 
-                      {/* Placement — filtered by selected Page */}
-                      <div>
-                        <label className="text-xs text-[#9CA3AF] mb-1">Placement</label>
-                        <p className="text-[10px] text-[#9CA3AF] mb-1">Where on the page this ad appears. Options are filtered by the selected page.</p>
-                        <Select
-                          value={ad.placement}
-                          onValueChange={(val) => updateAd(index, 'placement', val)}
-                        >
-                          <SelectTrigger className="w-full bg-[#1a1a1a] border-[#333]">
-                            <SelectValue />
-                          </SelectTrigger>
-                          <SelectContent className="bg-[#1a1a1a] border-[#333]">
-                            {/* Filter the legacy AD_PLACEMENTS list by what's valid for the current page.
-                                Falls back to the full PLACEMENT_KEYS registry for new pages. */}
-                            {(ad.page === 'homepage'
-                              ? AD_PLACEMENTS.map(ap => PLACEMENT_KEYS.find(pk => pk.id === ap.id)).filter(Boolean)
-                              : getPlacementsForPage(ad.page)
-                            ).map((p: any) => (
-                              <SelectItem key={p.id} value={p.id}>
-                                {p.label} — {p.desc}
-                              </SelectItem>
-                            ))}
-                          </SelectContent>
-                        </Select>
-                      </div>
+                            {/* Placement Mockup */}
+                            {placementInfo && (
+                              <div className="p-3 bg-[#1a1a1a] rounded-[10px]">
+                                <div className="text-xs text-[#9CA3AF] mb-1.5 flex items-center gap-1.5">
+                                  <LayoutGrid size={11} /> Where this appears
+                                </div>
+                                <div className="text-xs text-[#9CA3AF] mb-1">{placementInfo.desc}</div>
+                                <PlacementMockup placementId={ad.placement} />
+                              </div>
+                            )}
 
-                      {/* Dimensions */}
-                      <div>
-                        <label className="text-xs text-[#9CA3AF] mb-1">Dimensions</label>
-                        <p className="text-[10px] text-[#9CA3AF] mb-1">Size of the ad area. Changing this instantly updates the preview above.</p>
-                        <Select
-                          value={ad.dimensions}
-                          onValueChange={(val) => updateAd(index, 'dimensions', val)}
-                        >
-                          <SelectTrigger className="w-full bg-[#1a1a1a] border-[#333]">
-                            <SelectValue />
-                          </SelectTrigger>
-                          <SelectContent className="bg-[#1a1a1a] border-[#333]">
-                            <SelectItem value="320x100">320 × 100 (Mobile Banner)</SelectItem>
-                            <SelectItem value="300x250">300 × 250 (Medium Rectangle)</SelectItem>
-                            <SelectItem value="336x280">336 × 280 (Large Rectangle)</SelectItem>
-                            <SelectItem value="728x90">728 × 90 (Leaderboard)</SelectItem>
-                            <SelectItem value="970x250">970 × 250 (Large Leaderboard)</SelectItem>
-                            <SelectItem value="300x600">300 × 600 (Half Page)</SelectItem>
-                            <SelectItem value="160x600">160 × 600 (Skyscraper)</SelectItem>
-                            <SelectItem value="970x90">970 × 90 (Billboard)</SelectItem>
-                            <SelectItem value="responsive">Responsive</SelectItem>
-                          </SelectContent>
-                        </Select>
-                      </div>
+                            {/* Ad Config Fields */}
+                            <div className="space-y-3">
+                              {/* Name */}
+                              <div>
+                                <label className="text-xs text-[#9CA3AF] mb-1">Name</label>
+                                <input
+                                  type="text"
+                                  value={ad.name}
+                                  onChange={(e) => updateAd(index, 'name', e.target.value)}
+                                  className="w-full bg-[#1a1a1a] border border-[#333] rounded-[10px] px-3 py-2 text-sm outline-none input-focus-ring"
+                                />
+                              </div>
 
-                      {/* Ad Type */}
-                      <div>
-                        <label className="text-xs text-[#9CA3AF] mb-1">Type</label>
-                        <Select
-                          value={ad.type}
-                          onValueChange={(val) => updateAd(index, 'type', val)}
-                        >
-                          <SelectTrigger className="w-[120px] bg-[#1a1a1a] border-[#333]">
-                            <SelectValue />
-                          </SelectTrigger>
-                          <SelectContent className="bg-[#1a1a1a] border-[#333]">
-                            <SelectItem value="display">Display</SelectItem>
-                            <SelectItem value="video">Video</SelectItem>
-                            <SelectItem value="native">Native</SelectItem>
-                          </SelectContent>
-                        </Select>
-                      </div>
+                              {/* Template */}
+                              <div>
+                                <label className="text-xs text-[#9CA3AF] mb-1">Template</label>
+                                <p className="text-[10px] text-[#9CA3AF] mb-1">Select a built-in template — auto-configures dimensions, placement & description</p>
+                                <Select
+                                  value={ad.template}
+                                  onValueChange={(val) => applyTemplate(index, val)}
+                                >
+                                  <SelectTrigger className="w-full bg-[#1a1a1a] border-[#333]">
+                                    <SelectValue />
+                                  </SelectTrigger>
+                                  <SelectContent className="bg-[#1a1a1a] border-[#333]">
+                                    {AD_TEMPLATES.map((t) => (
+                                      <SelectItem key={t.id} value={t.id}>
+                                        {t.label} — {t.dimensions}
+                                      </SelectItem>
+                                    ))}
+                                  </SelectContent>
+                                </Select>
+                              </div>
 
-                      {/* Priority */}
-                      <div>
-                        <label className="text-xs text-[#9CA3AF] mb-1">Priority</label>
-                        <input
-                          type="number"
-                          min={1}
-                          max={100}
-                          value={ad.priority}
-                          onChange={(e) => updateAd(index, 'priority', Math.max(1, parseInt(e.target.value) || 1))}
-                          className="w-[60px] bg-[#1a1a1a] border border-[#333] rounded-[8px] px-2 py-1.5 text-sm text-center outline-none input-focus-ring"
-                        />
-                      </div>
+                              {/* Placement — fixed to current section, shown read-only for context */}
+                              <div>
+                                <label className="text-xs text-[#9CA3AF] mb-1">Placement</label>
+                                <p className="text-[10px] text-[#9CA3AF] mb-1">Inherited from the current section above. Move this ad by changing the section context.</p>
+                                <Select
+                                  value={ad.placement}
+                                  onValueChange={(val) => updateAd(index, 'placement', val)}
+                                >
+                                  <SelectTrigger className="w-full bg-[#1a1a1a] border-[#333]">
+                                    <SelectValue />
+                                  </SelectTrigger>
+                                  <SelectContent className="bg-[#1a1a1a] border-[#333]">
+                                    {placementsForPage(activeAdPage).map((p) => (
+                                      <SelectItem key={p.id} value={p.id}>
+                                        {p.label} — {p.desc}
+                                      </SelectItem>
+                                    ))}
+                                  </SelectContent>
+                                </Select>
+                              </div>
 
-                      {/* Description */}
-                      <div>
-                        <label className="text-xs text-[#9CA3AF] mb-1">Description</label>
-                        <textarea
-                          value={ad.description}
-                          onChange={(e) => updateAd(index, 'description', e.target.value)}
-                          className="w-full bg-[#1a1a1a] border border-[#333] rounded-[10px] px-3 py-2 text-xs outline-none input-focus-ring resize-none"
-                          rows={2}
-                          placeholder="Describe this advertisement..."
-                        />
-                      </div>
+                              {/* Dimensions */}
+                              <div>
+                                <label className="text-xs text-[#9CA3AF] mb-1">Dimensions</label>
+                                <p className="text-[10px] text-[#9CA3AF] mb-1">Size of the ad area. Changing this instantly updates the preview above.</p>
+                                <Select
+                                  value={ad.dimensions}
+                                  onValueChange={(val) => updateAd(index, 'dimensions', val)}
+                                >
+                                  <SelectTrigger className="w-full bg-[#1a1a1a] border-[#333]">
+                                    <SelectValue />
+                                  </SelectTrigger>
+                                  <SelectContent className="bg-[#1a1a1a] border-[#333]">
+                                    {AD_DIMENSIONS.map(d => (
+                                      <SelectItem key={d.value} value={d.value}>{d.label}</SelectItem>
+                                    ))}
+                                  </SelectContent>
+                                </Select>
+                              </div>
 
-                      {/* Code Editor */}
-                      <div>
-                        <label className="text-xs text-[#9CA3AF] mb-1 flex items-center gap-1.5">
-                          <Code size={11} /> Ad Provider Code
-                        </label>
-                        <p className="text-[10px] text-[#9CA3AF] mb-1">Paste HTML/JS code from your ad provider. This will render on the landing page.</p>
-                        <textarea
-                          value={ad.adCode}
-                          onChange={(e) => updateAd(index, 'adCode', e.target.value)}
-                          className="code-editor w-full"
-                          rows={4}
-                          placeholder="<!-- Paste your ad provider HTML/JS code here -->"
-                        />
-                      </div>
-                    </div>
+                              {/* Ad Type */}
+                              <div>
+                                <label className="text-xs text-[#9CA3AF] mb-1">Type</label>
+                                <Select
+                                  value={ad.type}
+                                  onValueChange={(val) => updateAd(index, 'type', val)}
+                                >
+                                  <SelectTrigger className="w-[120px] bg-[#1a1a1a] border-[#333]">
+                                    <SelectValue />
+                                  </SelectTrigger>
+                                  <SelectContent className="bg-[#1a1a1a] border-[#333]">
+                                    {AD_TYPES.map(t => (
+                                      <SelectItem key={t.value} value={t.value}>{t.label}</SelectItem>
+                                    ))}
+                                  </SelectContent>
+                                </Select>
+                              </div>
+
+                              {/* Priority */}
+                              <div>
+                                <label className="text-xs text-[#9CA3AF] mb-1">Priority</label>
+                                <input
+                                  type="number"
+                                  min={1}
+                                  max={100}
+                                  value={ad.priority}
+                                  onChange={(e) => updateAd(index, 'priority', Math.max(1, parseInt(e.target.value) || 1))}
+                                  className="w-[60px] bg-[#1a1a1a] border border-[#333] rounded-[8px] px-2 py-1.5 text-sm text-center outline-none input-focus-ring"
+                                />
+                              </div>
+
+                              {/* Description */}
+                              <div>
+                                <label className="text-xs text-[#9CA3AF] mb-1">Description</label>
+                                <textarea
+                                  value={ad.description}
+                                  onChange={(e) => updateAd(index, 'description', e.target.value)}
+                                  className="w-full bg-[#1a1a1a] border border-[#333] rounded-[10px] px-3 py-2 text-xs outline-none input-focus-ring resize-none"
+                                  rows={2}
+                                  placeholder="Describe this advertisement..."
+                                />
+                              </div>
+
+                              {/* Code Editor */}
+                              <div>
+                                <label className="text-xs text-[#9CA3AF] mb-1 flex items-center gap-1.5">
+                                  <Code size={11} /> Ad Provider Code
+                                </label>
+                                <p className="text-[10px] text-[#9CA3AF] mb-1">Paste HTML/JS code from your ad provider. This will render on the landing page.</p>
+                                <textarea
+                                  value={ad.adCode}
+                                  onChange={(e) => updateAd(index, 'adCode', e.target.value)}
+                                  className="code-editor w-full"
+                                  rows={4}
+                                  placeholder="<!-- Paste your ad provider HTML/JS code here -->"
+                                />
+                              </div>
+                            </div>
+                          </div>
+                        );
+                      })
+                    )}
                   </div>
                 );
               })}
 
-              {/* Save button */}
-              <motion.button
-                whileHover={{ scale: 1.02, y: -1 }}
-                whileTap={{ scale: 0.98 }}
-                onClick={handleSaveAdsConfig}
-                disabled={isSaving}
-                className="save-btn flex items-center justify-center gap-2"
-              >
-                {isSaving ? <RefreshCw className="animate-spin" size={14} /> : <Shield size={14} />}
-                {isSaving ? 'Saving...' : 'Save All Advertisements'}
-              </motion.button>
+              {/* ===== STICKY + ADD ADVERTISEMENT (bottom) =====
+                   Floating action button pinned to the bottom of the viewport
+                   so it's always accessible while scrolling. Adds a new ad to
+                   the currently selected page in the first available placement. */}
+              <div className="sticky bottom-4 z-20 flex justify-center pointer-events-none">
+                <button
+                  onClick={() => addNewAd(activeAdPage, placementsForPage(activeAdPage)[0]?.id)}
+                  className="pointer-events-auto flex items-center gap-2 px-5 py-3 bg-[#FE2C55] hover:bg-[#FE2C55]/95 text-white rounded-[14px] text-sm font-semibold shadow-[0_8px_32px_rgba(254,44,85,0.4)] transition-all duration-150 hover:scale-[1.02] active:scale-[0.98]"
+                  title={`Add advertisement to ${pageLabel(activeAdPage)}`}
+                >
+                  <Plus size={16} />
+                  <span>Add Advertisement to {pageLabel(activeAdPage)}</span>
+                </button>
+              </div>
+
+              {/* Trailing spacer so the floating button never covers the last card */}
+              <div className="h-12" />
             </motion.div>
           )}
 

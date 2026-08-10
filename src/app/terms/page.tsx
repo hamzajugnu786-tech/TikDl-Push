@@ -2,7 +2,7 @@ import type { Metadata } from 'next';
 import Link from 'next/link';
 import SiteNavbar from '@/components/site-navbar';
 import SiteFooter from '@/components/site-footer';
-import { AdSlot } from '@/components/ad-slot';
+import ContentPageAds from '@/components/ContentPageAds';
 
 export const metadata: Metadata = {
   title: 'Terms of Service — TikDL',
@@ -15,24 +15,14 @@ export default function TermsPage() {
     <div className="min-h-screen bg-[#000000] text-white flex flex-col">
       <SiteNavbar currentPage="terms" />
       <div className="h-[52px]" />
-
-      {/* ===== Ad Slot 1: Header banner ===== */}
-      <div className="max-w-6xl mx-auto px-4 sm:px-6 mt-2">
-        <AdSlot page="terms" placement="header_banner" />
-      </div>
-
       <main className="flex-1">
+        <ContentPageAds page="terms">
         <section className="pt-12 sm:pt-16 pb-8 px-4 sm:px-6">
           <div className="max-w-3xl mx-auto text-center">
             <h1 className="text-3xl sm:text-4xl font-extrabold tracking-tight mb-4">Terms of Service</h1>
             <p className="text-[#9CA3AF] text-base leading-relaxed max-w-xl mx-auto">Last updated: August 2026. By using TikDL, you agree to these terms.</p>
           </div>
         </section>
-
-        {/* ===== Ad Slot 2: After intro ===== */}
-        <div className="max-w-3xl mx-auto px-4 sm:px-6 my-3">
-          <AdSlot page="terms" placement="after_intro" />
-        </div>
 
         <section className="py-8 sm:py-12 px-4 sm:px-6">
           <div className="max-w-3xl mx-auto space-y-6">
@@ -46,11 +36,6 @@ export default function TermsPage() {
               <h2 className="text-lg sm:text-xl font-bold mb-4">2. Description of Service</h2>
               <p className="text-[#9CA3AF] leading-relaxed mb-3">TikDL is a web-based tool that allows users to download publicly available TikTok videos without watermarks. Users can save videos in HD quality or extract audio.</p>
               <p className="text-[#9CA3AF] leading-relaxed">The service is provided &quot;as is&quot; without warranties. Availability depends on the public availability of the requested content.</p>
-            </div>
-
-            {/* ===== Ad Slot 3: Between content sections ===== */}
-            <div className="py-1">
-              <AdSlot page="terms" placement="between_sections" />
             </div>
 
             <div className="glass rounded-[16px] p-6 sm:p-8">
@@ -73,11 +58,6 @@ export default function TermsPage() {
               <p className="text-[#9CA3AF] leading-relaxed">If you are a rights holder, see our <Link href="/dmca" className="text-[#FE2C55] hover:underline">DMCA page</Link>.</p>
             </div>
 
-            {/* ===== Ad Slot 4: Between content sections ===== */}
-            <div className="py-1">
-              <AdSlot page="terms" placement="between_sections" />
-            </div>
-
             <div className="glass rounded-[16px] p-6 sm:p-8">
               <h2 className="text-lg sm:text-xl font-bold mb-4">5. Disclaimers</h2>
               <p className="text-[#9CA3AF] leading-relaxed mb-3">TikDL is not affiliated with, endorsed by, or connected to TikTok or ByteDance. All TikTok trademarks remain the property of their respective owners.</p>
@@ -96,22 +76,12 @@ export default function TermsPage() {
           </div>
         </section>
 
-        {/* ===== Ad Slot 5: Above final CTA ===== */}
-        <div className="max-w-3xl mx-auto px-4 sm:px-6 my-3">
-          <AdSlot page="terms" placement="above_cta" />
-        </div>
-
         <section className="py-8 sm:py-10 px-4 sm:px-6 text-center bg-[#0a0a0a]">
           <p className="text-[#9CA3AF] text-sm mb-3">Questions? <Link href="/contact" className="text-[#FE2C55] hover:underline">Contact us</Link>.</p>
           <Link href="/" className="inline-flex items-center gap-2 px-6 py-3 bg-[#FE2C55] hover:bg-[#FE2C55]/90 rounded-[12px] font-semibold text-sm transition-colors duration-150">Back to TikDL</Link>
         </section>
+        </ContentPageAds>
       </main>
-
-      {/* ===== Ad Slot 6: Above footer ===== */}
-      <div className="max-w-6xl mx-auto px-4 sm:px-6 mb-2">
-        <AdSlot page="terms" placement="above_footer" />
-      </div>
-
       <SiteFooter />
     </div>
   );

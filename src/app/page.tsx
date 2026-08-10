@@ -108,9 +108,6 @@ const TikTokDownloader = () => {
   const [activeTab, setActiveTab] = useState<'video' | 'audio'>('video');
   const [isUnavailable, setIsUnavailable] = useState(false);
   const [unavailableReason, setUnavailableReason] = useState('');
-  // True when a thumbnail URL exists but the image itself failed to load —
-  // fall back to the existing Play-icon placeholder instead of an empty box.
-  const [thumbnailLoadError, setThumbnailLoadError] = useState(false);
   const [imagePostMode, setImagePostMode] = useState<'video' | 'images'>('video');
   const [selectedImages, setSelectedImages] = useState<Set<number>>(new Set());
   const [showAdPopup, setShowAdPopup] = useState(false);
@@ -143,17 +140,6 @@ const TikTokDownloader = () => {
   const tabContainerRef = useRef<HTMLDivElement>(null);
   const [pendingDownload, setPendingDownload] = useState<{ url: string; filename: string } | null>(null);
   const [resultHighlight, setResultHighlight] = useState(false);
-  // ── Async thumbnail enrichment ──
-  // When the primary provider (V2 SSSTik / V3 MusicalDown) wins the race,
-  // the API returns a successful video result with an EMPTY thumbnail.
-  // We fire a non-blocking POST /api/thumbnail enrichment AFTER the success
-  // card is already displayed. If it succeeds, we patch videoInfo.thumbnail
-  // in place; if it fails, the existing Play-icon placeholder remains.
-  //
-  // The ref tracks the URL of the video currently being enriched, so a
-  // stale response from a previous fetch can never overwrite a newer
-  // video's state. Cleared on every resetInterface().
-  const pendingThumbnailUrlRef = useRef<string | null>(null);
   // Swipe state
   const [touchStart, setTouchStart] = useState<number | null>(null);
   // Slide carousel swipe state (separate from tab swipe)
@@ -239,10 +225,6 @@ const TikTokDownloader = () => {
     setUnavailableReason('');
     setError('');
     setVideoInfo(null);
-    setThumbnailLoadError(false);
-    // Cancel any in-flight thumbnail enrichment — its response would be
-    // stale for the new video.
-    pendingThumbnailUrlRef.current = null;
   }, []);
 
   // Fetch video info
@@ -325,62 +307,6 @@ const TikTokDownloader = () => {
       setActiveTab('video');
       setHistory(prev => [{ ...data, _timestamp: Date.now() }, ...prev.slice(0, 9)]);
       toast.success('Video ready!');
-
-      // ── ASYNC THUMBNAIL ENRICHMENT (NON-BLOCKING) ──
-      // Fired ONLY when the API returned success but with no thumbnail.
-      // This happens when V2 (SSSTik) or V3 (MusicalDown) wins the race —
-      // neither provider exposes a video cover URL. We fetch the cover via
-      // TikTok's public oEmbed endpoint and patch the success card in place.
-      //
-      // Performance contract:
-      //   - The success card is already rendered above; this NEVER blocks it.
-      //   - The video download URLs are already available; this NEVER blocks downloads.
-      //   - On any failure (timeout, 403, network), the placeholder silently remains.
-      //   - On a new fetch, pendingThumbnailUrlRef changes → stale response is discarded.
-      //   - Image/photo posts are skipped (they have their own carousel + slide URLs).
-      if (!data.thumbnail && data.postType !== 'images') {
-        const enrichmentUrl = videoUrl;
-        pendingThumbnailUrlRef.current = enrichmentUrl;
-        // Fire-and-forget — never awaited, never throws into the outer handler.
-        void (async () => {
-          try {
-            const thumbRes = await fetch('/api/thumbnail', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ url: enrichmentUrl }),
-            });
-            if (!thumbRes.ok) return;
-            const thumbData = await thumbRes.json();
-            if (!thumbData.success || typeof thumbData.thumbnail !== 'string') return;
-            // Stale-guard: a newer fetch has replaced the current video — discard.
-            if (pendingThumbnailUrlRef.current !== enrichmentUrl) return;
-            // Patch the success card in place. Use the functional form so we
-            // never clobber a newer videoInfo set by a subsequent fetch.
-            setVideoInfo(prev =>
-              prev && prev.id === data.id
-                ? { ...prev, thumbnail: thumbData.thumbnail }
-                : prev
-            );
-            // ALSO patch the matching Recent Downloads / history item so its
-            // thumbnail card renders correctly. The history item was saved
-            // BEFORE enrichment completed (with an empty thumbnail), so we
-            // must update it here. Match by id+timestamp to avoid touching
-            // a different video that might have been fetched since.
-            setHistory(prev =>
-              prev.map(item =>
-                item.id === data.id && (item._timestamp || 0) >= (data._timestamp || 0)
-                  ? { ...item, thumbnail: thumbData.thumbnail }
-                  : item
-              )
-            );
-            // Reset the load-error flag so the <img> renders the new thumbnail.
-            setThumbnailLoadError(false);
-          } catch {
-            // Network/parse error — silent failure, placeholder remains.
-            // The video download itself is completely unaffected.
-          }
-        })();
-      }
 
       // Scroll to result card after fetch — use requestAnimationFrame for reliable timing
       // This ensures the DOM has committed the new videoInfo state before scrolling
@@ -1020,12 +946,12 @@ const TikTokDownloader = () => {
                       {/* Normal video preview */}
                       {videoInfo.postType !== 'images' && activeTab === 'video' && (
                         <div className="relative rounded-[12px] overflow-hidden bg-zinc-900 aspect-[9/16]">
-                          {(videoInfo.thumbnail && !thumbnailLoadError) ? (
+                          {videoInfo.thumbnail ? (
                             <img
                               src={`/api/proxy?url=${encodeURIComponent(videoInfo.thumbnail)}&filename=thumbnail.jpg&mode=inline`}
                               alt={videoInfo.title}
                               className="w-full h-full object-cover"
-                              onError={() => setThumbnailLoadError(true)}
+                              onError={(e) => { const img = e.target as HTMLImageElement; img.style.display = 'none'; }}
                             />
                           ) : (
                             <div className="w-full h-full flex items-center justify-center bg-zinc-800">
@@ -1151,54 +1077,56 @@ const TikTokDownloader = () => {
                   <button onClick={clearHistory} className="text-xs text-gray-500 hover:text-red-400 transition-colors duration-150">Clear</button>
                 </div>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                  {history.map((item, idx) => {
-                    // Insert a history_interval ad after every 4 cards.
-                    // The last card never gets a trailing ad (avoids empty slots).
-                    const showIntervalAd =
-                      (idx + 1) % 4 === 0 && idx < history.length - 1;
-                    return (
-                      <React.Fragment key={item.id + (item._timestamp || 0) + '-' + idx}>
-                        <div
-                          className="glass rounded-[12px] p-3 flex items-center gap-3 hover:bg-white/5 transition-colors duration-150 cursor-pointer"
-                          onClick={() => {
-                            resetInterface();
-                            setVideoInfo(item);
-                            setActiveTab('video');
-                            setUrl('');
-                            setTimeout(() => {
-                              window.scrollTo({ top: 0, behavior: 'smooth' });
-                              setResultHighlight(true);
-                              setTimeout(() => setResultHighlight(false), 1500);
-                            }, 100);
-                          }}
-                        >
-                          {item.thumbnail ? (
-                            <img
-                              src={`/api/proxy?url=${encodeURIComponent(item.thumbnail)}&filename=thumb.jpg&mode=inline`}
-                              alt={item.title}
-                              className="w-11 h-11 rounded-[10px] object-cover bg-zinc-800 flex-shrink-0"
-                              onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }}
-                            />
-                          ) : (
-                            <div className="w-11 h-11 rounded-[10px] bg-zinc-800 flex-shrink-0 flex items-center justify-center">
-                              <Play size={14} className="text-zinc-600" />
-                            </div>
-                          )}
-                          <div className="flex-1 min-w-0">
-                            <p className="font-medium text-sm truncate">{item.title}</p>
-                            <p className="text-xs text-gray-500 truncate">{item.author?.startsWith('@') ? item.author : `@${item.author}`}</p>
-                            {item._timestamp && (
-                              <p className="text-[10px] text-gray-600 mt-0.5">{new Date(item._timestamp).toLocaleString()}</p>
-                            )}
-                          </div>
-                        </div>
-                        {showIntervalAd && landingAds.inlineAds.filter(a => a.placement === 'history_interval').length > 0 && (
-                          <div className="sm:col-span-2 my-1">
-                            {landingAds.inlineAds.filter(a => a.placement === 'history_interval').map(ad => renderAdSlot(ad))}
+                  {history.flatMap((item, i) => {
+                    const nodes: React.ReactNode[] = [
+                      <div
+                        key={item.id + (item._timestamp || 0)}
+                        className="glass rounded-[12px] p-3 flex items-center gap-3 hover:bg-white/5 transition-colors duration-150 cursor-pointer"
+                        onClick={() => {
+                          resetInterface();
+                          setVideoInfo(item);
+                          setActiveTab('video');
+                          setUrl('');
+                          setTimeout(() => {
+                            window.scrollTo({ top: 0, behavior: 'smooth' });
+                            setResultHighlight(true);
+                            setTimeout(() => setResultHighlight(false), 1500);
+                          }, 100);
+                        }}
+                      >
+                        {item.thumbnail ? (
+                          <img
+                            src={`/api/proxy?url=${encodeURIComponent(item.thumbnail)}&filename=thumb.jpg&mode=inline`}
+                            alt={item.title}
+                            className="w-11 h-11 rounded-[10px] object-cover bg-zinc-800 flex-shrink-0"
+                            onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }}
+                          />
+                        ) : (
+                          <div className="w-11 h-11 rounded-[10px] bg-zinc-800 flex-shrink-0 flex items-center justify-center">
+                            <Play size={14} className="text-zinc-600" />
                           </div>
                         )}
-                      </React.Fragment>
-                    );
+                        <div className="flex-1 min-w-0">
+                          <p className="font-medium text-sm truncate">{item.title}</p>
+                          <p className="text-xs text-gray-500 truncate">{item.author?.startsWith('@') ? item.author : `@${item.author}`}</p>
+                          {item._timestamp && (
+                            <p className="text-[10px] text-gray-600 mt-0.5">{new Date(item._timestamp).toLocaleString()}</p>
+                          )}
+                        </div>
+                      </div>,
+                    ];
+                    // Insert an interval ad after every 4 cards (not forced if <4 total)
+                    if ((i + 1) % 4 === 0 && (i + 1) < history.length) {
+                      const intervalAds = landingAds.inlineAds.filter(a => a.placement === 'history_interval');
+                      if (intervalAds.length > 0) {
+                        nodes.push(
+                          <div key={`ad-interval-${i}`} className="sm:col-span-2 my-1">
+                            {intervalAds.map(ad => renderAdSlot(ad, 'ad-slot-interval'))}
+                          </div>
+                        );
+                      }
+                    }
+                    return nodes;
                   })}
                 </div>
               </div>

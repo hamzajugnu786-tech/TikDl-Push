@@ -2,7 +2,7 @@ import type { Metadata } from 'next';
 import Link from 'next/link';
 import SiteNavbar from '@/components/site-navbar';
 import SiteFooter from '@/components/site-footer';
-import { AdSlot } from '@/components/ad-slot';
+import ContentPageAds from '@/components/ContentPageAds';
 
 export const metadata: Metadata = {
   title: 'About TikDL — Free TikTok Video Downloader',
@@ -15,13 +15,8 @@ export default function AboutPage() {
     <div className="min-h-screen bg-[#000000] text-white flex flex-col">
       <SiteNavbar currentPage="about" />
       <div className="h-[52px]" />
-
-      {/* ===== Ad Slot 1: Header banner (below navbar) ===== */}
-      <div className="max-w-6xl mx-auto px-4 sm:px-6 mt-2">
-        <AdSlot page="about" placement="header_banner" />
-      </div>
-
       <main className="flex-1">
+        <ContentPageAds page="about">
         <section className="pt-12 sm:pt-16 pb-8 px-4 sm:px-6">
           <div className="max-w-3xl mx-auto text-center">
             <div className="w-14 h-14 bg-[#FE2C55] rounded-2xl flex items-center justify-center text-2xl font-bold mx-auto mb-5">♪</div>
@@ -29,11 +24,6 @@ export default function AboutPage() {
             <p className="text-[#9CA3AF] text-base sm:text-lg leading-relaxed max-w-xl mx-auto">The fastest, most reliable TikTok downloader on the web. Save any public TikTok video without a watermark in full HD quality — completely free.</p>
           </div>
         </section>
-
-        {/* ===== Ad Slot 2: After intro / mission section ===== */}
-        <div className="max-w-3xl mx-auto px-4 sm:px-6 my-3">
-          <AdSlot page="about" placement="after_intro" />
-        </div>
 
         <section className="py-8 sm:py-12 px-4 sm:px-6 bg-[#0a0a0a]">
           <div className="max-w-3xl mx-auto">
@@ -45,11 +35,6 @@ export default function AboutPage() {
             </div>
           </div>
         </section>
-
-        {/* ===== Ad Slot 3: Between major sections ===== */}
-        <div className="max-w-3xl mx-auto px-4 sm:px-6 my-3">
-          <AdSlot page="about" placement="between_sections" />
-        </div>
 
         <section className="py-8 sm:py-12 px-4 sm:px-6">
           <div className="max-w-3xl mx-auto">
@@ -70,11 +55,6 @@ export default function AboutPage() {
           </div>
         </section>
 
-        {/* ===== Ad Slot 4: Between How It Works and Privacy & Safety ===== */}
-        <div className="max-w-3xl mx-auto px-4 sm:px-6 my-3">
-          <AdSlot page="about" placement="between_sections" />
-        </div>
-
         <section className="py-8 sm:py-12 px-4 sm:px-6 bg-[#0a0a0a]">
           <div className="max-w-3xl mx-auto">
             <div className="glass rounded-[16px] p-6 sm:p-8">
@@ -86,23 +66,13 @@ export default function AboutPage() {
           </div>
         </section>
 
-        {/* ===== Ad Slot 5: Above final CTA ===== */}
-        <div className="max-w-3xl mx-auto px-4 sm:px-6 my-3">
-          <AdSlot page="about" placement="above_cta" />
-        </div>
-
         <section className="py-10 sm:py-14 px-4 sm:px-6 text-center">
           <h2 className="text-xl sm:text-2xl font-bold mb-3">Ready to try TikDL?</h2>
           <p className="text-[#9CA3AF] text-sm mb-5">Free, unlimited, no signup.</p>
           <Link href="/" className="inline-flex items-center gap-2 px-6 py-3 bg-[#FE2C55] hover:bg-[#FE2C55]/90 rounded-[12px] font-semibold text-sm transition-colors duration-150">Start Downloading</Link>
         </section>
+        </ContentPageAds>
       </main>
-
-      {/* ===== Ad Slot 6: Above footer ===== */}
-      <div className="max-w-6xl mx-auto px-4 sm:px-6 mb-2">
-        <AdSlot page="about" placement="above_footer" />
-      </div>
-
       <SiteFooter />
     </div>
   );
