@@ -1668,12 +1668,38 @@ const AdminDashboard = () => {
               {/* ===== SECTION-GROUPED AD CARDS =====
                    Ads for the currently selected page are grouped by placement.
                    Each placement is a "section" with its own heading and its own
-                   "+ Add Advertisement" secondary action. The page key is implicit
-                   (always activeAdPage) — no per-card page selector. */}
+                   "+ Add Advertisement" secondary action.
+
+                   PAGE ISOLATION + INHERITED GLOBAL ADS
+                   ------------------------------------
+                   When the admin is on a specific page tab (e.g. HOME), we show:
+                     - Page-specific ads (page=homepage) — solid red badge "HOME"
+                     - Inherited global ads (page=all) — outlined cyan badge "GLOBAL"
+                   Both render on the current page — the admin needs to see both
+                   to understand what's actually displayed to users.
+
+                   When the admin is on the GLOBAL tab, we show ONLY page=all ads.
+                   Each ad card has a Page Scope dropdown so the admin can convert
+                   a global ad to page-specific (or vice versa) without leaving
+                   the current tab. */}
               {placementsForPage(activeAdPage).map(placement => {
+                const isGlobalTab = activeAdPage === GLOBAL_PAGE_KEY;
                 const sectionAds = ads
                   .map((ad, i) => ({ ad, i }))
-                  .filter(({ ad }) => ad.page === activeAdPage && ad.placement === placement.id);
+                  .filter(({ ad }) =>
+                    ad.placement === placement.id
+                    && (isGlobalTab
+                      ? ad.page === GLOBAL_PAGE_KEY
+                      : (ad.page === activeAdPage || ad.page === GLOBAL_PAGE_KEY)
+                    )
+                  )
+                  .sort((a, b) => {
+                    // Sort: page-specific first (priority asc), then globals (priority asc)
+                    const aIsGlobal = a.ad.page === GLOBAL_PAGE_KEY ? 1 : 0;
+                    const bIsGlobal = b.ad.page === GLOBAL_PAGE_KEY ? 1 : 0;
+                    if (aIsGlobal !== bIsGlobal) return aIsGlobal - bIsGlobal;
+                    return (a.ad.priority || 1) - (b.ad.priority || 1);
+                  });
                 const placementInfo = ALL_PLACEMENTS.find(p => p.id === placement.id);
 
                 return (
@@ -1714,14 +1740,44 @@ const AdminDashboard = () => {
                       sectionAds.map(({ ad, i: index }) => {
                         const dim = parseDimensions(ad.dimensions);
                         const templateInfo = AD_TEMPLATES.find(t => t.id === ad.template);
+                        const adIsGlobal = ad.page === GLOBAL_PAGE_KEY;
+                        // On a page-specific tab, a global ad is "inherited" (shown with cyan badge)
+                        const isInherited = !isGlobalTab && adIsGlobal;
 
                         return (
-                          <div key={ad.id || `new-${index}`} className="stat-card space-y-4">
+                          <div
+                            key={ad.id || `new-${index}`}
+                            className={`stat-card space-y-4 ${isInherited ? 'border-l-2 border-l-[#25F4EE]/60' : ''}`}
+                          >
                             {/* Ad Header */}
                             <div className="flex items-center justify-between">
-                              <div className="flex items-center gap-2 min-w-0">
+                              <div className="flex items-center gap-2 min-w-0 flex-wrap">
                                 <Megaphone size={14} className="text-[#9CA3AF] flex-shrink-0" />
                                 <h3 className="text-sm font-semibold truncate">{ad.name}</h3>
+                                {/* SCOPE BADGE — instantly identify global vs page-specific */}
+                                {adIsGlobal ? (
+                                  <span
+                                    className="text-[9px] text-[#25F4EE] px-1.5 py-0.5 rounded-full bg-[#25F4EE]/10 border border-[#25F4EE]/40 uppercase tracking-wider flex items-center gap-1 flex-shrink-0"
+                                    title="Global ad — renders on every page that has this placement"
+                                  >
+                                    <Globe size={9} /> Global
+                                  </span>
+                                ) : (
+                                  <span
+                                    className="text-[9px] text-[#FE2C55] px-1.5 py-0.5 rounded-full bg-[#FE2C55]/10 border border-[#FE2C55]/40 uppercase tracking-wider flex-shrink-0"
+                                    title={`Page-specific to ${pageLabel(ad.page)}`}
+                                  >
+                                    {pageLabel(ad.page)}
+                                  </span>
+                                )}
+                                {isInherited && (
+                                  <span
+                                    className="text-[9px] text-[#9CA3AF] px-1.5 py-0.5 rounded-full bg-white/5 border border-white/10 flex-shrink-0"
+                                    title="Inherited from Global — also renders on this page"
+                                  >
+                                    inherited
+                                  </span>
+                                )}
                                 {!ad.enabled && (
                                   <span className="text-[9px] text-[#9CA3AF] px-1.5 py-0.5 rounded-full bg-white/5 border border-white/10 uppercase tracking-wider">Disabled</span>
                                 )}
@@ -1820,10 +1876,43 @@ const AdminDashboard = () => {
                                 </Select>
                               </div>
 
-                              {/* Placement — fixed to current section, shown read-only for context */}
+                              {/* PAGE SCOPE — change ad.page (global ↔ page-specific) */}
+                              <div>
+                                <label className="text-xs text-[#9CA3AF] mb-1 flex items-center gap-1.5">
+                                  <Globe size={11} /> Page Scope
+                                </label>
+                                <p className="text-[10px] text-[#9CA3AF] mb-1">
+                                  {adIsGlobal
+                                    ? 'Global ad — renders on every page that has this placement.'
+                                    : `Page-specific — only renders on ${pageLabel(ad.page)}.`}
+                                  {' '}Change scope to control which pages this ad appears on.
+                                </p>
+                                <Select
+                                  value={ad.page || GLOBAL_PAGE_KEY}
+                                  onValueChange={(val) => updateAd(index, 'page', val)}
+                                >
+                                  <SelectTrigger className="w-full bg-[#1a1a1a] border-[#333]">
+                                    <SelectValue />
+                                  </SelectTrigger>
+                                  <SelectContent className="bg-[#1a1a1a] border-[#333] max-h-[280px]">
+                                    <SelectItem value={GLOBAL_PAGE_KEY}>
+                                      🌍 Global (All Pages)
+                                    </SelectItem>
+                                    {adPages
+                                      .filter(p => p.key !== GLOBAL_PAGE_KEY)
+                                      .map(p => (
+                                        <SelectItem key={p.key} value={p.key}>
+                                          🏠 {p.label}
+                                        </SelectItem>
+                                      ))}
+                                  </SelectContent>
+                                </Select>
+                              </div>
+
+                              {/* Placement — uses ad.page (not activeAdPage) so options match the ad's scope */}
                               <div>
                                 <label className="text-xs text-[#9CA3AF] mb-1">Placement</label>
-                                <p className="text-[10px] text-[#9CA3AF] mb-1">Inherited from the current section above. Move this ad by changing the section context.</p>
+                                <p className="text-[10px] text-[#9CA3AF] mb-1">Where on the page this ad renders. Options filtered by the ad's Page Scope above.</p>
                                 <Select
                                   value={ad.placement}
                                   onValueChange={(val) => updateAd(index, 'placement', val)}
@@ -1831,8 +1920,8 @@ const AdminDashboard = () => {
                                   <SelectTrigger className="w-full bg-[#1a1a1a] border-[#333]">
                                     <SelectValue />
                                   </SelectTrigger>
-                                  <SelectContent className="bg-[#1a1a1a] border-[#333]">
-                                    {placementsForPage(activeAdPage).map((p) => (
+                                  <SelectContent className="bg-[#1a1a1a] border-[#333] max-h-[280px]">
+                                    {placementsForPage(ad.page || GLOBAL_PAGE_KEY).map((p) => (
                                       <SelectItem key={p.id} value={p.id}>
                                         {p.label} — {p.desc}
                                       </SelectItem>

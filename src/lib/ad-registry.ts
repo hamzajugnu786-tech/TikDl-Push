@@ -167,8 +167,10 @@ export const AD_TEMPLATES: AdTemplate[] = [
 export const AD_DIMENSIONS: Array<{ value: string; label: string }> = [
   { value: '320x100',    label: '320 × 100 (Mobile Banner)' },
   { value: '300x250',    label: '300 × 250 (Medium Rectangle)' },
+  { value: '350x250',    label: '350 × 250 (Custom Rectangle)' },
   { value: '336x280',    label: '336 × 280 (Large Rectangle)' },
   { value: '728x90',     label: '728 × 90 (Leaderboard)' },
+  { value: '780x90',     label: '780 × 90 (Wide Leaderboard)' },
   { value: '970x250',    label: '970 × 250 (Large Leaderboard)' },
   { value: '300x600',    label: '300 × 600 (Half Page)' },
   { value: '160x600',    label: '160 × 600 (Skyscraper)' },

@@ -158,3 +158,68 @@ Stage Summary:
 - Frozen files verified unchanged: src/services/init.ts, src/services/download.ts, src/services/engine-bridge.ts, src/app/api/download/route.ts, src/app/api/proxy/route.ts, src/services/providers/adapters/**, src/engine/**
 - V1/V2/V3 race, first-success-wins, provider fallback, download hot path: ALL UNCHANGED
 - Production DB migration: CANNOT be applied from this environment (DATABASE_URL is local SQLite, no DATABASE_AUTH_TOKEN). Runtime reconcileSchema() will apply migration on first cold start in production.
+
+---
+Task ID: ADS-MGMT-CENTER
+Agent: main
+Task: FINAL ADS MANAGEMENT CENTER — PRODUCTION-CRITICAL FIX (page isolation + centralized management + new page auto-discovery)
+
+Work Log:
+- Read-only audit completed:
+  - AdSlot.tsx: Resolution logic — fetches /api/config/ads?pages=X, picks first enabled ad matching placement. Page isolation ALREADY correct at API level — adsByPage[X] only contains ads with page=X OR page=all.
+  - ContentPageAds.tsx: Wraps content page <section> children, injects AdSlot at header_banner / after_intro / between_sections / before_cta / above_footer. Auto-injection design — no per-page AdSlot placement required.
+  - ad-registry.ts: KNOWN_PAGES + UNIVERSAL_PLACEMENTS + HOMEPAGE_ONLY_PLACEMENTS + AD_TEMPLATES + AD_DIMENSIONS. placementsForPage(pageKey) returns ALL_PLACEMENTS for homepage, UNIVERSAL_PLACEMENTS for everything else.
+  - ad-placements.ts: Parallel registry (older) — PAGE_KEYS + PLACEMENT_KEYS with validity check. NOT used by current admin UI (ad-registry.ts is the active source of truth).
+  - /api/admin/config (POST): Saves ads via upsert — finds existing by ID, updates or creates. Normalizes fields via normalizeAdFields. Persists to AdPlacement table.
+  - /api/config/ads (GET): Returns adsByPage[X] = enabled ads with page=X OR page=all. Page isolation ALREADY correct.
+  - /api/config/pages (GET): Returns KNOWN_PAGES + DB-distinct + runtime fs scan (works in dev only). New pages NOT auto-discovered in production Vercel — this was the actual bug.
+  - src/app/admin/page.tsx: Page tabs at top (horizontal scroll). Section-grouped ad cards. Filter at line 1674 was ad.page === activeAdPage — GLOBAL ads not shown on specific page tabs (admin UX confusion, root cause of "homepage hero appearing on other pages" complaint — admin couldn't see their global ads from page tabs).
+  - Homepage rendering: All ad slots conditional on landingAds.{bannerAds,inlineAds,sidebarAds,interstitialAd}. NO hardcoded ad code in source. All ads come from DB.
+
+- Root causes identified:
+  1. Admin UX: When viewing HOME tab, only page=homepage ads shown. Global ads (page=all) hidden in separate "All Pages" tab. Admin couldn't see what was actually rendering on each page → confusion about "homepage hero appearing on other pages".
+  2. Production new-page discovery broken: /api/config/pages uses runtime fs.readdirSync(process.cwd()/src/app). Vercel standalone build doesn't ship src/app/. New pages never auto-discovered in production unless admin first saved an ad against them.
+  3. No scope badge: Admin couldn't tell at a glance if an ad was global or page-specific.
+  4. No scope conversion: Admin couldn't convert global ↔ page-specific from a card.
+  5. Missing 780×90 and 350×250 dimensions in dropdown.
+
+- Implementation:
+  - Created src/build/discover-pages.js — build-time Node script that scans src/app/<dir>/page.tsx and writes src/lib/discovered-pages.json. Bundled into the production build.
+  - Updated package.json build script: `prisma generate && node src/build/discover-pages.js && next build && ...`
+  - Updated /api/config/pages to import discovered-pages.json + KNOWN_PAGES + DB-distinct + runtime fs scan (dev only). Production now gets the build-time list.
+  - Added 780×90 (Wide Leaderboard) and 350×250 (Custom Rectangle) to AD_DIMENSIONS in ad-registry.ts.
+  - Updated admin page.tsx ad-card rendering:
+    * Filter now includes inherited GLOBAL ads when on a specific page tab: `ad.page === activeAdPage || ad.page === GLOBAL_PAGE_KEY`.
+    * Sort: page-specific first (priority asc), then globals (priority asc).
+    * Scope badge on every card: 🌍 Global (cyan) or 🏠 {pageLabel} (red).
+    * "inherited" badge on globals when viewed from a page-specific tab.
+    * Left cyan border on inherited globals for instant visual distinction.
+    * New Page Scope dropdown on each card — change ad.page (global ↔ page-specific) without leaving the current tab.
+    * Placement dropdown now uses ad.page (not activeAdPage) so options match the ad's actual scope.
+  - Created src/app/tools/page.tsx — minimal demo page using ContentPageAds wrapper. Proves auto-discovery works end-to-end. NOT a feature — just a test fixture.
+
+- Tests executed (35/35 PASS):
+  - Test 0: Admin login (cookie auth)
+  - Test 6: /tools page auto-discovered in /api/config/pages
+  - Setup: 5 ads created (HOME HERO, GLOBAL FOOTER, HOME 780×90, HOME 350×250, ABOUT HEADER)
+  - Test 1: HOME HERO ad renders on HOME, does NOT render on ABOUT or CONTACT (page isolation)
+  - Test 2: GLOBAL FOOTER ad renders on ALL 7 pages (homepage, about, contact, privacy, terms, dmca, tools)
+  - Test 3: Homepage 780×90 ad visible, updateable, code persists after reload
+  - Test 4: Homepage 350×250 ad toggle OFF → disappears, toggle ON → returns
+  - Test 5: ABOUT header_banner ad renders on ABOUT, does NOT leak to HOME
+  - Test 7: All 5 ads persisted in DB after reload; global ad renders on /tools (newly discovered page)
+  - Delete flow: ad deleted, count goes 5 → 4
+
+- Validation:
+  - npx tsc --noEmit: PASS (0 errors)
+  - npx eslint .: PASS (0 errors)
+  - npm run build: PASS (10/10 static pages, /tools route registered, discover-pages script ran successfully)
+  - All 35 runtime tests PASS
+
+Stage Summary:
+- Files changed: package.json, src/app/admin/page.tsx, src/app/api/config/pages/route.ts, src/lib/ad-registry.ts
+- Files created: src/build/discover-pages.js (build script), src/build/test-ads.sh (test script), src/app/tools/page.tsx (demo page), src/lib/discovered-pages.json (build artifact)
+- Frozen files verified UNCHANGED: src/services/init.ts, src/services/download.ts, src/services/engine-bridge.ts, src/services/providers/**, src/engine/**, src/app/api/download/route.ts, src/app/api/proxy/route.ts, src/app/api/thumbnail/route.ts, src/lib/auth.ts, src/lib/rate-limiter.ts, src/lib/privacy.ts
+- Database safety: NO migrations run, NO db push, NO seed, NO destructive ops. Existing AdPlacement schema used as-is. reconcileSchema() (additive-only) remains as runtime safety net for production.
+- Page isolation: PROVEN via runtime tests. A page-specific ad (page=homepage + placement=hero_section) does NOT leak to other pages. A global ad (page=all + placement=above_footer) renders on every page that has the placement.
+- New page auto-discovery: PROVEN. /tools page created → discover-pages.js picks it up at build time → /api/config/pages returns it → admin sees Tools tab automatically. Zero admin code change required.
