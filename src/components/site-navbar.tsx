@@ -1,7 +1,7 @@
 'use client';
 
 import Link from 'next/link';
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { RefreshCw } from 'lucide-react';
 
 interface SiteNavbarProps {
@@ -47,6 +47,15 @@ const NAV_ITEMS: NavItem[] = [
 export default function SiteNavbar({ isHome = false, currentPage }: SiteNavbarProps) {
   const [branding, setBranding] = useState(DEFAULT_BRANDING);
 
+  // Refs to each nav-item DOM node, keyed by item.key. Used to auto-scroll
+  // the active item into the visible horizontal viewport after navigation.
+  // Without this, when a user manually scrolls the navbar to a far-right
+  // item (e.g. DMCA) and clicks it, the navbar's horizontal scroll position
+  // is preserved on the new page but the active item may sit off-screen —
+  // making it look like the navbar "lost" the active page.
+  const itemRefs = useRef<Map<string, HTMLAnchorElement>>(new Map());
+  const scrollContainerRef = useRef<HTMLDivElement | null>(null);
+
   // Fetch DB-backed site branding on mount (client-side fetch, no static caching)
   useEffect(() => {
     let cancelled = false;
@@ -67,6 +76,41 @@ export default function SiteNavbar({ isHome = false, currentPage }: SiteNavbarPr
     })();
     return () => { cancelled = true; };
   }, []);
+
+  // ===== Auto-scroll the active nav item into the visible horizontal viewport.
+  //
+  // Why: When the user manually scrolls the navbar strip to reach a far-right
+  // page (e.g. DMCA) and clicks it, Next.js performs a client-side navigation.
+  // The navbar DOM is rebuilt on the new page, but the browser preserves the
+  // scroll position of the strip from the previous render — so the newly-active
+  // item may sit just out of view, making it look like the navbar "reset" and
+  // the active page disappeared.
+  //
+  // Fix: After every navigation (currentPage change), find the active item's
+  // DOM node and call scrollIntoView with `inline: 'nearest'` so it slides
+  // smoothly into view without resetting the entire strip to position 0.
+  // `block: 'nearest'` ensures we don't trigger any vertical page scroll.
+  useEffect(() => {
+    if (!currentPage) return;
+    // Defer one frame so the new active item's ref is registered before we
+    // attempt to scroll it. Without rAF, the ref map may still hold the
+    // previous page's DOM node.
+    const raf = requestAnimationFrame(() => {
+      const node = itemRefs.current.get(currentPage);
+      if (node && scrollContainerRef.current) {
+        // Use scrollIntoView with `nearest` so we only scroll if the item is
+        // actually outside the visible viewport. If the item is already
+        // visible (the common case for the first few items), this is a no-op
+        // and preserves the user's manual scroll position.
+        node.scrollIntoView({
+          behavior: 'smooth',
+          inline: 'nearest',
+          block: 'nearest',
+        });
+      }
+    });
+    return () => cancelAnimationFrame(raf);
+  }, [currentPage]);
 
   // Build the href for an anchor item: in-page hash on the homepage, /#hash elsewhere.
   const anchorHref = (hash: string) => (isHome ? hash : `/${hash}`);
@@ -101,6 +145,7 @@ export default function SiteNavbar({ isHome = false, currentPage }: SiteNavbarPr
             - left edge fade so it's obvious the strip scrolls
         */}
         <div
+          ref={scrollContainerRef}
           className="flex-1 min-w-0 overflow-x-auto scroll-smooth touch-pan-x site-nav-scroll"
           style={{
             scrollbarWidth: 'none', // Firefox
@@ -114,22 +159,53 @@ export default function SiteNavbar({ isHome = false, currentPage }: SiteNavbarPr
               const href = item.kind === 'anchor' ? anchorHref(item.hash!) : item.href!;
               const cls = `flex-shrink-0 px-3 py-1.5 rounded-full text-xs sm:text-sm font-semibold transition-all duration-150 whitespace-nowrap ${
                 isActive
-                  ? 'text-black shadow-[0_4px_14px_rgba(254,44,85,0.35)]'
+                  ? 'shadow-[0_4px_14px_rgba(254,44,85,0.35)]'
                   : 'text-gray-300 hover:text-white hover:bg-white/10'
               }`;
-              const style = isActive
-                ? { backgroundColor: branding.primaryColor }
-                : undefined;
+              // Force text color via INLINE STYLE so it always wins over any
+              // inherited stylesheet rule. Tailwind v4 utilities are emitted
+              // into a CSS cascade layer, which means a non-layered rule in
+              // globals.css like `body { color: #ffffff; }` silently overrides
+              // `.text-black` even though both have the same specificity.
+              // Inline styles are not subject to cascade layers, so they
+              // reliably win — guaranteeing black text on the active item.
+              const style: React.CSSProperties = isActive
+                ? { backgroundColor: branding.primaryColor, color: '#000000' }
+                : {};
+
+              // Register the item's DOM node in the ref map so the
+              // auto-scroll useEffect can find it after navigation.
+              const setRef = (el: HTMLAnchorElement | null) => {
+                if (el) {
+                  itemRefs.current.set(item.key, el);
+                } else {
+                  itemRefs.current.delete(item.key);
+                }
+              };
 
               if (item.kind === 'anchor') {
                 return (
-                  <a key={item.key} href={href} className={cls} style={style} aria-current={isActive ? 'page' : undefined}>
+                  <a
+                    key={item.key}
+                    href={href}
+                    ref={setRef}
+                    className={cls}
+                    style={style}
+                    aria-current={isActive ? 'page' : undefined}
+                  >
                     {item.label}
                   </a>
                 );
               }
               return (
-                <Link key={item.key} href={href} className={cls} style={style} aria-current={isActive ? 'page' : undefined}>
+                <Link
+                  key={item.key}
+                  href={href}
+                  ref={setRef}
+                  className={cls}
+                  style={style}
+                  aria-current={isActive ? 'page' : undefined}
+                >
                   {item.label}
                 </Link>
               );

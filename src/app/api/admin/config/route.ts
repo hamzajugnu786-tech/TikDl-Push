@@ -4,6 +4,12 @@ import { requireAuth } from '@/lib/auth';
 import { sanitizeAdHtmlServer } from '@/lib/sanitize';
 import { GLOBAL_PAGE_KEY } from '@/lib/ad-registry';
 import { reconcileSchema } from '@/lib/migrate';
+// BUG #4 fix: import the provider registry so the POST handler can call
+// reloadConfig() after persisting provider_<platform>_<name>_enabled
+// settings. Without this, warm serverless invocations keep using the
+// previously-loaded provider list and ignore the admin's new enable/disable
+// state until the next cold start.
+import { getRegistry } from '@/services/providers/registry';
 
 // Always run dynamically — admin config must reflect DB state at request time
 export const dynamic = 'force-dynamic';
@@ -197,6 +203,9 @@ export async function POST(request: Request) {
     }
 
     // ===== Upsert Settings entries =====
+    // Track whether any provider-related setting was persisted so we can
+    // conditionally trigger a registry reload afterwards (BUG #4 fix).
+    let providerSettingsChanged = false;
     if (body.settings && Array.isArray(body.settings)) {
       for (const setting of body.settings) {
         if (setting && typeof setting.key === 'string' && setting.key) {
@@ -205,7 +214,33 @@ export async function POST(request: Request) {
             update: { value: String(setting.value ?? '') },
             create: { key: setting.key, value: String(setting.value ?? '') },
           });
+          // Detect provider enable/disable / primary / fallback settings —
+          // these are the keys the registry's loadFromConfig() reads.
+          if (setting.key.startsWith('provider_')) {
+            providerSettingsChanged = true;
+          }
         }
+      }
+    }
+
+    // ===== BUG #4 fix: reload the provider registry if any provider
+    // setting was persisted. The registry is a long-lived server-side
+    // singleton with a `configLoaded` flag — once it loads config the
+    // first time, it never re-reads the DB unless reloadConfig() is
+    // called. In a warm serverless invocation this means the admin's
+    // newly-saved enable/disable state would be ignored until the
+    // instance is recycled. reloadConfig() resets the flag and re-reads
+    // the DB, so the very next download request picks up the change.
+    // This is non-blocking on success — registry.loadFromConfig() is
+    // already idempotent and gracefully falls back to env defaults on
+    // any error, so a failed reload can never break the download path.
+    if (providerSettingsChanged) {
+      try {
+        await getRegistry().reloadConfig();
+      } catch (error) {
+        // Log but never fail the admin save — the change is persisted
+        // to the DB and will be picked up on the next cold start.
+        console.error('[Admin Config POST] Provider registry reload failed:', error);
       }
     }
 

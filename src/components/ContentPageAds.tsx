@@ -90,8 +90,30 @@ export default function ContentPageAds({ page, children }: ContentPageAdsProps) 
       );
     }
 
-    // 3) Between sections — once in the middle of the page
-    if (count >= 4 && i === Math.floor(count / 2) - 1) {
+    // 3) Between sections — once in the middle of the page.
+    //
+    // Bug fix: previously required `count >= 4`, which silently excluded
+    // 3-section content pages (Privacy, Terms, DMCA) from rendering any
+    // global `between_sections` ad. A global ad MUST render on every page
+    // that supports the placement.
+    //
+    // New behavior — preserves existing position on 4+ section pages so
+    // About/Contact (5 sections) keep rendering the ad after section[1],
+    // exactly as before:
+    //   count === 3: render after section[1] (NEW — previously not rendered)
+    //                Note: this is the same position as `before_cta`; two
+    //                ad slots at the same position is acceptable because
+    //                they target DIFFERENT placements (between_sections
+    //                vs before_cta) and AdSlot picks the winner per
+    //                placement independently.
+    //   count === 4: render after section[1] (UNCHANGED)
+    //   count === 5: render after section[1] (UNCHANGED)
+    //   count  >= 6: render after section[Math.floor(count/2) - 1] (UNCHANGED)
+    const betweenSectionsAfter =
+      count >= 4 ? Math.floor(count / 2) - 1  // 4 → 1, 5 → 1, 6 → 2, 7 → 2 …
+      : count === 3 ? 1                       // 3 → 1 (middle of 3 sections)
+      : -1;                                    // <3 sections → no slot
+    if (i === betweenSectionsAfter) {
       output.push(
         <div key="ad-between" className="tikdl-ad-wrapper my-4 px-4 sm:px-6">
           <AdSlot page={page} placement="between_sections" />

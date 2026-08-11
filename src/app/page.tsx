@@ -13,6 +13,13 @@ import { Toaster, toast } from 'sonner';
 import { sanitizeAdHtml } from '@/lib/sanitize';
 import SiteNavbar from '@/components/site-navbar';
 import SiteFooter from '@/components/site-footer';
+// AdSlot is the centralized, page-aware ad renderer. Used here to add the
+// universal `between_sections` placement to the homepage so a GLOBAL
+// between_sections ad renders on the homepage too (previously the homepage
+// only rendered its own legacy homepage-only placements, so global universal
+// placements like between_sections were silently excluded).
+// See BUG #3 fix — ContentPageAds already injects this slot on content pages.
+import AdSlot from '@/components/AdSlot';
 
 interface VideoInfo {
   id: string;
@@ -1260,6 +1267,20 @@ const TikTokDownloader = () => {
               </div>
             </div>
           </section>
+
+          {/* ===== Universal "Between Sections" Ad (homepage) =====
+               Bug #3 fix: the homepage previously had NO slot for the
+               universal `between_sections` placement, so a global ad with
+               placement=between_sections silently failed to render on the
+               homepage even though between_sections is supposed to be a
+               universal placement (renders on every page that has the slot).
+               Content pages (about/contact/privacy/terms/dmca) already
+               inject this slot via ContentPageAds; this slot brings the
+               homepage to parity. Page isolation is preserved — AdSlot
+               resolves page-specific ads first, then global, then null. */}
+          <div className="max-w-3xl mx-auto px-4 sm:px-6 my-3">
+            <AdSlot page="homepage" placement="between_sections" />
+          </div>
 
         </div>
 

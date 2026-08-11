@@ -1387,7 +1387,9 @@ const AdminDashboard = () => {
             >
               <h2 className="text-lg font-bold mb-3">Provider Management</h2>
 
-              {/* Read-only banner — provider execution order is registry-controlled */}
+              {/* Status banner — provider execution order is registry-controlled,
+                  but per-provider ENABLE/DISABLE is now a real persisted admin
+                  setting that the runtime respects (BUG #4 fix). */}
               <div className="stat-card mb-4 border border-[#25F4EE]/15">
                 <div className="flex items-start gap-3">
                   <Lock size={14} className="text-[#25F4EE] mt-0.5 flex-shrink-0" />
@@ -1395,9 +1397,10 @@ const AdminDashboard = () => {
                     <div className="text-sm font-semibold mb-1">Provider execution order is registry-controlled</div>
                     <p className="text-xs text-[#9CA3AF] leading-relaxed">
                       The V1 / V2 / V3 race, first-success-wins behavior, and provider priority are
-                      determined by the server-side provider registry. Provider enable/disable and
-                      reordering are not persisted — they are not admin-configurable. API keys remain
-                      environment-based and are never editable from this UI.
+                      determined by the server-side provider registry. Per-provider enable/disable is
+                      a real admin setting — toggling a provider OFF and clicking <span className="text-white font-medium">Save Provider Config</span> persists the change to the Settings
+                      table, refreshes the live registry, and excludes the provider from the next
+                      download request. API keys remain environment-based and are never editable here.
                     </p>
                   </div>
                 </div>
@@ -1415,7 +1418,11 @@ const AdminDashboard = () => {
                 />
               </div>
 
-              {/* Provider Table — READ-ONLY: priority and enabled are display-only */}
+              {/* Provider Table — interactive enable/disable toggles.
+                  Each provider row has a Switch that flips p.enabled in local
+                  React state. Changes do NOT persist until "Save Provider Config"
+                  is clicked (the existing handleSaveProviders handler persists
+                  them to Settings keys: provider_<platform>_<name>_enabled). */}
               <div className="stat-card overflow-hidden mb-4">
                 <div className="overflow-x-auto">
                   <table className="w-full text-sm">
@@ -1424,7 +1431,7 @@ const AdminDashboard = () => {
                         <th className="text-left py-2.5 px-2.5 font-medium">Name</th>
                         <th className="text-left py-2.5 px-2.5 font-medium">Status</th>
                         <th className="text-center py-2.5 px-2.5 font-medium">Priority</th>
-                        <th className="text-center py-2.5 px-2.5 font-medium">Active</th>
+                        <th className="text-center py-2.5 px-2.5 font-medium">Enabled</th>
                         <th className="text-left py-2.5 px-2.5 font-medium">Health</th>
                         <th className="text-right py-2.5 px-2.5 font-medium">Latency</th>
                         <th className="text-right py-2.5 px-2.5 font-medium">Success</th>
@@ -1449,22 +1456,33 @@ const AdminDashboard = () => {
                                   {provider.status}
                                 </span>
                               </td>
-                              {/* Read-only priority badge — no up/down controls */}
+                              {/* Read-only priority badge — priority is registry-controlled */}
                               <td className="py-2.5 px-2.5 text-center">
                                 <span className="inline-flex items-center justify-center w-6 h-6 rounded bg-white/5 text-xs font-semibold text-[#9CA3AF]">
                                   {provider.priority}
                                 </span>
                               </td>
-                              {/* Read-only active indicator — no toggle */}
+                              {/* Interactive ON/OFF toggle — flips local React state.
+                                  Persists via "Save Provider Config" button below.
+                                  The setting is stored in Settings table at:
+                                    provider_<platform>_<name>_enabled = "true"|"false"
+                                  The provider registry's loadFromConfig() filters
+                                  out providers where this value is "false" (see
+                                  src/services/providers/registry.ts). After save,
+                                  the /api/admin/config POST handler calls
+                                  registry.reloadConfig() so the warm serverless
+                                  instance picks up the change immediately. */}
                               <td className="py-2.5 px-2.5">
                                 <div className="flex justify-center">
-                                  <span className={`px-2 py-0.5 rounded-full text-[10px] font-semibold uppercase tracking-wide ${
-                                    provider.enabled
-                                      ? 'bg-[#25F4EE]/10 text-[#25F4EE]'
-                                      : 'bg-white/5 text-[#9CA3AF]'
-                                  }`}>
-                                    {provider.enabled ? 'On' : 'Off'}
-                                  </span>
+                                  <Switch
+                                    checked={provider.enabled}
+                                    onCheckedChange={(val) => setProviderConfigs(prev =>
+                                      prev.map(p =>
+                                        p.name === provider.name ? { ...p, enabled: val } : p
+                                      )
+                                    )}
+                                    aria-label={`Toggle ${provider.name}`}
+                                  />
                                 </div>
                               </td>
                               <td className="py-2.5 px-2.5">
@@ -1490,6 +1508,44 @@ const AdminDashboard = () => {
                   </div>
                 )}
               </div>
+
+              {/* ===== Inline Save Provider Config button (kept for parity) =====
+                   NOTE: This button is also rendered as a STICKY bottom action
+                   below so the admin can save without scrolling back to the top.
+                   Both buttons call the same handler (handleSaveProviders). */}
+              <motion.button
+                whileHover={{ scale: 1.02, y: -1 }}
+                whileTap={{ scale: 0.98 }}
+                onClick={handleSaveProviders}
+                disabled={isSaving || providerConfigs.length === 0}
+                className="save-btn disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                {isSaving ? 'Saving...' : 'Save Provider Config'}
+              </motion.button>
+
+              {/* ===== Sticky bottom Save Provider Config =====
+                   BUG #2 fix: a sticky action bar pinned to the bottom of the
+                   viewport so the admin can save provider toggles without
+                   scrolling back to the top. Same handler as the inline button
+                   above; identical behaviour, just always-visible. */}
+              <div className="sticky bottom-4 z-30 flex justify-center pointer-events-none mt-4">
+                <button
+                  onClick={handleSaveProviders}
+                  disabled={isSaving || providerConfigs.length === 0}
+                  className={`pointer-events-auto flex items-center gap-2 px-5 py-3 rounded-[14px] text-sm font-semibold shadow-[0_8px_32px_rgba(254,44,85,0.4)] transition-all duration-150 hover:scale-[1.02] active:scale-[0.98] ${
+                    isSaving
+                      ? 'bg-white/10 text-white/60 cursor-wait'
+                      : 'bg-[#FE2C55] hover:bg-[#FE2C55]/95 text-white'
+                  } disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:scale-100`}
+                  title="Persist provider enable/disable settings to the database"
+                >
+                  {isSaving ? <RefreshCw className="animate-spin" size={16} /> : <Shield size={16} />}
+                  {isSaving ? 'Saving...' : 'Save Provider Config'}
+                </button>
+              </div>
+
+              {/* Trailing spacer so the sticky button never covers the last row */}
+              <div className="h-12" />
 
               {/* Environment Keys — read-only display */}
               <div className="stat-card mb-4">
@@ -2710,6 +2766,32 @@ const AdminDashboard = () => {
                 {isSaving ? <RefreshCw className="animate-spin" size={14} /> : <Shield size={14} />}
                 {isSaving ? 'Saving...' : 'Save Settings'}
               </motion.button>
+
+              {/* ===== Sticky bottom Save Settings =====
+                   BUG #2 fix: a sticky action bar pinned to the bottom of the
+                   viewport so the admin can save settings after scrolling
+                   far down through Site/SEO/Branding/Downloads/Maintenance
+                   sections WITHOUT having to scroll all the way back to the top.
+                   Same handler as the inline button above; identical behaviour,
+                   just always-visible. */}
+              <div className="sticky bottom-4 z-30 flex justify-center pointer-events-none mt-4">
+                <button
+                  onClick={handleSaveSettings}
+                  disabled={isSaving}
+                  className={`pointer-events-auto flex items-center gap-2 px-5 py-3 rounded-[14px] text-sm font-semibold shadow-[0_8px_32px_rgba(254,44,85,0.4)] transition-all duration-150 hover:scale-[1.02] active:scale-[0.98] ${
+                    isSaving
+                      ? 'bg-white/10 text-white/60 cursor-wait'
+                      : 'bg-[#FE2C55] hover:bg-[#FE2C55]/95 text-white'
+                  } disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:scale-100`}
+                  title="Save all settings sections to the database"
+                >
+                  {isSaving ? <RefreshCw className="animate-spin" size={16} /> : <Shield size={16} />}
+                  {isSaving ? 'Saving...' : 'Save Settings'}
+                </button>
+              </div>
+
+              {/* Trailing spacer so the sticky button never covers the last section */}
+              <div className="h-12" />
             </motion.div>
           )}
 
