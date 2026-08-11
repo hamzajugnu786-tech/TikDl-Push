@@ -154,6 +154,18 @@
   background: rgba(255, 255, 255, 0.3);
 }
 
+/* ===== Site Navbar Horizontal Scroll Strip =====
+   Hides the visible scrollbar on the public navbar's horizontally
+   scrollable page list while preserving touch/mouse/wheel scrolling.
+   This is purely cosmetic — the strip remains fully scrollable. */
+.site-nav-scroll::-webkit-scrollbar {
+  display: none;
+}
+.site-nav-scroll {
+  -ms-overflow-style: none;  /* IE and Edge */
+  scrollbar-width: none;     /* Firefox */
+}
+
 /* ===== Premium Input Focus Ring ===== */
 .input-focus-ring {
   transition: border-color 200ms ease, box-shadow 200ms ease;

@@ -1074,11 +1074,17 @@ const AdminDashboard = () => {
   })();
 
   return (
-    <div className="min-h-screen bg-[#000000] text-white flex">
+    <div className="min-h-screen bg-[#000000] text-white flex items-start">
       <Toaster position="top-center" richColors closeButton />
 
-      {/* ===== Sidebar (Desktop) ===== */}
-      <aside className="hidden lg:flex w-[200px] min-h-screen bg-[#111] border-r border-white/8 flex-col flex-shrink-0">
+      {/* ===== Sidebar (Desktop) =====
+           `sticky top-0 h-screen` keeps the admin branding + navigation
+           visible at all times — the sidebar stays pinned while the main
+           content scrolls underneath it. Previously the sidebar was
+           `min-h-screen` (no sticky) which meant it scrolled away with the
+           body. The outer wrapper uses `items-start` so the flex item's
+           height is its natural (h-screen) value rather than stretched. */}
+      <aside className="hidden lg:flex w-[200px] h-screen sticky top-0 bg-[#111] border-r border-white/8 flex-col flex-shrink-0">
         <div className="px-3 py-3.5 flex items-center gap-2 border-b border-white/8">
           <div className="w-7 h-7 bg-[#FE2C55] rounded-lg flex items-center justify-center text-base font-bold">♪</div>
           <span className="font-bold text-base tracking-tighter">TikDL Admin</span>
@@ -1156,8 +1162,20 @@ const AdminDashboard = () => {
         )}
       </AnimatePresence>
 
-      {/* ===== Main Content ===== */}
-      <main className="flex-1 min-h-screen overflow-y-auto">
+      {/* ===== Main Content =====
+           Previously this had `overflow-y-auto`, which made <main> a scroll
+           container for the purposes of `position: sticky`. Because main
+           also had `min-h-screen` (a min-constraint, not a fixed height),
+           main grew with its content and never actually scrolled — body
+           scroll was the real scroll driver. The net effect was that
+           `sticky top-0` inside main (the AMC Save header, the mobile top
+           bar, the sticky Add Advertisement button) silently broke: they
+           stuck to main's *content origin*, which itself scrolled away.
+
+           Removing `overflow-y-auto` makes the body the scroll container
+           again, so all `sticky top-0` / `sticky bottom-4` elements inside
+           main now stick to the viewport as intended. */}
+      <main className="flex-1 min-w-0 min-h-screen">
         {/* Top bar (mobile) */}
         <div className="sticky top-0 z-40 glass border-b border-white/10 bg-black/80 px-4 py-2.5 flex items-center justify-between lg:hidden">
           <button onClick={() => setSidebarOpen(true)} className="p-2 rounded-lg hover:bg-white/10">
@@ -1511,61 +1529,80 @@ const AdminDashboard = () => {
               transition={{ duration: 0.25 }}
               className="space-y-4"
             >
-              {/* ===== HEADER: Title + Sticky Save Changes (top) ===== */}
-              <div className="sticky top-0 z-30 -mx-4 sm:-mx-6 px-4 sm:px-6 py-3 bg-[#000000]/95 backdrop-blur-md border-b border-white/[0.06] flex items-center justify-between gap-3">
-                <div className="flex items-center gap-2 min-w-0">
-                  <Megaphone size={16} className="text-[#FE2C55] flex-shrink-0" />
-                  <h2 className="text-base sm:text-lg font-bold truncate">Advertisement Management Center</h2>
-                  <span className="hidden sm:inline-block text-[10px] text-[#9CA3AF] ml-2 px-2 py-0.5 rounded-full bg-white/5 border border-white/10">
-                    {ads.length} ad{ads.length !== 1 ? 's' : ''} · {adPages.length} pages
-                  </span>
+              {/* ===== STICKY AMC TOP REGION =====
+                   One sticky wrapper holds the title + Save Changes button AND
+                   the horizontally scrollable page tabs. They stick together
+                   so an admin scrolling through many ad cards always has
+                   (1) the Save Changes button within reach and
+                   (2) the page selector within reach.
+
+                   Offset on mobile: `top-14` (= 56px) sits just below the
+                   mobile admin top bar (which is `sticky top-0 z-40 lg:hidden`,
+                   ~55px tall). On desktop the mobile top bar is hidden, so we
+                   reset to `lg:top-0`. Without this offset the two sticky
+                   bars would visually overlap on mobile. */}
+              <div className="sticky top-14 lg:top-0 z-30 -mx-4 sm:-mx-6 bg-[#000000]/95 backdrop-blur-md border-b border-white/[0.06]">
+                {/* Row 1: Title + Save Changes */}
+                <div className="px-4 sm:px-6 py-3 flex items-center justify-between gap-3">
+                  <div className="flex items-center gap-2 min-w-0">
+                    <Megaphone size={16} className="text-[#FE2C55] flex-shrink-0" />
+                    <h2 className="text-base sm:text-lg font-bold truncate">Advertisement Management Center</h2>
+                    <span className="hidden sm:inline-block text-[10px] text-[#9CA3AF] ml-2 px-2 py-0.5 rounded-full bg-white/5 border border-white/10">
+                      {ads.length} ad{ads.length !== 1 ? 's' : ''} · {adPages.length} pages
+                    </span>
+                  </div>
+                  <button
+                    onClick={handleSaveAdsConfig}
+                    disabled={isSaving}
+                    className={`flex items-center gap-2 px-4 py-2 rounded-[10px] text-sm font-semibold transition-all duration-150 shadow-[0_4px_16px_rgba(254,44,85,0.25)] ${
+                      saveStatus === 'saved' ? 'bg-[#10b981] text-black'
+                      : saveStatus === 'error' ? 'bg-red-500 text-white'
+                      : 'bg-[#FE2C55] hover:bg-[#FE2C55]/95 text-white'
+                    } ${isSaving ? 'opacity-80 cursor-wait' : 'cursor-pointer'}`}
+                  >
+                    {saveStatus === 'saving' && <RefreshCw className="animate-spin" size={14} />}
+                    {saveStatus === 'saved' && <Check size={14} />}
+                    {saveStatus === 'error' && <AlertCircle size={14} />}
+                    {saveStatus === 'idle' && <Shield size={14} />}
+                    <span className="hidden sm:inline">
+                      {saveStatus === 'saving' ? 'Saving…' : saveStatus === 'saved' ? 'Saved' : saveStatus === 'error' ? 'Failed — retry' : 'Save Changes'}
+                    </span>
+                    <span className="sm:hidden">
+                      {saveStatus === 'saving' ? '…' : saveStatus === 'saved' ? '✓' : saveStatus === 'error' ? '!' : 'Save'}
+                    </span>
+                  </button>
                 </div>
-                <button
-                  onClick={handleSaveAdsConfig}
-                  disabled={isSaving}
-                  className={`flex items-center gap-2 px-4 py-2 rounded-[10px] text-sm font-semibold transition-all duration-150 shadow-[0_4px_16px_rgba(254,44,85,0.25)] ${
-                    saveStatus === 'saved' ? 'bg-[#10b981] text-black'
-                    : saveStatus === 'error' ? 'bg-red-500 text-white'
-                    : 'bg-[#FE2C55] hover:bg-[#FE2C55]/95 text-white'
-                  } ${isSaving ? 'opacity-80 cursor-wait' : 'cursor-pointer'}`}
-                >
-                  {saveStatus === 'saving' && <RefreshCw className="animate-spin" size={14} />}
-                  {saveStatus === 'saved' && <Check size={14} />}
-                  {saveStatus === 'error' && <AlertCircle size={14} />}
-                  {saveStatus === 'idle' && <Shield size={14} />}
-                  <span className="hidden sm:inline">
-                    {saveStatus === 'saving' ? 'Saving…' : saveStatus === 'saved' ? 'Saved' : saveStatus === 'error' ? 'Failed — retry' : 'Save Changes'}
-                  </span>
-                  <span className="sm:hidden">
-                    {saveStatus === 'saving' ? '…' : saveStatus === 'saved' ? '✓' : saveStatus === 'error' ? '!' : 'Save'}
-                  </span>
-                </button>
+
+                {/* Row 2: Page tabs — horizontally scrollable, never wraps.
+                     The strip stays sticky inside the AMC top region so it
+                     remains reachable while ad cards scroll below. */}
+                <div className="overflow-x-auto scrollbar-thin site-nav-scroll px-4 sm:px-6 pb-2">
+                  <div className="flex gap-1.5 min-w-max items-center">
+                    {adPages.map(page => {
+                      const isActive = activeAdPage === page.key;
+                      return (
+                        <button
+                          key={page.key}
+                          onClick={() => setActiveAdPage(page.key)}
+                          className={`flex-shrink-0 px-3.5 py-2 rounded-[10px] text-xs font-semibold transition-all duration-150 whitespace-nowrap ${
+                            isActive
+                              ? 'bg-[#FE2C55] text-black shadow-[0_4px_16px_rgba(254,44,85,0.35)]'
+                              : 'bg-white/[0.04] text-white border border-white/[0.08] hover:bg-white/[0.08] hover:border-white/[0.12]'
+                          }`}
+                          aria-current={isActive ? 'page' : undefined}
+                        >
+                          {page.label}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
               </div>
 
-              {/* ===== PAGE TABS — horizontal scroll (mobile swipeable, desktop compact) ===== */}
-              <div className="overflow-x-auto scrollbar-thin -mx-1 px-1 pb-1">
-                <div className="flex gap-1.5 min-w-max items-center">
-                  {adPages.map(page => {
-                    const isActive = activeAdPage === page.key;
-                    return (
-                      <button
-                        key={page.key}
-                        onClick={() => setActiveAdPage(page.key)}
-                        className={`flex-shrink-0 px-3.5 py-2 rounded-[10px] text-xs font-semibold transition-all duration-150 whitespace-nowrap ${
-                          isActive
-                            ? 'bg-[#FE2C55] text-black shadow-[0_4px_16px_rgba(254,44,85,0.35)]'
-                            : 'bg-white/[0.04] text-white border border-white/[0.08] hover:bg-white/[0.08] hover:border-white/[0.12]'
-                        }`}
-                        aria-current={isActive ? 'page' : undefined}
-                      >
-                        {page.label}
-                      </button>
-                    );
-                  })}
-                </div>
-              </div>
-
-              {/* ===== PAGE CONTEXT BANNER ===== */}
+              {/* ===== PAGE CONTEXT BANNER =====
+                   The page context banner is intentionally NOT inside the
+                   sticky region — it's contextual to the selected page tab
+                   and shouldn't take up persistent vertical space. */}
               <div className="stat-card !py-3 !px-4 flex items-center justify-between gap-3">
                 <div className="min-w-0">
                   <div className="text-xs text-[#9CA3AF] uppercase tracking-wider">Managing ads for</div>
