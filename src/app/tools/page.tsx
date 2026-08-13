@@ -7,6 +7,12 @@ import ContentPageAds from '@/components/ContentPageAds';
 export const metadata: Metadata = {
   title: 'Tools — TikDL',
   description: 'TikDL tools — helper page. Also used as a built-in test for the auto-discovery of new pages by the Advertisement Management Center.',
+  // Phase 3 P3-F4 — /tools is internal auto-discovery scaffolding (see file
+  // header). Keep it crawlable for internal link flow but prevent indexing
+  // so the "Helper page / test" content does not appear in search results
+  // as a thin/low-quality page. robots.txt already allows / — per-page
+  // noindex is the modern, sufficient signal.
+  robots: { index: false, follow: false },
 };
 
 /**

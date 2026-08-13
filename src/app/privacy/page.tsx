@@ -7,6 +7,7 @@ import ContentPageAds from '@/components/ContentPageAds';
 export const metadata: Metadata = {
   title: 'Privacy Policy — TikDL',
   description: 'TikDL privacy policy. We do not store downloads or log personal information. Your privacy is our priority.',
+  alternates: { canonical: 'https://tikdl.app/privacy' },
   openGraph: { title: 'Privacy Policy — TikDL', description: 'How TikDL handles your data. We do not store downloads.', url: 'https://tikdl.app/privacy' },
 };
 

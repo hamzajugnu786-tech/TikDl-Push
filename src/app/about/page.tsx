@@ -7,6 +7,7 @@ import ContentPageAds from '@/components/ContentPageAds';
 export const metadata: Metadata = {
   title: 'About TikDL — Free TikTok Video Downloader',
   description: 'TikDL is the fastest free TikTok downloader. Save HD videos without watermarks instantly. No signup, no limits.',
+  alternates: { canonical: 'https://tikdl.app/about' },
   openGraph: { title: 'About TikDL', description: 'The fastest free TikTok downloader.', url: 'https://tikdl.app/about' },
 };
 

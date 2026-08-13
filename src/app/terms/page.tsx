@@ -7,6 +7,7 @@ import ContentPageAds from '@/components/ContentPageAds';
 export const metadata: Metadata = {
   title: 'Terms of Service — TikDL',
   description: 'TikDL terms of service. Understand the rules governing your use of TikDL.',
+  alternates: { canonical: 'https://tikdl.app/terms' },
   openGraph: { title: 'Terms of Service — TikDL', description: 'Terms governing use of TikDL.', url: 'https://tikdl.app/terms' },
 };
 

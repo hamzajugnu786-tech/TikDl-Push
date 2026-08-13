@@ -74,6 +74,11 @@ export async function generateMetadata(): Promise<Metadata> {
 
   const metadata: Metadata = {
     metadataBase: new URL(siteUrl),
+    // Phase 3 P3-F2 — canonical for the homepage. Defends against query-string
+    // variants (?utm_source=..., ?ref=share) being treated as separate pages
+    // by search engines. Content pages set their own canonical in their
+    // per-page static `metadata` exports.
+    alternates: { canonical: siteUrl },
     title: metaTitle,
     description: metaDescription,
     keywords: [

@@ -8,6 +8,7 @@ import { Mail, MessageSquare, ExternalLink } from 'lucide-react';
 export const metadata: Metadata = {
   title: 'Contact TikDL — Get Help & Support',
   description: 'Contact the TikDL team for support, feedback, or feature requests. We typically respond within 24 hours.',
+  alternates: { canonical: 'https://tikdl.app/contact' },
   openGraph: { title: 'Contact TikDL', description: 'Reach the TikDL team for support or feedback.', url: 'https://tikdl.app/contact' },
 };
 

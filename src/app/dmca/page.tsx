@@ -8,6 +8,7 @@ import { Shield } from 'lucide-react';
 export const metadata: Metadata = {
   title: 'DMCA — Copyright Takedown Policy — TikDL',
   description: 'TikDL DMCA policy for copyright holders. Learn how to submit a valid takedown notice.',
+  alternates: { canonical: 'https://tikdl.app/dmca' },
   openGraph: { title: 'DMCA — TikDL', description: 'How to submit a DMCA takedown notice to TikDL.', url: 'https://tikdl.app/dmca' },
 };
 

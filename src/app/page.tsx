@@ -106,6 +106,68 @@ const FAQ_ITEMS: FAQItem[] = [
   },
 ];
 
+// ============================================================================
+// STRUCTURED DATA (JSON-LD) — Phase 3 P3-F3
+// ============================================================================
+// Two schemas emitted on the homepage, both backed by the visible content
+// already rendered on the page (no fabricated facts):
+//
+//   1. WebApplication  — describes TikDL as a free web-based TikTok
+//                        downloader. Helps search engines and AI/LLM
+//                        crawlers (GPTBot, ClaudeBot, PerplexityBot,
+//                        AppleBot-Extended) recognize the entity and its
+//                        capabilities. Reflects the actual visible value
+//                        proposition in the hero section ("free, no signup,
+//                        HD, no watermark") — no marketing inflation.
+//
+//   2. FAQPage         — mirrors the 8 visible FAQ_ITEMS Q&A pairs verbatim.
+//                        Single source of truth: the same array drives both
+//                        the visible UI (the <details> accordion at #faq)
+//                        and this schema. Eligible for FAQ rich results.
+//
+// SSR note: this file is 'use client', but Next.js still SSRs client
+// components on the initial request, so the <script type="application/ld+json">
+// tags below appear in the initial HTML response — which is what crawlers
+// need. This is a standard, well-supported Next.js pattern.
+// ============================================================================
+
+const WEB_APP_JSON_LD = {
+  '@context': 'https://schema.org',
+  '@type': 'WebApplication',
+  name: 'TikDL',
+  url: 'https://tikdl.app',
+  description: 'Free TikTok video downloader. Save TikTok videos without watermark in HD quality, extract MP3 audio, and download photo posts — no signup, no limits, works on mobile and desktop.',
+  applicationCategory: 'MultimediaApplication',
+  operatingSystem: 'Web',
+  browserRequirements: 'Requires a modern web browser with JavaScript enabled.',
+  offers: {
+    '@type': 'Offer',
+    price: '0',
+    priceCurrency: 'USD',
+  },
+  featureList: [
+    'Download TikTok videos without watermark in HD',
+    'Extract TikTok audio as MP3',
+    'Download TikTok photo posts',
+    'Save cover images',
+    'Works on iPhone, Android, tablet, and desktop',
+    'No signup or account required',
+  ],
+};
+
+const FAQ_JSON_LD = {
+  '@context': 'https://schema.org',
+  '@type': 'FAQPage',
+  mainEntity: FAQ_ITEMS.map((item) => ({
+    '@type': 'Question',
+    name: item.question,
+    acceptedAnswer: {
+      '@type': 'Answer',
+      text: item.answer,
+    },
+  })),
+};
+
 const TikTokDownloader = () => {
   const [url, setUrl] = useState('');
   const [isLoading, setIsLoading] = useState(false);
@@ -660,6 +722,20 @@ const TikTokDownloader = () => {
 
   return (
     <div className="min-h-screen bg-[#000000] text-white flex flex-col">
+      {/* ===== Structured Data (JSON-LD) — Phase 3 P3-F3 =====
+          Two schemas: WebApplication (entity/capabilities for AI-search/GEO)
+          and FAQPage (mirrors the visible FAQ_ITEMS accordion at #faq).
+          Rendered as <script> tags so crawlers see them in the initial SSR
+          HTML. No visible UI impact. Constants defined above next to FAQ_ITEMS
+          so they stay in sync with the visible FAQ text. */}
+      <script
+        type="application/ld+json"
+        dangerouslySetInnerHTML={{ __html: JSON.stringify(WEB_APP_JSON_LD) }}
+      />
+      <script
+        type="application/ld+json"
+        dangerouslySetInnerHTML={{ __html: JSON.stringify(FAQ_JSON_LD) }}
+      />
       <Toaster position="top-center" richColors closeButton />
       <div ref={topRef} />
 
