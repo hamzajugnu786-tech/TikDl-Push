@@ -74,10 +74,21 @@ export async function GET() {
         'Cache-Control': 'no-store, no-cache, must-revalidate, proxy-revalidate',
       },
     });
-  } catch {
-    // DB unavailable — return empty settings so frontend falls back to defaults
+  } catch (error) {
+    // Never crash the public settings endpoint — return empty settings so
+    // the frontend falls back to its hardcoded defaults (TikDL branding).
+    // Surface the failure to Vercel runtime logs (was previously silent)
+    // and add a `degraded` flag for any future monitoring/admin tooling.
+    // The HTTP 200 + success:true contract is preserved — existing
+    // consumers (SiteNavbar, SiteFooter) only read `data.success` and
+    // `data.settings`, both of which remain (true / {}) exactly as before.
+    // (Mirrors the Phase-2 Part-1 /api/analytics and Part-3 /api/config/ads
+    // hardening precedent — same anti-pattern, same fix.)
+    console.error('[Public Settings] Failed to fetch settings:', error);
     return NextResponse.json({
       success: true,
+      degraded: true,
+      error: 'Settings temporarily unavailable',
       settings: {},
     }, {
       headers: {
