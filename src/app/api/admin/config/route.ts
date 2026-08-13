@@ -5,11 +5,11 @@ import { sanitizeAdHtmlServer } from '@/lib/sanitize';
 import { GLOBAL_PAGE_KEY } from '@/lib/ad-registry';
 import { reconcileSchema } from '@/lib/migrate';
 // BUG #4 fix: import the provider registry so the POST handler can call
-// reloadConfig() after persisting provider_<platform>_<name>_enabled
+// reloadConfig() after persisting provider_enabled_<name>
 // settings. Without this, warm serverless invocations keep using the
 // previously-loaded provider list and ignore the admin's new enable/disable
 // state until the next cold start.
-import { getRegistry } from '@/services/providers/registry';
+import { initializeNovaDL, getRegistry } from '@/services';
 
 // Always run dynamically — admin config must reflect DB state at request time
 export const dynamic = 'force-dynamic';
@@ -51,12 +51,32 @@ export async function GET() {
   }
 
   try {
+    // Ensure provider registry is initialized so getConfiguredProviders() works.
+    // On Vercel serverless, this is a no-op after the first cold start.
+    await initializeNovaDL();
+
     // Parallelise independent DB queries for better performance
     const [interstitialConfig, adPlacements, settings] = await Promise.all([
       db.interstitialConfig.findFirst(),
       db.adPlacement.findMany({ orderBy: { priority: 'asc' } }),
       db.settings.findMany(),
     ]);
+
+    // Build a quick lookup map of settings keys → values (for provider enabled state)
+    const settingsMap = new Map(settings.map(s => [s.key, s.value]));
+
+    // List ALL configured providers from the registry with their real enabled state.
+    // This is the source of truth for the Provider Management tab — independent
+    // of whether telemetry has been generated yet.
+    const registry = getRegistry();
+    const configuredProviders = registry.getConfiguredProviders().map(p => ({
+      name: p.name,
+      platform: p.platform,
+      enabled: p.enabled,
+      // Expose the persisted config value too, so the UI can show the raw state
+      // even before reloadConfig() runs.
+      configValue: settingsMap.get(`provider_enabled_${p.name}`) ?? null,
+    }));
 
     return NextResponse.json({
       success: true,
@@ -85,6 +105,8 @@ export async function GET() {
         priority: ad.priority,
       })),
       settings: settings.map((s) => ({ key: s.key, value: s.value })),
+      // Source of truth for the Provider Management tab.
+      configuredProviders,
     });
   } catch (error) {
     console.error('Failed to fetch config:', error);
@@ -234,9 +256,17 @@ export async function POST(request: Request) {
     // This is non-blocking on success — registry.loadFromConfig() is
     // already idempotent and gracefully falls back to env defaults on
     // any error, so a failed reload can never break the download path.
+    //
+    // We also call initializeNovaDL() (no-op if already initialized) to
+    // make sure the registry has been created and providers registered
+    // before attempting the reload — this is important on the very first
+    // admin save after a cold start, before any /api/download or
+    // /api/health request has triggered init.
     if (providerSettingsChanged) {
       try {
+        await initializeNovaDL(); // no-op if already initialized
         await getRegistry().reloadConfig();
+        console.log('[Admin Config POST] Provider registry reloaded after settings update');
       } catch (error) {
         // Log but never fail the admin save — the change is persisted
         // to the DB and will be picked up on the next cold start.

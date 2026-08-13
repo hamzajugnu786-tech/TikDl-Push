@@ -34,6 +34,21 @@ import { ServiceResult, NovaDLErrorInfo, NovaDLResult } from './types';
 import { extractWithEngine } from './engine-bridge';
 
 // ============================================================================
+// ENGINE PROVIDER NAMES — used for per-provider enabled checks during fallback
+// ============================================================================
+
+/**
+ * The engine internally races two providers: tikhub and rapidapi.
+ * The DownloadService must honor per-provider enabled state for these too —
+ * if BOTH are disabled in config, skip the engine fallback entirely.
+ *
+ * NOTE: This does NOT change the engine's internal V1/V2/V3 / first-success-wins
+ * architecture — it only gates whether the engine is invoked at all based on
+ * the enabled state of its internal providers.
+ */
+const ENGINE_PROVIDER_NAMES = ['tikhub', 'rapidapi'] as const;
+
+// ============================================================================
 // DOWNLOAD SERVICE CLASS
 // ============================================================================
 
@@ -128,7 +143,11 @@ export class DownloadService {
     // Try the free primary provider first. Within tiktok-api-dl, V1 ∥ V2 ∥ V3
     // race in parallel (first success wins). We NEVER race paid providers
     // (TikHub/RapidAPI) simultaneously — they are fallback only.
-    const allProviders = this.registry.getProviders(platformInfo.platform);
+    //
+    // NOTE: We use getEnabledProviders() to EXCLUDE any provider that has been
+    // disabled via per-provider config (`provider_enabled_<name>=false`).
+    // This is the runtime enforcement point for the admin toggle.
+    const allProviders = this.registry.getEnabledProviders(platformInfo.platform);
 
     // Content-level error codes — if the primary returns these, do NOT try fallback
     const contentLevelCodes = new Set([
@@ -141,70 +160,97 @@ export class DownloadService {
       NovaDLErrorCode.UNSUPPORTED_PLATFORM,
     ]);
 
-    // Get the primary provider (tiktok-api-dl)
+    // Get the primary provider (tiktok-api-dl). If it has been disabled in
+    // per-provider config, it will NOT be in allProviders.
     const primaryProvider = allProviders.find(p => p.name === 'tiktok-api-dl');
-
-    if (!primaryProvider) {
-      // No primary provider registered — this shouldn't happen but handle gracefully
-      const errorInfo: NovaDLErrorInfo = {
-        code: NovaDLErrorCode.UNSUPPORTED_PLATFORM,
-        message: `No providers registered for ${platformInfo.platform}`,
-        platform: platformInfo.platform,
-        requestId,
-      };
-
-      await this.logger.log({
-        requestId,
-        timestamp: new Date(),
-        platform: platformInfo.platform,
-        provider: 'none',
-        url,
-        status: 'error',
-        executionTime: Date.now() - startTime,
-        error: NovaDLErrorCode.UNSUPPORTED_PLATFORM,
-        errorMessage: errorInfo.message,
-        ipAddress: options?.ipAddress,
-        userAgent: options?.userAgent,
-      });
-
-      return {
-        success: false,
-        error: errorInfo,
-        provider: 'none',
-        platform: platformInfo.platform,
-        duration: Date.now() - startTime,
-        requestId,
-      };
-    }
 
     // ──── Step 3: Try PRIMARY provider (tiktok-api-dl) ────
     let primaryError: NovaDLError | null = null;
+    let primaryProviderName = 'tiktok-api-dl'; // used for logging when primary is disabled
 
-    try {
-      const result = await primaryProvider.fetchVideo(platformInfo.canonicalUrl);
-      const hasAnyMedia = result.formats.length > 0 || result.audio.length > 0 ||
-        (result.metadata.slideImages && result.metadata.slideImages.length > 0);
+    if (primaryProvider) {
+      primaryProviderName = primaryProvider.name;
+      try {
+        const result = await primaryProvider.fetchVideo(platformInfo.canonicalUrl);
+        const hasAnyMedia = result.formats.length > 0 || result.audio.length > 0 ||
+          (result.metadata.slideImages && result.metadata.slideImages.length > 0);
 
-      if (hasAnyMedia) {
-        // PRIMARY SUCCEEDED — return immediately, no fallback needed
+        if (hasAnyMedia) {
+          // PRIMARY SUCCEEDED — return immediately, no fallback needed
+          const duration = Date.now() - startTime;
+          await this.logger.log({
+            requestId,
+            timestamp: new Date(),
+            platform: platformInfo.platform,
+            provider: primaryProvider.name,
+            url,
+            status: 'success',
+            executionTime: duration,
+            ipAddress: options?.ipAddress,
+            userAgent: options?.userAgent,
+            videoId: result.metadata.videoId,
+            videoTitle: result.title,
+          });
+
+          return {
+            success: true,
+            data: result,
+            provider: primaryProvider.name,
+            platform: platformInfo.platform,
+            duration,
+            requestId,
+          };
+        }
+
+        // Primary returned empty result — treat as failure, try fallback
+        primaryError = new NovaDLError(
+          NovaDLErrorCode.DOWNLOAD_FAILED,
+          'Primary provider returned empty result',
+          platformInfo.platform,
+          requestId,
+          { provider: primaryProvider.name }
+        );
+      } catch (err: unknown) {
+        primaryError = err instanceof NovaDLError ? err : new NovaDLError(
+          NovaDLErrorCode.DOWNLOAD_FAILED,
+          err instanceof Error ? err.message : 'Unknown error',
+          platformInfo.platform,
+          requestId,
+          { provider: primaryProvider.name, originalError: err instanceof Error ? err : undefined }
+        );
+      }
+
+      // ──── Step 4: Check if PRIMARY's error is content-level ────
+      // If the primary says the video is private/deleted/unavailable, trust it.
+      // Do NOT try paid fallback providers — they would just waste credits
+      // and would return the same content-level error anyway.
+      if (primaryError && contentLevelCodes.has(primaryError.code)) {
         const duration = Date.now() - startTime;
+        const errorInfo: NovaDLErrorInfo = {
+          code: primaryError.code,
+          message: primaryError.message,
+          platform: platformInfo.platform,
+          provider: primaryProvider.name,
+          requestId,
+        };
+
         await this.logger.log({
           requestId,
           timestamp: new Date(),
           platform: platformInfo.platform,
           provider: primaryProvider.name,
           url,
-          status: 'success',
+          status: 'error',
           executionTime: duration,
+          error: primaryError.code,
+          errorMessage: primaryError.message,
           ipAddress: options?.ipAddress,
           userAgent: options?.userAgent,
-          videoId: result.metadata.videoId,
-          videoTitle: result.title,
         });
 
         return {
-          success: true,
-          data: result,
+          success: false,
+          error: errorInfo,
           provider: primaryProvider.name,
           platform: platformInfo.platform,
           duration,
@@ -212,111 +258,82 @@ export class DownloadService {
         };
       }
 
-      // Primary returned empty result — treat as failure, try fallback
+      console.log(`[DownloadService] Primary (${primaryProvider.name}) failed with transient error, trying engine fallback`);
+    } else {
+      // Primary provider disabled or not registered — synthesize a transient
+      // error so we fall through to engine fallback (if any engine providers
+      // are still enabled).
+      console.log('[DownloadService] Primary provider (tiktok-api-dl) not enabled — will try engine fallback if any engine providers are enabled');
       primaryError = new NovaDLError(
         NovaDLErrorCode.DOWNLOAD_FAILED,
-        'Primary provider returned empty result',
+        'Primary provider not available (disabled or not registered)',
         platformInfo.platform,
         requestId,
-        { provider: primaryProvider.name }
+        { provider: 'tiktok-api-dl' }
       );
-    } catch (err: unknown) {
-      primaryError = err instanceof NovaDLError ? err : new NovaDLError(
-        NovaDLErrorCode.DOWNLOAD_FAILED,
-        err instanceof Error ? err.message : 'Unknown error',
-        platformInfo.platform,
-        requestId,
-        { provider: primaryProvider.name, originalError: err instanceof Error ? err : undefined }
-      );
-    }
-
-    // ──── Step 4: Check if PRIMARY's error is content-level ────
-    // If the primary says the video is private/deleted/unavailable, trust it.
-    // Do NOT try paid fallback providers — they would just waste credits
-    // and would return the same content-level error anyway.
-    if (primaryError && contentLevelCodes.has(primaryError.code)) {
-      const duration = Date.now() - startTime;
-      const errorInfo: NovaDLErrorInfo = {
-        code: primaryError.code,
-        message: primaryError.message,
-        platform: platformInfo.platform,
-        provider: primaryProvider.name,
-        requestId,
-      };
-
-      await this.logger.log({
-        requestId,
-        timestamp: new Date(),
-        platform: platformInfo.platform,
-        provider: primaryProvider.name,
-        url,
-        status: 'error',
-        executionTime: duration,
-        error: primaryError.code,
-        errorMessage: primaryError.message,
-        ipAddress: options?.ipAddress,
-        userAgent: options?.userAgent,
-      });
-
-      return {
-        success: false,
-        error: errorInfo,
-        provider: primaryProvider.name,
-        platform: platformInfo.platform,
-        duration,
-        requestId,
-      };
     }
 
     // ──── Step 5: PRIMARY failed with transient error — try FALLBACK ────
-    // Only use the engine (TikHub/RapidAPI) as a fallback when the primary
-    // genuinely failed with a transient error (timeout, rate limit, network).
+    // Only use the engine (TikHub/RapidAPI) as a fallback when:
+    //   (a) the engine can be initialized (lazy via getEngine()), AND
+    //   (b) at least one of the engine's internal providers (tikhub/rapidapi)
+    //       is enabled in per-provider config. If BOTH are disabled, skip
+    //       the engine entirely — there is no point calling it.
+    //
     // extractWithEngine() handles lazy engine init via getEngine() — the
     // engine may still be initializing in the background from initializeNovaDL().
-    console.log(`[DownloadService] Primary (${primaryProvider.name}) failed with transient error, trying engine fallback`);
+    console.log(`[DownloadService] Primary failed with transient error, trying engine fallback`);
 
-    try {
-      const result = await extractWithEngine(platformInfo.canonicalUrl, platformInfo.platform);
-      const hasAnyMedia = result.formats.length > 0 || result.audio.length > 0 ||
-        (result.metadata.slideImages && result.metadata.slideImages.length > 0);
+    const anyEngineProviderEnabled = ENGINE_PROVIDER_NAMES.some(
+      name => this.registry.isProviderEnabled(name)
+    );
 
-      if (hasAnyMedia) {
-        // FALLBACK SUCCEEDED
-        const duration = Date.now() - startTime;
-        await this.logger.log({
-          requestId,
-          timestamp: new Date(),
-          platform: platformInfo.platform,
-          provider: 'novadl-engine',
-          url,
-          status: 'success',
-          executionTime: duration,
-          ipAddress: options?.ipAddress,
-          userAgent: options?.userAgent,
-          videoId: result.metadata.videoId,
-          videoTitle: result.title,
-        });
+    if (anyEngineProviderEnabled) {
+      try {
+        const result = await extractWithEngine(platformInfo.canonicalUrl, platformInfo.platform);
+        const hasAnyMedia = result.formats.length > 0 || result.audio.length > 0 ||
+          (result.metadata.slideImages && result.metadata.slideImages.length > 0);
 
-        return {
-          success: true,
-          data: result,
-          provider: 'novadl-engine',
-          platform: platformInfo.platform,
-          duration,
-          requestId,
-        };
+        if (hasAnyMedia) {
+          // FALLBACK SUCCEEDED
+          const duration = Date.now() - startTime;
+          await this.logger.log({
+            requestId,
+            timestamp: new Date(),
+            platform: platformInfo.platform,
+            provider: 'novadl-engine',
+            url,
+            status: 'success',
+            executionTime: duration,
+            ipAddress: options?.ipAddress,
+            userAgent: options?.userAgent,
+            videoId: result.metadata.videoId,
+            videoTitle: result.title,
+          });
+
+          return {
+            success: true,
+            data: result,
+            provider: 'novadl-engine',
+            platform: platformInfo.platform,
+            duration,
+            requestId,
+          };
+        }
+      } catch (engineErr: unknown) {
+        // Engine fallback also failed — fall through to return primary's error
+        const msg = engineErr instanceof Error ? engineErr.message : String(engineErr);
+        console.warn(`[DownloadService] Engine fallback also failed: ${msg.slice(0, 200)}`);
       }
-    } catch (engineErr: unknown) {
-      // Engine fallback also failed — fall through to return primary's error
-      const msg = engineErr instanceof Error ? engineErr.message : String(engineErr);
-      console.warn(`[DownloadService] Engine fallback also failed: ${msg.slice(0, 200)}`);
+    } else {
+      console.log('[DownloadService] Engine fallback skipped — all engine providers (tikhub/rapidapi) disabled in config');
     }
 
     // ──── Step 6: ALL providers failed — return PRIMARY's error ────
     // Always return the primary's error, not the engine's. The primary is
     // authoritative. The engine is just a best-effort fallback.
     const duration = Date.now() - startTime;
-    const lastProviderName = primaryProvider.name;
+    const lastProviderName = primaryProviderName;
 
     // Rate-limited is a special case
     if (primaryError && primaryError.code === NovaDLErrorCode.RATE_LIMITED) {

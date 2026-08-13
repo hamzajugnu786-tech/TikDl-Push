@@ -83,22 +83,37 @@ export async function GET() {
     let providersTotal = 0;
 
     for (const [name, health] of providerHealths.entries()) {
+      // Per-provider enabled state from the registry — this is the runtime
+      // truth, NOT the persisted DB row. A disabled provider can still be
+      // healthy (its API works) but won't be selected for downloads.
+      const enabled = registry.isProviderEnabled(name);
       providerStatuses[name] = {
         status: health.status,
         latency: health.latency,
         availability: health.availability,
         platform: health.platform,
+        // Surface enabled state so the admin UI can distinguish
+        // "Enabled & Healthy" from "Disabled & Healthy" from "Enabled & Offline".
+        enabled,
       };
 
       providersTotal++;
-      if (health.status === 'online') providersOnline++;
+      if (health.status === 'online' && enabled) providersOnline++;
 
-      // Persist to ProviderStatus in DB
+      // Persist to ProviderStatus in DB. NOTE: we only UPSERT rows for
+      // providers that exist in the registry — we do NOT touch rows for
+      // providers that were once registered but are no longer in the registry
+      // (those rows will become stale and the Dashboard UI must read the
+      // `enabled` field from /api/admin/config or /api/health rather than
+      // relying solely on ProviderStatus.active).
       try {
         await db.providerStatus.upsert({
           where: { name },
           update: {
             platform: health.platform,
+            // 'active' here means "telemetry says the provider responded OK".
+            // It does NOT mean "enabled in config". The admin UI MUST consult
+            // the `enabled` field exposed above for config state.
             active: health.status !== 'offline',
             successRate: health.successRate,
             avgResponseMs: health.latency,
@@ -117,6 +132,12 @@ export async function GET() {
         console.error(`[Health] Failed to persist status for ${name}:`, dbError);
       }
     }
+
+    // Also surface the full configured-provider list (with enabled state) so
+    // the admin UI can ALWAYS show every configured provider, even when
+    // telemetry has not yet been generated for one of them. This is the
+    // authoritative list the Provider Management tab uses.
+    const configuredProviders = registry.getConfiguredProviders();
 
     // ========================================================================
     // 3. MEMORY USAGE
@@ -183,6 +204,11 @@ export async function GET() {
         latency: dbLatency,
       },
       providers: providerStatuses,
+      // Authoritative configured-provider list — admin UI uses this to ALWAYS
+      // show every configured provider in the Provider Management table, even
+      // when telemetry has not yet been generated. `enabled` reflects the
+      // runtime registry state (mutated by admin toggles + reloadConfig).
+      configuredProviders,
       memory: memoryMb,
       providerSummary: {
         total: providersTotal,
@@ -205,6 +231,7 @@ export async function GET() {
           latency: null,
         },
         providers: {},
+        configuredProviders: [],
         memory: {
           rss: Math.round(memoryUsage.rss / 1024 / 1024),
           heapTotal: Math.round(memoryUsage.heapTotal / 1024 / 1024),

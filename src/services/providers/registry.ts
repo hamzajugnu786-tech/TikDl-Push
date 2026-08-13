@@ -29,6 +29,20 @@ export class ProviderRegistry {
   /** Map of provider name → provider instance (for quick lookup) */
   private providersByName: Map<string, NovaDLProvider> = new Map();
 
+  /**
+   * Set of provider names explicitly disabled via per-provider config key
+   * `provider_enabled_<name>` = 'false'.
+   *
+   * IMPORTANT: Disabled providers are NEVER removed from `providers` /
+   * `providersByName`. They remain registered so that:
+   *   - The admin UI can still list them as "Disabled"
+   *   - Re-enabling them later is a constant-time set-membership flip
+   *     (no need to re-call registerTikTokProviders(), which is gated
+   *     behind `if (initialized) return` in init.ts).
+   *   - Vercel serverless instances recover correctly on next cold start.
+   */
+  private disabledNames: Set<string> = new Set();
+
   /** Whether configuration has been loaded from DB */
   private configLoaded = false;
 
@@ -56,9 +70,24 @@ export class ProviderRegistry {
   /**
    * Get all providers for a platform, ordered by priority.
    * Returns empty array if platform is not registered.
+   *
+   * NOTE: This returns ALL registered providers, INCLUDING disabled ones.
+   * Callers that need to actually execute a download must use
+   * getEnabledProviders() instead. This method is kept for telemetry,
+   * health checks, and admin UI listing.
    */
   getProviders(platform: string): NovaDLProvider[] {
     return this.providers.get(platform) || [];
+  }
+
+  /**
+   * Get all providers for a platform that are NOT disabled via per-provider
+   * config. This is the list the DownloadService must use for actual
+   * execution — disabled providers are excluded from the runtime race.
+   */
+  getEnabledProviders(platform: string): NovaDLProvider[] {
+    const all = this.providers.get(platform) || [];
+    return all.filter(p => !this.disabledNames.has(p.name));
   }
 
   /**
@@ -70,30 +99,69 @@ export class ProviderRegistry {
 
   /**
    * Get a specific provider by its unique name.
+   * Returns the provider even if disabled — callers needing execution
+   * eligibility must also call isProviderEnabled().
    */
   getProviderByName(name: string): NovaDLProvider | undefined {
     return this.providersByName.get(name);
   }
 
   /**
+   * Whether a registered provider is enabled (not in the disabled set).
+   * Unknown providers return false.
+   */
+  isProviderEnabled(name: string): boolean {
+    if (!this.providersByName.has(name)) return false;
+    return !this.disabledNames.has(name);
+  }
+
+  /**
    * Check if a platform is registered and has at least one enabled provider.
+   * (A platform with all providers disabled is considered unsupported.)
    */
   isPlatformSupported(platform: string): boolean {
-    const providers = this.providers.get(platform);
-    return !!providers && providers.length > 0;
+    const providers = this.getEnabledProviders(platform);
+    return providers.length > 0;
+  }
+
+  /**
+   * Get a snapshot of all configured providers across all platforms,
+   * with their enabled/disabled state. Used by /api/health and /api/admin/config
+   * to provide a consistent, telemetry-independent provider list to the admin UI.
+   */
+  getConfiguredProviders(): Array<{ name: string; platform: string; enabled: boolean }> {
+    const result: Array<{ name: string; platform: string; enabled: boolean }> = [];
+    for (const [platform, providers] of this.providers.entries()) {
+      for (const p of providers) {
+        result.push({
+          name: p.name,
+          platform,
+          enabled: !this.disabledNames.has(p.name),
+        });
+      }
+    }
+    return result;
   }
 
   /**
    * Load provider configuration from the database Settings table.
    *
-   * Reads settings with keys:
+   * Per-provider enable/disable (PRIMARY mechanism — what the admin UI uses):
+   *   provider_enabled_<name>  → "true" | "false"
+   *   (missing key = enabled by default — never blocks existing setups)
+   *
+   * Legacy platform-level keys (still respected for backward compat, but
+   * admin UI no longer writes these):
+   *   provider_<platform>_enabled   → "false" disables ALL providers for that platform
    *   provider_<platform>_primary   → primary provider name
    *   provider_<platform>_fallback  → fallback provider name
-   *   provider_<platform>_enabled   → "true" or "false"
    *
-   * Falls back to environment variables for defaults:
-   *   PROVIDER_NAME → primary provider (existing env var, reused)
-   *   PROVIDER_FALLBACK → fallback provider (new env var)
+   * CRITICAL: This method is NON-DESTRUCTIVE. It only mutates `disabledNames`
+   * (a Set) and optionally reorders the providers array. It NEVER deletes
+   * providers from the in-memory registry, so:
+   *   - Re-enabling a provider is a constant-time set-membership flip
+   *   - reloadConfig() can be called repeatedly without data loss
+   *   - Vercel serverless instances recover correctly on next cold start
    */
   async loadFromConfig(): Promise<void> {
     if (this.configLoaded) return;
@@ -102,93 +170,78 @@ export class ProviderRegistry {
       const settings = await db.settings.findMany();
       const settingsMap = new Map(settings.map(s => [s.key, s.value]));
 
-      // Check if provider config exists in DB
-      const hasDbConfig = settings.some(s => s.key.startsWith('provider_'));
+      // Reset disabled set — recompute from DB on every reload
+      this.disabledNames = new Set();
 
-      if (hasDbConfig) {
-        // Load from DB configuration
-        console.log('[Registry] Loading provider configuration from DB Settings');
-
-        for (const [platform, providers] of this.providers.entries()) {
-          const enabledKey = `provider_${platform}_enabled`;
-          const enabled = settingsMap.get(enabledKey);
-
-          if (enabled === 'false') {
-            console.log(`[Registry] Platform "${platform}" is disabled in config. Removing all providers.`);
-            this.providers.delete(platform);
-            for (const p of providers) {
-              this.providersByName.delete(p.name);
-            }
-            continue;
+      // Step 1: Apply platform-level disable (legacy compat).
+      // If `provider_<platform>_enabled === 'false'`, ALL providers for that
+      // platform are marked disabled (but NOT removed from the registry).
+      for (const [platform, providers] of this.providers.entries()) {
+        const platformEnabledKey = `provider_${platform}_enabled`;
+        if (settingsMap.get(platformEnabledKey) === 'false') {
+          for (const p of providers) {
+            this.disabledNames.add(p.name);
           }
+          console.log(`[Registry] Platform "${platform}" disabled via legacy key — marked ${providers.length} providers disabled.`);
+        }
+      }
 
-          // Reorder providers based on DB priority settings
-          const primaryKey = `provider_${platform}_primary`;
-          const fallbackKey = `provider_${platform}_fallback`;
-          const primaryName = settingsMap.get(primaryKey);
-          const fallbackName = settingsMap.get(fallbackKey);
+      // Step 2: Apply per-provider enable/disable (PRIMARY mechanism).
+      // Keys: `provider_enabled_<name>` = 'true' | 'false'
+      // 'false' → add to disabledNames. 'true' → remove from disabledNames
+      // (allows re-enabling a provider that was disabled by platform-level key).
+      for (const s of settings) {
+        if (!s.key.startsWith('provider_enabled_')) continue;
+        const name = s.key.slice('provider_enabled_'.length);
+        if (!name) continue;
+        if (!this.providersByName.has(name)) continue; // unknown provider, ignore
+        if (s.value === 'false') {
+          this.disabledNames.add(name);
+        } else if (s.value === 'true') {
+          this.disabledNames.delete(name);
+        }
+      }
 
-          if (primaryName || fallbackName) {
-            const reordered: NovaDLProvider[] = [];
+      // Step 3: Apply per-provider priority reordering (legacy compat).
+      // Reorder each platform's provider array based on
+      // provider_<platform>_primary / provider_<platform>_fallback.
+      for (const [platform, providers] of this.providers.entries()) {
+        const primaryKey = `provider_${platform}_primary`;
+        const fallbackKey = `provider_${platform}_fallback`;
+        const primaryName = settingsMap.get(primaryKey);
+        const fallbackName = settingsMap.get(fallbackKey);
 
-            if (primaryName) {
-              const primary = providers.find(p => p.name === primaryName);
-              if (primary) reordered.push(primary);
-            }
-
-            if (fallbackName) {
-              const fallback = providers.find(p => p.name === fallbackName);
-              if (fallback && !reordered.some(p => p.name === fallback.name)) {
-                reordered.push(fallback);
-              }
-            }
-
-            // Add any remaining providers not specified in config
-            for (const p of providers) {
-              if (!reordered.some(rp => rp.name === p.name)) {
-                reordered.push(p);
-              }
-            }
-
-            if (reordered.length > 0) {
-              this.providers.set(platform, reordered);
+        if (primaryName || fallbackName) {
+          const reordered: NovaDLProvider[] = [];
+          if (primaryName) {
+            const primary = providers.find(p => p.name === primaryName);
+            if (primary) reordered.push(primary);
+          }
+          if (fallbackName) {
+            const fallback = providers.find(p => p.name === fallbackName);
+            if (fallback && !reordered.some(p => p.name === fallback.name)) {
+              reordered.push(fallback);
             }
           }
-
-          // Filter out providers explicitly disabled per-provider:
-          // provider_<platform>_<name>_enabled = "false"
-          const currentProviders = this.providers.get(platform) || [];
-          const filteredProviders: NovaDLProvider[] = [];
-          for (const p of currentProviders) {
-            const perProviderKey = `provider_${platform}_${p.name}_enabled`;
-            const perProviderEnabled = settingsMap.get(perProviderKey);
-            if (perProviderEnabled === 'false') {
-              console.log(`[Registry] Provider "${p.name}" disabled in DB config. Removing from registry.`);
-              this.providersByName.delete(p.name);
-              continue;
+          for (const p of providers) {
+            if (!reordered.some(rp => rp.name === p.name)) {
+              reordered.push(p);
             }
-            filteredProviders.push(p);
           }
-          if (filteredProviders.length > 0) {
-            this.providers.set(platform, filteredProviders);
-          } else if (currentProviders.length > 0) {
-            // All providers for this platform were disabled — keep registry empty for this platform
-            this.providers.set(platform, filteredProviders);
+          if (reordered.length > 0) {
+            this.providers.set(platform, reordered);
           }
         }
-      } else {
-        // No DB config — fall back to environment variables
-        console.log('[Registry] No DB provider config found. Using environment defaults.');
-        // Existing providers are already registered in the correct order
-        // (TikHub primary, RapidAPI fallback) via the registration call.
-        // The PROVIDER_NAME env var is already respected by the old getProvider().
-        // In Phase 1, we keep the same default behavior.
       }
+
+      const disabledList = Array.from(this.disabledNames);
+      console.log(`[Registry] Config loaded. Disabled providers: ${disabledList.length ? disabledList.join(', ') : '(none)'}`);
 
       this.configLoaded = true;
     } catch (error) {
       console.error('[Registry] Failed to load config from DB:', error);
-      // Fall back to current registration order (env var defaults)
+      // Fail safe: leave providers in their default (enabled) state.
+      this.disabledNames = new Set();
       this.configLoaded = true;
     }
   }

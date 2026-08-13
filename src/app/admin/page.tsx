@@ -348,6 +348,19 @@ const AdminDashboard = () => {
               priority: ad.priority || 1,
             })));
           }
+          // ──── Populate providerConfigs from the authoritative source ────
+          // data.configuredProviders comes from the registry snapshot — it is
+          // ALWAYS present once the registry has been initialized, regardless
+          // of whether telemetry exists. This is what makes the Provider
+          // Management tab never randomly disappear.
+          if (Array.isArray(data.configuredProviders) && data.configuredProviders.length > 0) {
+            setProviderConfigs(data.configuredProviders.map((p: any, index: number) => ({
+              name: p.name,
+              enabled: !!p.enabled,
+              priority: index + 1,
+              status: p.enabled ? ('Active' as const) : ('Fallback' as const),
+            })));
+          }
           if (data.settings) {
             const settingsMap: Record<string, string> = {};
             for (const s of data.settings) {
@@ -429,48 +442,26 @@ const AdminDashboard = () => {
       }
     };
 
-    // Fetch real provider status from the health API + saved provider config from /api/admin/config
+    // Fetch real provider status from the health API.
+    //
+    // NOTE: We NO LONGER overwrite providerConfigs from /api/health.
+    // providerConfigs is the AUTHORITATIVE source-of-truth list — populated
+    // from /api/admin/config GET (which reads the live registry via
+    // getConfiguredProviders()). /api/health may transiently return an empty
+    // `providers` map (e.g. cold start, init delay), which previously caused
+    // the Provider Management table to randomly disappear. We now use
+    // /api/health only to refresh analyticsData (telemetry), and let the
+    // /api/admin/config fetch keep providerConfigs populated.
     const fetchProviders = async () => {
       try {
-        // 1. Fetch live health data (provider online/offline status)
-        const healthRes = await fetch('/api/health');
-        const healthData = await handleApiResponse(healthRes);
-        if (!healthData || !healthData.providers) return;
-
-        // 2. Fetch saved provider config from Settings DB
-        //    (overrides live health status with admin's saved enabled/disabled state)
-        let savedProviderSettings: Record<string, string> = {};
-        try {
-          const configRes = await fetch('/api/admin/config');
-          const configData = await handleApiResponse(configRes);
-          if (configData?.success && Array.isArray(configData.settings)) {
-            for (const s of configData.settings) {
-              savedProviderSettings[s.key] = s.value;
-            }
-          }
-        } catch {
-          // Config fetch failed — use live health data only
-        }
-
-        // Convert health API provider data into ProviderConfig format
-        const providerEntries = Object.entries(healthData.providers) as [string, any][];
-        const configs: ProviderConfig[] = providerEntries.map(([name, info], index) => {
-          // Check if admin has explicitly saved an enabled/disabled state for this provider
-          const savedEnabled = savedProviderSettings[`provider_tiktok_${name}_enabled`];
-          const isEnabled = savedEnabled !== undefined
-            ? savedEnabled === 'true'
-            : info.status === 'online';
-
-          return {
-            name: info.platform === 'tiktok' ? name : `${name} (${info.platform || 'unknown'})`,
-            enabled: isEnabled,
-            priority: index + 1,
-            status: info.status === 'online' ? 'Active' as const : 'Fallback' as const,
-          };
-        });
-        setProviderConfigs(configs.length > 0 ? configs : []);
+        // /api/health is invoked primarily for its side effect: it triggers
+        // initializeNovaDL() + healthCheckAll(), which writes telemetry to
+        // the ProviderStatus DB table that /api/analytics later reads. So
+        // calling it here ensures telemetry gets refreshed. The response
+        // body itself is discarded — we don't use it to set React state.
+        await fetch('/api/health');
       } catch {
-        // Keep empty provider list — will show "no data" message
+        // Telemetry refresh failure is non-fatal.
       }
     };
 
@@ -717,8 +708,16 @@ const AdminDashboard = () => {
     });
   }, []);
 
-  // Save provider config — persists provider_<platform>_enabled/_primary/_fallback
-  // to the Settings table. The provider registry reads these on next load.
+  // Save provider config — persists per-provider enable/disable state
+  // via the `provider_enabled_<name>` settings keys. The provider registry's
+  // loadFromConfig() reads these keys (non-destructively) to determine
+  // which providers should be excluded from the runtime race.
+  //
+  // NOTE: The previous implementation used platform-level keys
+  // (`provider_<platform>_<name>_enabled`) — those are kept for backward
+  // compatibility but the PRIMARY mechanism is now the simpler
+  // `provider_enabled_<name>` form, which doesn't require knowing the
+  // platform ahead of time.
   const handleSaveProviders = async () => {
     setIsSaving(true);
     try {
@@ -727,28 +726,29 @@ const AdminDashboard = () => {
         return;
       }
 
-      // Determine platform — all current providers are tiktok platform
-      // Future: extend to multi-platform when registry supports it
-      const platform = 'tiktok';
-
       // Sort providers by priority (lowest priority number = primary)
       const sorted = [...providerConfigs].sort((a, b) => a.priority - b.priority);
       const enabledProviders = sorted.filter(p => p.enabled);
       const primary = enabledProviders[0]?.name || '';
       const fallback = enabledProviders[1]?.name || '';
 
-      const settings = [
-        // Platform-level enable/disable
+      // Build settings list — per-provider enabled state is the PRIMARY
+      // mechanism; platform-level primary/fallback are kept as legacy
+      // hints for backward compatibility (loadFromConfig still respects them).
+      const platform = 'tiktok';
+      const settings: Array<{ key: string; value: string }> = [
+        // Platform-level enable/disable (legacy compat)
         { key: `provider_${platform}_enabled`, value: String(enabledProviders.length > 0) },
-        // Primary + fallback provider names
+        // Primary + fallback provider names (legacy compat — used for reordering)
         { key: `provider_${platform}_primary`, value: primary },
         { key: `provider_${platform}_fallback`, value: fallback },
       ];
 
-      // Also persist per-provider enable/disable state
+      // Per-provider enable/disable (PRIMARY mechanism — what the registry
+      // actually consults to exclude providers from the runtime race).
       for (const p of providerConfigs) {
         settings.push({
-          key: `provider_${platform}_${p.name}_enabled`,
+          key: `provider_enabled_${p.name}`,
           value: String(p.enabled),
         });
       }
@@ -763,6 +763,22 @@ const AdminDashboard = () => {
         toast.success('Provider config saved', {
           description: `Primary: ${primary || 'none'} · Fallback: ${fallback || 'none'}`,
         });
+        // Re-fetch /api/admin/config to refresh providerConfigs from the
+        // authoritative registry snapshot (post-reload).
+        try {
+          const cfgRes = await fetch('/api/admin/config');
+          const cfgData = await handleApiResponse(cfgRes);
+          if (cfgData?.success && Array.isArray(cfgData.configuredProviders)) {
+            setProviderConfigs(cfgData.configuredProviders.map((p: any, index: number) => ({
+              name: p.name,
+              enabled: !!p.enabled,
+              priority: index + 1,
+              status: p.enabled ? ('Active' as const) : ('Fallback' as const),
+            })));
+          }
+        } catch {
+          // Refresh failure is non-fatal — the save itself succeeded.
+        }
       } else {
         toast.error(data.error || 'Failed to save provider config');
       }
@@ -1285,41 +1301,65 @@ const AdminDashboard = () => {
               <div className="mb-5">
                 <h3 className="text-xs font-semibold mb-2 text-[#9CA3AF] uppercase tracking-wider">Provider Status</h3>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
-                  {analyticsData.providers.length > 0 ? (
-                    analyticsData.providers.map((p) => (
-                      <div key={p.name} className="stat-card flex items-center justify-between">
-                        <div>
-                          <div className="font-semibold text-sm">{p.name}</div>
-                          <div className="text-xs text-[#9CA3AF] mt-0.5">
-                            Latency: {p.avgResponseMs}ms · Rate: {p.successRate}%
+                  {/* Source of truth for the list: providerConfigs (populated from
+                      /api/admin/config GET, which reads the live registry). This
+                      means the list will ALWAYS show every configured provider,
+                      even before any telemetry exists. Telemetry (latency /
+                      success rate) is overlaid from analyticsData.providers when
+                      available. */}
+                  {providerConfigs.length > 0 ? (
+                    providerConfigs.map((p) => {
+                      // Look up telemetry for this provider (may be missing).
+                      const telemetry = analyticsData.providers.find(
+                        ap => ap.name.toLowerCase() === p.name.toLowerCase()
+                      );
+                      // Health state is informational only. The primary label
+                      // reflects the ENABLED state — never the health state —
+                      // because a disabled provider is ineligible for download
+                      // regardless of whether its API happens to respond.
+                      const healthUnknown = !telemetry;
+                      const healthOffline = telemetry && telemetry.active === false;
+                      return (
+                        <div key={p.name} className="stat-card flex items-center justify-between">
+                          <div>
+                            <div className="font-semibold text-sm">{p.name}</div>
+                            <div className="text-xs text-[#9CA3AF] mt-0.5">
+                              {telemetry
+                                ? `Latency: ${telemetry.avgResponseMs ?? 0}ms · Rate: ${telemetry.successRate ?? 0}%`
+                                : 'Telemetry: pending'}
+                            </div>
+                          </div>
+                          <div className="flex items-center gap-2">
+                            {/* Health dot — informational only */}
+                            <span
+                              className={`w-2 h-2 rounded-full inline-block ${
+                                healthUnknown
+                                  ? 'bg-gray-500'
+                                  : healthOffline
+                                    ? 'bg-red-400'
+                                    : 'bg-green-400'
+                              }`}
+                              title={
+                                healthUnknown
+                                  ? 'Telemetry not yet reported'
+                                  : healthOffline
+                                    ? 'Provider offline or erroring'
+                                    : 'Provider responded to last health probe'
+                              }
+                            />
+                            {/* Primary label reflects ENABLED state, not health */}
+                            <div className={`px-2.5 py-1 rounded-full text-xs font-semibold ${
+                              p.enabled ? 'bg-[#25F4EE]/15 text-[#25F4EE]' : 'bg-[#FE2C55]/15 text-[#FE2C55]'
+                            }`}>
+                              {p.enabled ? 'Enabled' : 'Disabled'}
+                            </div>
                           </div>
                         </div>
-                        <div className={`px-2.5 py-1 rounded-full text-xs font-semibold ${
-                          p.active ? 'bg-[#25F4EE]/15 text-[#25F4EE]' : 'bg-[#FE2C55]/15 text-[#FE2C55]'
-                        }`}>
-                          {p.active ? 'Active' : 'Inactive'}
-                        </div>
-                      </div>
-                    ))
-                  ) : providerConfigs.length > 0 ? (
-                    providerConfigs.map((p) => (
-                      <div key={p.name} className="stat-card flex items-center justify-between">
-                        <div>
-                          <div className="font-semibold text-sm">{p.name}</div>
-                          <div className="text-xs text-[#9CA3AF] mt-0.5">
-                            Priority: {p.priority} · {p.status}
-                          </div>
-                        </div>
-                        <div className={`px-2.5 py-1 rounded-full text-xs font-semibold ${
-                          p.enabled ? 'bg-[#25F4EE]/15 text-[#25F4EE]' : 'bg-[#FE2C55]/15 text-[#FE2C55]'
-                        }`}>
-                          {p.enabled ? 'Active' : 'Disabled'}
-                        </div>
-                      </div>
-                    ))
+                      );
+                    })
                   ) : (
                     <div className="stat-card text-center text-sm text-[#9CA3AF] py-3 col-span-2">
-                      Provider data loading...
+                      No providers configured. Provider registry not initialized.
                     </div>
                   )}
                 </div>
@@ -1444,16 +1484,30 @@ const AdminDashboard = () => {
                           const analyticsProvider = analyticsData.providers.find(
                             ap => ap.name.toLowerCase() === provider.name.toLowerCase()
                           );
+                          // Health state (telemetry-based): 'online' | 'offline' | 'unknown'
+                          // Note: this is INDEPENDENT of the enabled state. A provider
+                          // can be enabled-but-offline (provider API is down) OR
+                          // disabled-but-online (API works but admin opted out).
+                          const healthState: 'online' | 'offline' | 'unknown' = !analyticsProvider
+                            ? 'unknown'
+                            : analyticsProvider.active
+                              ? 'online'
+                              : 'offline';
+                          const healthLabel =
+                            healthState === 'online' ? 'Online' :
+                            healthState === 'offline' ? 'Offline' : 'Unknown';
                           return (
                             <tr key={provider.name} className="table-row">
                               <td className="py-2.5 px-2.5 font-medium text-sm">{provider.name}</td>
                               <td className="py-2.5 px-2.5">
                                 <span className={`px-2 py-0.5 rounded-full text-xs font-semibold ${
-                                  provider.status === 'Active'
+                                  healthState === 'online'
                                     ? 'bg-[#25F4EE]/15 text-[#25F4EE]'
-                                    : 'bg-[#FE2C55]/15 text-[#FE2C55]'
+                                    : healthState === 'offline'
+                                      ? 'bg-[#FE2C55]/15 text-[#FE2C55]'
+                                      : 'bg-gray-500/15 text-gray-400'
                                 }`}>
-                                  {provider.status}
+                                  {healthLabel}
                                 </span>
                               </td>
                               {/* Read-only priority badge — priority is registry-controlled */}
@@ -1486,9 +1540,26 @@ const AdminDashboard = () => {
                                 </div>
                               </td>
                               <td className="py-2.5 px-2.5">
-                                <div className={`w-2 h-2 rounded-full inline-block ${
-                                  analyticsProvider?.active || provider.enabled ? 'bg-green-400' : 'bg-red-400'
-                                }`} />
+                                {/* Runtime-eligibility dot:
+                                    green = enabled & online,
+                                    red = enabled but offline OR disabled,
+                                    gray = no telemetry yet */}
+                                <div
+                                  className={`w-2 h-2 rounded-full inline-block ${
+                                    provider.enabled && healthState === 'online'
+                                      ? 'bg-green-400'
+                                      : provider.enabled && healthState === 'unknown'
+                                        ? 'bg-yellow-400'
+                                        : 'bg-red-400'
+                                  }`}
+                                  title={
+                                    provider.enabled && healthState === 'online'
+                                      ? 'Enabled and healthy — eligible for downloads'
+                                      : provider.enabled && healthState === 'unknown'
+                                        ? 'Enabled but telemetry pending'
+                                        : 'Disabled or offline — not eligible for downloads'
+                                  }
+                                />
                               </td>
                               <td className="py-2.5 px-2.5 text-right text-xs text-[#9CA3AF]">
                                 {analyticsProvider?.avgResponseMs ? `${analyticsProvider.avgResponseMs}ms` : '—'}
@@ -1499,6 +1570,14 @@ const AdminDashboard = () => {
                             </tr>
                           );
                         })}
+                      {providerConfigs.length === 0 && (
+                        <tr>
+                          <td colSpan={7} className="py-6 text-center text-[#9CA3AF] text-xs">
+                            No providers configured. The provider registry could not be initialized —
+                            check server logs for &quot;[NovaDL] Initialization&quot; messages.
+                          </td>
+                        </tr>
+                      )}
                     </tbody>
                   </table>
                 </div>
