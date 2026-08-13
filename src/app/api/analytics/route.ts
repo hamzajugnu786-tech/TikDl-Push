@@ -203,10 +203,34 @@ export async function GET() {
       deviceBreakdown: deviceSummary,
       last30DaysCount: last30DaysLogCount,
     });
-  } catch {
-    // Return zeros on error — never return an error status
+  } catch (error) {
+    // ===== Phase 2 Hardening (P2-F1) =====
+    // Previously this catch block silently swallowed ALL errors (DB errors,
+    // schema reconciliation failures, unexpected exceptions) and returned
+    // HTTP 200 with success:true + zero values — making a real backend
+    // failure indistinguishable from "no traffic yet" on the admin Dashboard.
+    //
+    // Two changes for Phase 2:
+    //   1. Log the actual error server-side so observability tooling and
+    //      Vercel runtime logs can diagnose the root cause. The previous
+    //      code had NO console.error here — failures were completely silent.
+    //   2. Add a `degraded: true` flag + human-readable `error` string to
+    //      the response. This is purely additive — the response shape is
+    //      unchanged for existing consumers (admin UI continues to render
+    //      zeros exactly as before). Future monitoring tooling or admin UI
+    //      work can consume the `degraded` flag to display a "data
+    //      unavailable" indicator, mirroring the same telemetry-accuracy
+    //      principle as the Phase-1 handleHealthCheck fix.
+    //
+    // We intentionally still return HTTP 200 + success:true (not 5xx) so
+    // the admin Dashboard does not crash — the goal is to surface the
+    // degraded state, not to break the UI. The zero values are kept as
+    // safe fallbacks for the same reason.
+    console.error('[Analytics] Failed to fetch analytics:', error);
     return NextResponse.json({
       success: true,
+      degraded: true,
+      error: 'Analytics data temporarily unavailable',
       today: {
         totalDownloads: 0,
         successCount: 0,
