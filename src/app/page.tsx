@@ -545,6 +545,25 @@ const TikTokDownloader = () => {
     }
   }, [countdown, showAdPopup, interstitialConfig.autoDownload, proceedAfterAd]);
 
+  // Allow users to dismiss the ad interstitial dialog with Escape.
+  // Reuses proceedAfterAd() — the established dismiss+proceed flow — so no
+  // second competing download request is introduced. Setting autoProceedRef
+  // first prevents the auto-proceed effect above from also firing.
+  useEffect(() => {
+    if (!showAdPopup) return;
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        e.preventDefault();
+        if (!autoProceedRef.current) {
+          autoProceedRef.current = true;
+          proceedAfterAd();
+        }
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [showAdPopup, proceedAfterAd]);
+
   const handleSubmit = useCallback((e: React.FormEvent) => {
     e.preventDefault();
     const trimmed = url.trim();
@@ -761,7 +780,7 @@ const TikTokDownloader = () => {
         )}
 
         {/* ===== Center Content ===== */}
-        <div className="flex-1 min-w-0">
+        <main className="flex-1 min-w-0">
 
           {/* ===== Hero Section ===== */}
           <section className="pt-6 sm:pt-8 pb-4 sm:pb-5 px-4 sm:px-6">
@@ -803,15 +822,16 @@ const TikTokDownloader = () => {
                     value={url}
                     onChange={(e) => { setUrl(e.target.value); setError(''); }}
                     placeholder="Paste TikTok link here..."
+                    aria-label="TikTok video URL"
                     className="w-full h-12 bg-[#1a1a1a] border border-[#333] rounded-[12px] pl-4 pr-10 text-sm placeholder:text-[#666] outline-none input-focus-ring disabled:opacity-50"
                     disabled={isLoading}
                   />
                   {url ? (
-                    <button type="button" onClick={handleClearInput} className="absolute right-2 top-1/2 -translate-y-1/2 w-8 h-8 flex items-center justify-center rounded-lg hover:bg-white/10 transition-colors duration-150" title="Clear input" disabled={isLoading}>
+                    <button type="button" onClick={handleClearInput} aria-label="Clear input" className="absolute right-2 top-1/2 -translate-y-1/2 w-8 h-8 flex items-center justify-center rounded-lg hover:bg-white/10 transition-colors duration-150" title="Clear input" disabled={isLoading}>
                       <X size={14} className="text-[#888] hover:text-red-400 transition-colors" />
                     </button>
                   ) : (
-                    <button type="button" onClick={handlePaste} className="absolute right-2 top-1/2 -translate-y-1/2 w-8 h-8 flex items-center justify-center rounded-lg hover:bg-white/10 transition-colors duration-150" title="Paste from clipboard" disabled={isLoading}>
+                    <button type="button" onClick={handlePaste} aria-label="Paste from clipboard" className="absolute right-2 top-1/2 -translate-y-1/2 w-8 h-8 flex items-center justify-center rounded-lg hover:bg-white/10 transition-colors duration-150" title="Paste from clipboard" disabled={isLoading}>
                       <ClipboardPaste size={14} className="text-[#888] hover:text-white transition-colors" />
                     </button>
                   )}
@@ -974,12 +994,12 @@ const TikTokDownloader = () => {
                             </AnimatePresence>
                             {/* Nav arrows */}
                             {currentSlide > 0 && (
-                              <button onClick={() => setCurrentSlide(i => Math.max(i - 1, 0))} className="absolute left-2 top-1/2 -translate-y-1/2 w-8 h-8 bg-black/60 hover:bg-black/80 rounded-full flex items-center justify-center transition-colors">
+                              <button onClick={() => setCurrentSlide(i => Math.max(i - 1, 0))} aria-label="Previous slide" className="absolute left-2 top-1/2 -translate-y-1/2 w-8 h-8 bg-black/60 hover:bg-black/80 rounded-full flex items-center justify-center transition-colors">
                                 <ChevronDown size={16} className="text-white rotate-90" />
                               </button>
                             )}
                             {currentSlide < videoInfo.slideImages.length - 1 && (
-                              <button onClick={() => setCurrentSlide(i => Math.min(i + 1, videoInfo.slideImages!.length - 1))} className="absolute right-2 top-1/2 -translate-y-1/2 w-8 h-8 bg-black/60 hover:bg-black/80 rounded-full flex items-center justify-center transition-colors">
+                              <button onClick={() => setCurrentSlide(i => Math.min(i + 1, videoInfo.slideImages!.length - 1))} aria-label="Next slide" className="absolute right-2 top-1/2 -translate-y-1/2 w-8 h-8 bg-black/60 hover:bg-black/80 rounded-full flex items-center justify-center transition-colors">
                                 <ChevronDown size={16} className="text-white -rotate-90" />
                               </button>
                             )}
@@ -1205,9 +1225,10 @@ const TikTokDownloader = () => {
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                   {history.flatMap((item, i) => {
                     const nodes: React.ReactNode[] = [
-                      <div
+                      <button
+                        type="button"
                         key={item.id + (item._timestamp || 0)}
-                        className="glass rounded-[12px] p-3 flex items-center gap-3 hover:bg-white/5 transition-colors duration-150 cursor-pointer"
+                        className="glass rounded-[12px] p-3 flex items-center gap-3 hover:bg-white/5 transition-colors duration-150 cursor-pointer text-left w-full"
                         onClick={() => {
                           resetInterface();
                           setVideoInfo(item);
@@ -1239,7 +1260,7 @@ const TikTokDownloader = () => {
                             <p className="text-[10px] text-gray-600 mt-0.5">{new Date(item._timestamp).toLocaleString()}</p>
                           )}
                         </div>
-                      </div>,
+                      </button>,
                     ];
                     // Insert an interval ad after every 4 cards (not forced if <4 total)
                     if ((i + 1) % 4 === 0 && (i + 1) < history.length) {
@@ -1308,9 +1329,11 @@ const TikTokDownloader = () => {
           <section id="faq" className="py-6 sm:py-8 px-4 sm:px-6 bg-[#121212]">
             <div className="max-w-3xl mx-auto">
               <h2 className="sr-only">Frequently Asked Questions</h2>
-              <div className="glass rounded-[14px] overflow-hidden">
+              <div id="faq-content" className="glass rounded-[14px] overflow-hidden">
                 <button
                   onClick={() => setOpenFAQ(!openFAQ)}
+                  aria-expanded={openFAQ}
+                  aria-controls="faq-content"
                   className="w-full flex items-center justify-between p-4 text-left hover:bg-white/5 transition-colors duration-150"
                 >
                   <span className="font-semibold text-sm">Frequently Asked Questions</span>
@@ -1359,7 +1382,7 @@ const TikTokDownloader = () => {
             <AdSlot page="homepage" placement="between_sections" />
           </div>
 
-        </div>
+        </main>
 
         {/* Right Sidebar Ad */}
         {landingAds.sidebarAds.filter(a => a.placement === 'right_sidebar').length > 0 && (
@@ -1383,6 +1406,9 @@ const TikTokDownloader = () => {
       <AnimatePresence>
         {showAdPopup && (
           <motion.div
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="ad-popup-title"
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
@@ -1398,7 +1424,7 @@ const TikTokDownloader = () => {
               <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 0.05 }} className="text-[#9CA3AF] mb-1 text-xs font-medium tracking-wider uppercase">
                 Sponsored
               </motion.div>
-              <motion.h3 initial={{ opacity: 0, y: -5 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.1 }} className="text-base sm:text-lg font-semibold mb-4">
+              <motion.h3 id="ad-popup-title" initial={{ opacity: 0, y: -5 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.1 }} className="text-base sm:text-lg font-semibold mb-4">
                 {interstitialConfig.popupTitle}
               </motion.h3>
 
