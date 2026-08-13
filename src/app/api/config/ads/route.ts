@@ -155,10 +155,19 @@ export async function GET(request: Request) {
       // Empty for any page with no configured ads (AdSlot renders null).
       adsByPage,
     });
-  } catch {
+  } catch (error) {
     // Never crash the public ads endpoint — return safe empty defaults.
+    // Surface the failure to Vercel runtime logs (was previously silent)
+    // and add a `degraded` flag for any future monitoring/admin tooling.
+    // The HTTP 200 + success:true contract is preserved — existing
+    // consumers (homepage, AdSlot) continue to render with no ads and
+    // do not crash. The fail-open behavior is intentional and unchanged.
+    // (Mirrors the Phase-2 Part-1 hardening applied to /api/analytics.)
+    console.error('[Public Ads Config] Failed to fetch ads:', error);
     return NextResponse.json({
       success: true,
+      degraded: true,
+      error: 'Ad configuration temporarily unavailable',
       interstitial: DEFAULT_CONFIG,
       ads: [],
       interstitialAd: null,
