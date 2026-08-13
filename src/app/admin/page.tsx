@@ -794,13 +794,22 @@ const AdminDashboard = () => {
     try {
       const res = await fetch('/api/health');
       const data = await res.json();
+      const dbConnected = data?.database?.status === 'connected';
       if (data.status === 'ok') {
-        toast.success('Health check passed', { description: 'Database connected' });
+        toast.success('Health check passed', { description: 'All systems operational' });
+      } else if (!dbConnected) {
+        toast.error('Database disconnected', { description: 'Database connectivity lost' });
+      } else if (data.status === 'degraded') {
+        const online = data?.providerSummary?.online ?? 0;
+        const total = data?.providerSummary?.total ?? 0;
+        toast.warning('Health check degraded', {
+          description: `Database connected · ${online}/${total} providers online`,
+        });
       } else {
-        toast.error('Health check degraded', { description: 'Database disconnected' });
+        toast.warning('Health check degraded', { description: 'System degraded' });
       }
     } catch {
-      toast.error('Health check failed');
+      toast.error('Health check failed', { description: 'Health endpoint unreachable' });
     }
   };
 
