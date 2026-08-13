@@ -8,8 +8,18 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server';
+import { requireAuth } from '@/lib/auth';
 
 export async function POST(request: NextRequest) {
+  // Authentication guard — debug endpoint must not be callable by
+  // unauthenticated external callers. Without this, anyone could trigger
+  // requests through the production TikHub API credential and burn credits.
+  // Uses the same requireAuth() pattern as /api/admin/config and
+  // /api/analytics. Returns HTTP 401 if the caller has no valid admin
+  // session; no TikHub API request is triggered in that case.
+  const authError = await requireAuth();
+  if (authError) return authError;
+
   const apiKey = process.env.TIKHUB_API_KEY;
 
   if (!apiKey) {
