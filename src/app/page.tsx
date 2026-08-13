@@ -1307,6 +1307,7 @@ const TikTokDownloader = () => {
           {/* ===== FAQ Section — Single floating accordion ===== */}
           <section id="faq" className="py-6 sm:py-8 px-4 sm:px-6 bg-[#121212]">
             <div className="max-w-3xl mx-auto">
+              <h2 className="sr-only">Frequently Asked Questions</h2>
               <div className="glass rounded-[14px] overflow-hidden">
                 <button
                   onClick={() => setOpenFAQ(!openFAQ)}

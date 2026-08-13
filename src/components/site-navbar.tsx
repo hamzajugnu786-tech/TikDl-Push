@@ -34,7 +34,7 @@ interface NavItem {
 }
 
 const NAV_ITEMS: NavItem[] = [
-  { key: 'features', label: 'Features', kind: 'anchor', hash: '#features' },
+  { key: 'features', label: 'How To Use', kind: 'anchor', hash: '#features' },
   { key: 'faq', label: 'FAQ', kind: 'anchor', hash: '#faq' },
   { key: 'history', label: 'History', kind: 'anchor', hash: '#history' },
   { key: 'about', label: 'About', kind: 'page', href: '/about' },

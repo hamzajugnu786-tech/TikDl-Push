@@ -44,7 +44,7 @@ export default function SiteFooter() {
           </Link>
         </div>
         <div className="flex flex-wrap justify-center gap-x-5 gap-y-1 text-sm text-gray-500">
-          <Link href="/#features" className="transition-colors duration-150" style={{ color: undefined }}>Features</Link>
+          <Link href="/#features" className="transition-colors duration-150" style={{ color: undefined }}>How To Use</Link>
           <Link href="/#faq" className="transition-colors duration-150">FAQ</Link>
           <Link href="/about" className="transition-colors duration-150">About</Link>
           <Link href="/contact" className="transition-colors duration-150">Contact</Link>
