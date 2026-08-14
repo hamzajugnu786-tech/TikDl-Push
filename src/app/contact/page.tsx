@@ -3,13 +3,14 @@ import Link from 'next/link';
 import SiteNavbar from '@/components/site-navbar';
 import SiteFooter from '@/components/site-footer';
 import ContentPageAds from '@/components/ContentPageAds';
+import { SITE_URL } from '@/lib/site-config';
 import { Mail, MessageSquare, ExternalLink } from 'lucide-react';
 
 export const metadata: Metadata = {
   title: 'Contact TikDL — Get Help & Support',
   description: 'Contact the TikDL team for support, feedback, or feature requests. We typically respond within 24 hours.',
-  alternates: { canonical: 'https://tikdl.app/contact' },
-  openGraph: { title: 'Contact TikDL', description: 'Reach the TikDL team for support or feedback.', url: 'https://tikdl.app/contact' },
+  alternates: { canonical: `${SITE_URL}/contact` },
+  openGraph: { title: 'Contact TikDL', description: 'Reach the TikDL team for support or feedback.', url: `${SITE_URL}/contact` },
 };
 
 export default function ContactPage() {

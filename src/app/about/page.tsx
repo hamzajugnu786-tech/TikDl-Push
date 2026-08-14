@@ -3,12 +3,13 @@ import Link from 'next/link';
 import SiteNavbar from '@/components/site-navbar';
 import SiteFooter from '@/components/site-footer';
 import ContentPageAds from '@/components/ContentPageAds';
+import { SITE_URL } from '@/lib/site-config';
 
 export const metadata: Metadata = {
   title: 'About TikDL — Free TikTok Video Downloader',
   description: 'TikDL is the fastest free TikTok downloader. Save HD videos without watermarks instantly. No signup, no limits.',
-  alternates: { canonical: 'https://tikdl.app/about' },
-  openGraph: { title: 'About TikDL', description: 'The fastest free TikTok downloader.', url: 'https://tikdl.app/about' },
+  alternates: { canonical: `${SITE_URL}/about` },
+  openGraph: { title: 'About TikDL', description: 'The fastest free TikTok downloader.', url: `${SITE_URL}/about` },
 };
 
 export default function AboutPage() {

@@ -3,12 +3,13 @@ import Link from 'next/link';
 import SiteNavbar from '@/components/site-navbar';
 import SiteFooter from '@/components/site-footer';
 import ContentPageAds from '@/components/ContentPageAds';
+import { SITE_URL } from '@/lib/site-config';
 
 export const metadata: Metadata = {
   title: 'Terms of Service — TikDL',
   description: 'TikDL terms of service. Understand the rules governing your use of TikDL.',
-  alternates: { canonical: 'https://tikdl.app/terms' },
-  openGraph: { title: 'Terms of Service — TikDL', description: 'Terms governing use of TikDL.', url: 'https://tikdl.app/terms' },
+  alternates: { canonical: `${SITE_URL}/terms` },
+  openGraph: { title: 'Terms of Service — TikDL', description: 'Terms governing use of TikDL.', url: `${SITE_URL}/terms` },
 };
 
 export default function TermsPage() {

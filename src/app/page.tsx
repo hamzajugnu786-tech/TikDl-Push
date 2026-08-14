@@ -11,6 +11,7 @@ import {
 } from 'lucide-react';
 import { Toaster, toast } from 'sonner';
 import { sanitizeAdHtml } from '@/lib/sanitize';
+import { SITE_URL } from '@/lib/site-config';
 import SiteNavbar from '@/components/site-navbar';
 import SiteFooter from '@/components/site-footer';
 // AdSlot is the centralized, page-aware ad renderer. Used here to add the
@@ -135,7 +136,7 @@ const WEB_APP_JSON_LD = {
   '@context': 'https://schema.org',
   '@type': 'WebApplication',
   name: 'TikDL',
-  url: 'https://tikdl.app',
+  url: SITE_URL,
   description: 'Free TikTok video downloader. Save TikTok videos without watermark in HD quality, extract MP3 audio, and download photo posts — no signup, no limits, works on mobile and desktop.',
   applicationCategory: 'MultimediaApplication',
   operatingSystem: 'Web',

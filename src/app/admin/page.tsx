@@ -281,7 +281,7 @@ const AdminDashboard = () => {
     rateLimit: '20/h',
     retryAttempts: 3,
     siteName: 'TikDL',
-    siteUrl: 'https://tikdl.app',
+    siteUrl: 'https://tikdl.leadforgeai.site',
     maintenanceMode: false,
     metaTitle: 'TikDL - Free TikTok Video Downloader Without Watermark',
     metaDescription: 'Download TikTok videos without watermark in HD quality. Free, unlimited, no signup required.',

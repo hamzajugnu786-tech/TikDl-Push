@@ -3,12 +3,13 @@ import Link from 'next/link';
 import SiteNavbar from '@/components/site-navbar';
 import SiteFooter from '@/components/site-footer';
 import ContentPageAds from '@/components/ContentPageAds';
+import { SITE_URL } from '@/lib/site-config';
 
 export const metadata: Metadata = {
   title: 'Privacy Policy — TikDL',
   description: 'TikDL privacy policy. We do not store downloads or log personal information. Your privacy is our priority.',
-  alternates: { canonical: 'https://tikdl.app/privacy' },
-  openGraph: { title: 'Privacy Policy — TikDL', description: 'How TikDL handles your data. We do not store downloads.', url: 'https://tikdl.app/privacy' },
+  alternates: { canonical: `${SITE_URL}/privacy` },
+  openGraph: { title: 'Privacy Policy — TikDL', description: 'How TikDL handles your data. We do not store downloads.', url: `${SITE_URL}/privacy` },
 };
 
 export default function PrivacyPage() {

@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import { headers } from "next/headers";
+import { SITE_URL } from "@/lib/site-config";
 import "./globals.css";
 
 // Force dynamic rendering so admin-saved settings (siteName, metaTitle,
@@ -24,10 +25,13 @@ const geistMono = Geist_Mono({
 // DYNAMIC METADATA FROM DB SETTINGS
 // ============================================================================
 
-// Default values — used when DB is unavailable or settings don't exist
+// Default values — used when DB is unavailable or settings don't exist.
+// `siteUrl` is sourced from the central src/lib/site-config.ts module so
+// the production canonical URL is defined in exactly one place. It is NOT
+// overridable from the admin DB (see policy note above generateMetadata()).
 const DEFAULTS = {
   siteName: 'TikDL',
-  siteUrl: 'https://tikdl.app',
+  siteUrl: SITE_URL,
   metaTitle: 'TikDL — TikTok Video Downloader Without Watermark',
   metaDescription: 'Download TikTok videos without watermark instantly. Free, unlimited, HD quality. Save videos, audio, and cover images in seconds. No signup required.',
   ogImageUrl: '',
@@ -60,12 +64,28 @@ async function getSiteSettings(): Promise<Record<string, string>> {
  * This replaces the static `metadata` export so that admin settings
  * (siteName, metaTitle, metaDescription, ogImageUrl, primaryColor, etc.)
  * take effect on the frontend in real-time.
+ *
+ * CANONICAL URL POLICY:
+ * The canonical production URL (metadataBase, alternates.canonical,
+ * openGraph.url) is sourced UNCONDITIONALLY from src/lib/site-config.ts,
+ * which reads NEXT_PUBLIC_SITE_URL with a fallback to
+ * https://tikdl.leadforgeai.site. The DB `siteUrl` setting is NOT used
+ * for canonical/OG URL output — it remains editable from /admin → Settings
+ * for backwards compatibility and is still surfaced in the admin UI, but
+ * the canonical URL is a deployment-level concern (set via Vercel env var)
+ * and must never be silently overridden by stale DB state from a previous
+ * domain. This prevents exactly the bug we just fixed: a previous admin
+ * save had stored `https://tikdl.app` in the production DB, and that stale
+ * value was being served as the canonical URL even after the code was
+ * updated to use the new domain.
  */
 export async function generateMetadata(): Promise<Metadata> {
   const settings = await getSiteSettings();
 
   const siteName = settings['siteName'] || DEFAULTS.siteName;
-  const siteUrl = settings['siteUrl'] || DEFAULTS.siteUrl;
+  // Canonical URL — always sourced from env / hardcoded fallback.
+  // See policy note above. DB `siteUrl` is intentionally NOT used here.
+  const siteUrl = SITE_URL;
   const metaTitle = settings['metaTitle'] || DEFAULTS.metaTitle;
   const metaDescription = settings['metaDescription'] || DEFAULTS.metaDescription;
   const ogImageUrl = settings['ogImageUrl'] || DEFAULTS.ogImageUrl;

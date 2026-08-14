@@ -1,4 +1,5 @@
 import { MetadataRoute } from 'next';
+import { SITE_URL as SITE } from '@/lib/site-config';
 
 // ============================================================================
 // SITEMAP — Phase 3 Part 1
@@ -15,9 +16,13 @@ import { MetadataRoute } from 'next';
 //   - homepage          daily,   priority 1.0  (primary entry, frequently updated)
 //   - about/contact     monthly, priority 0.7  (stable informational)
 //   - privacy/terms/dmca yearly, priority 0.6  (legal pages, rarely changed)
+//
+// The canonical production domain is sourced from src/lib/site-config.ts
+// (overridable via the NEXT_PUBLIC_SITE_URL env var). To change the domain:
+//   1. Update DNS / Vercel domain config.
+//   2. Set NEXT_PUBLIC_SITE_URL in Vercel Project Environment Variables.
+//   3. Redeploy. No code change required.
 // ============================================================================
-
-const SITE = 'https://tikdl.app';
 
 export default function sitemap(): MetadataRoute.Sitemap {
   const now = new Date();

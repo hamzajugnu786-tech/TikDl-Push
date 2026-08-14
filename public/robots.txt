@@ -3,4 +3,8 @@ Allow: /
 Disallow: /admin
 Disallow: /api/
 
-Sitemap: https://tikdl.app/sitemap.xml
+# The canonical production domain is configured in Vercel via the
+# NEXT_PUBLIC_SITE_URL environment variable (see src/lib/site-config.ts).
+# Update this file only if you want a different sitemap host than the
+# default https://tikdl.leadforgeai.site.
+Sitemap: https://tikdl.leadforgeai.site/sitemap.xml
