@@ -1220,7 +1220,7 @@ const TikTokDownloader = () => {
               <div className="max-w-4xl mx-auto">
                 <div className="flex items-center justify-between mb-3">
                   <h2 className="text-sm font-bold text-gray-300">Recent Downloads</h2>
-                  <button onClick={clearHistory} className="text-xs text-gray-500 hover:text-red-400 transition-colors duration-150">Clear</button>
+                  <button type="button" onClick={clearHistory} className="text-xs text-gray-500 hover:text-red-400 transition-colors duration-150">Clear</button>
                 </div>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                   {history.flatMap((item, i) => {
