@@ -223,3 +223,71 @@ Stage Summary:
 - Database safety: NO migrations run, NO db push, NO seed, NO destructive ops. Existing AdPlacement schema used as-is. reconcileSchema() (additive-only) remains as runtime safety net for production.
 - Page isolation: PROVEN via runtime tests. A page-specific ad (page=homepage + placement=hero_section) does NOT leak to other pages. A global ad (page=all + placement=above_footer) renders on every page that has the placement.
 - New page auto-discovery: PROVEN. /tools page created → discover-pages.js picks it up at build time → /api/config/pages returns it → admin sees Tools tab automatically. Zero admin code change required.
+
+---
+Task ID: PHASE-5C
+Agent: main
+Task: FINAL DOWNLOAD FAILURE + SPLASH UI FIX — TikDl production debugging (real-device evidence)
+
+Work Log:
+- Pulled latest origin/main (22 commits behind → fast-forwarded to ab07ddf)
+- Inspected fresh real-device evidence (2 new screenshots):
+  - Screenshot 1: Splash screen — white icon square on black bg + red arrow + "TIKDL" + long subtitle text
+  - Screenshot 2: Failed video download — toast "Download may have failed - The file could not be downloaded. Please try again." + Chrome native retry dialog "Download file again? ...Evening vibes in my little garden-@saadia.tabassum-tikdl.mp4"
+- Traced complete download path: UI button → handleDownload() → triggerProxyDownload() → /api/proxy → upstream CDN → browser download
+- Confirmed BOTH video and audio use the SAME /api/proxy endpoint with the SAME <a download="filename"> click mechanism — only difference is file size
+- ROOT CAUSE — VIDEO DOWNLOAD: /api/proxy/route.ts had `signal: AbortSignal.timeout(30000)` (30s) on upstream fetch INCLUDING body streaming. Audio files (1-5MB) complete in <30s on mobile → SUCCESS. Video files (10-30MB) on slow mobile connections exceed 30s → ABORTED mid-stream → browser sees truncated response → "Download may have failed" toast + Chrome "Download file again?" retry dialog
+- SECONDARY ROOT CAUSE — VIDEO DOWNLOAD: Proxy did NOT forward browser Range header → browser couldn't resume partial downloads. Did NOT forward Content-Length/Accept-Ranges/Content-Range → browser couldn't show progress or resume dropped connections.
+- ROOT CAUSE — SPLASH: (1) manifest.json `name` was "TikDL — TikTok Video Downloader" (too long, wraps awkwardly on PWA splash). (2) All icons (icon-192.png, icon-512.png, apple-touch-icon.png) had WHITE (non-transparent) backgrounds → appeared as awkward white square on the black PWA splash background.
+- FALSE POSITIVE — FRONTEND HEAD CHECK: triggerProxyDownload() in src/app/page.tsx fired a parallel HEAD fetch to /api/proxy and showed "Download may have failed" toast when HEAD returned non-200. Most TikTok/Bytedance CDNs DON'T support HEAD on media URLs → false-positive toast even when GET works. This compounded the user's confusion (toast appeared even when video download was actually working in some cases).
+
+Fixes applied (minimal, surgical):
+
+1. /api/proxy/route.ts (proxy download fix):
+   - Increased timeout from 30s → 600s (10 minutes) so large videos complete on slow mobile
+   - Added Range header forwarding: browser → upstream (so CDN can return 206 Partial Content)
+   - Added Content-Length forwarding so browser shows accurate download progress
+   - Added Accept-Ranges: bytes header (always advertised)
+   - Added Content-Range forwarding for 206 responses (resume support)
+   - Changed status passthrough: return upstream's 206 (was hard-coded 200) so browser correctly interprets partial content
+   - SSRF protection UNCHANGED — same ALLOWED_HOST_PATTERNS, same hostname validation, same HTTPS-only check
+   - text/plain error responses UNCHANGED (no .json extension on failed downloads)
+
+2. src/app/page.tsx (false-positive HEAD check removal):
+   - Removed the parallel HEAD fetch that fired the misleading "Download may have failed" toast
+   - The actual <a> download remains the source of truth; browser's native download UI reports failures with its own retry prompt
+   - Added explanatory comment documenting WHY the HEAD check was removed (false positives from CDNs that reject HEAD)
+
+3. public/manifest.json (splash name fix):
+   - Changed `name` from "TikDL — TikTok Video Downloader" → "TikDL" (short, premium)
+   - Updated `description` to be more concise
+   - short_name already "TikDL" — unchanged
+
+4. public/icon-*.png + apple-touch-icon.png + favicon.png (splash visual fix):
+   - Generated transparent backgrounds for all 12 PNG icons (icon-16 through icon-512, apple-touch-icon, favicon)
+   - Used /home/z/my-project/scripts/make_icons_transparent.py (PIL-based, persisted for future regeneration)
+   - White threshold: 240 (catches anti-aliasing edges)
+   - Red logo content (arrow + "TIKDL" text) preserved exactly — only the white background becomes transparent
+   - Now: on black PWA splash, only red arrow + red "TIKDL" text visible (no white square)
+   - Verified via Python: corner pixels alpha=0, center pixel alpha=0
+
+5. src/app/layout.tsx (CSS splash overlay for premium PWA experience):
+   - Added `.tikdl-app-splash` overlay div with inline CSS in <head>
+   - Shows ONLY in @media (display-mode: standalone) — i.e., installed PWA mode, NOT regular browser
+   - Renders: black bg + transparent logo (96x96, max 28vw) + "TikDL" title (22px, letter-spacing 0.18em) + "Free TikTok Downloader" tagline (11px, weight 300, letter-spacing 0.34em)
+   - Subtle entrance animation (cubic-bezier rise) — only when motion allowed
+   - Respects prefers-reduced-motion (animation: none for users who disable motion)
+   - Inline script dismisses on window.load + 250ms (gives React time to start hydration)
+   - Hard 4-second safety timeout (never blocks UI on slow devices)
+   - Removed from DOM after 360ms fade transition (no lingering overlay)
+   - Splash img uses width=96 height=96 attributes (no layout shift)
+
+Stage Summary:
+- Files changed (5): src/app/api/proxy/route.ts, src/app/page.tsx, public/manifest.json, src/app/layout.tsx, public/*.png (12 icons)
+- Files created (1): /home/z/my-project/scripts/make_icons_transparent.py (icon regeneration script, persisted for future use)
+- Files UNCHANGED (frozen): src/services/init.ts, src/services/download.ts, src/services/engine-bridge.ts, src/services/providers/**, src/engine/**, src/app/api/download/route.ts, src/app/api/thumbnail/route.ts, src/app/api/health/route.ts, src/lib/auth.ts, src/lib/rate-limiter.ts, src/lib/privacy.ts — ALL 0 diff
+- Provider architecture UNCHANGED: V1/V2/V3 race, first-success-wins, TikHub/RapidAPI/tiktok-api-dl priority — ALL preserved exactly
+- TikHub/RapidAPI credentials UNCHANGED: NO rotation, NO replacement (per user instruction — fetch pipeline was working, only delivery was broken)
+- Provider host audit VERIFIED: All TikTok/Bytedance CDN patterns in ALLOWED_HOST_PATTERNS still match real-world TikHub/tiktok-api-dl/SSSTik/MusicalDown CDN URLs. No host change required.
+- Security: SSRF protection intact (host allowlist + HTTPS-only), no new debug endpoints, no secrets in logs, no debug code shipped
+- Validation: TypeScript PASS, ESLint PASS (0 errors), Build PASS (10 routes, 1 static), Regression tests 3/3 PASS

@@ -200,8 +200,152 @@ export default async function RootLayout({
         <style dangerouslySetInnerHTML={{
           __html: `:root{--brand-primary:${primaryColor};--brand-accent:${settings['accentColor'] || '#25F4EE'};}`
         }} />
+        {/* ====================================================================
+            PWA SPLASH OVERLAY
+            ====================================================================
+            WHY: The Android Chrome PWA native splash only shows the icon +
+            manifest `name`. It cannot render a tagline. After the native
+            splash dismisses, the WebView shows the page HTML — but React
+            hasn't hydrated yet, so users see a brief flash of unstyled
+            content. This overlay covers that gap with a premium splash:
+
+              [ TikDL logo (transparent icon-512.png) ]
+                            TikDL
+                  Free TikTok Downloader
+
+            Scope:
+              - Only visible when running as installed PWA
+                (`@media (display-mode: standalone)`)
+              - Never shown in regular browser tabs
+              - Auto-dismissed on first paint + window.load
+              - Respects prefers-reduced-motion (no fade animation)
+              - Hard 4-second safety timeout so it never sticks
+              - Removed from DOM after fade completes (no lingering overlay)
+            ==================================================================== */}
+        <style dangerouslySetInnerHTML={{
+          __html: `
+            .tikdl-app-splash {
+              position: fixed;
+              inset: 0;
+              background: #000000;
+              z-index: 2147483647;
+              display: flex;
+              flex-direction: column;
+              align-items: center;
+              justify-content: center;
+              gap: 14px;
+              opacity: 1;
+              transition: opacity 320ms ease-out;
+              pointer-events: none;
+              -webkit-font-smoothing: antialiased;
+            }
+            .tikdl-app-splash.is-dismissing {
+              opacity: 0;
+            }
+            .tikdl-app-splash__logo {
+              width: 96px;
+              height: 96px;
+              max-width: 28vw;
+              max-height: 28vw;
+              object-fit: contain;
+              user-select: none;
+              -webkit-user-drag: none;
+              /* Subtle entrance — only when motion is allowed */
+              animation: tikdl-splash-rise 480ms cubic-bezier(0.22, 0.61, 0.36, 1) both;
+            }
+            .tikdl-app-splash__title {
+              color: #ffffff;
+              font-family: var(--font-geist-sans), -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+              font-size: 22px;
+              font-weight: 600;
+              letter-spacing: 0.18em;
+              margin: 0;
+              text-transform: uppercase;
+              text-indent: 0.18em; /* visual balance for letter-spacing */
+            }
+            .tikdl-app-splash__tagline {
+              color: rgba(255, 255, 255, 0.55);
+              font-family: var(--font-geist-sans), -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+              font-size: 11px;
+              font-weight: 300;
+              letter-spacing: 0.34em;
+              margin: 0;
+              text-transform: uppercase;
+              text-indent: 0.34em;
+              animation: tikdl-splash-fade 600ms ease-out 200ms both;
+            }
+            @keyframes tikdl-splash-rise {
+              from { opacity: 0; transform: translateY(6px) scale(0.98); }
+              to   { opacity: 1; transform: translateY(0)   scale(1);    }
+            }
+            @keyframes tikdl-splash-fade {
+              from { opacity: 0; }
+              to   { opacity: 1; }
+            }
+            /* Only show the splash in standalone (installed PWA) mode. */
+            @media not all and (display-mode: standalone) {
+              .tikdl-app-splash { display: none !important; }
+            }
+            /* Respect reduced-motion preferences — no animation, instant fade. */
+            @media (prefers-reduced-motion: reduce) {
+              .tikdl-app-splash,
+              .tikdl-app-splash__logo,
+              .tikdl-app-splash__tagline {
+                animation: none !important;
+                transition: none !important;
+              }
+            }
+          `
+        }} />
       </head>
       <body className="min-h-full flex flex-col bg-[#000000] text-white font-[family-name:var(--font-geist-sans)]">
+        {/* Splash overlay — only visible in installed-PWA (standalone) mode.
+            Inline script dismisses it after first paint + window.load,
+            with a hard 4-second safety timeout so it never blocks the UI. */}
+        <div
+          id="tikdl-app-splash"
+          className="tikdl-app-splash"
+          aria-hidden="true"
+          role="presentation"
+        >
+          <img
+            src="/icon-512.png"
+            alt=""
+            className="tikdl-app-splash__logo"
+            // Prevent layout shift by reserving dimensions up front
+            width={96}
+            height={96}
+            decoding="async"
+          />
+          <p className="tikdl-app-splash__title">TikDL</p>
+          <p className="tikdl-app-splash__tagline">Free TikTok Downloader</p>
+        </div>
+        <script dangerouslySetInnerHTML={{
+          __html: `(function(){
+            var splash = document.getElementById('tikdl-app-splash');
+            if (!splash) return;
+            var dismissed = false;
+            function dismiss() {
+              if (dismissed) return;
+              dismissed = true;
+              splash.classList.add('is-dismissing');
+              window.setTimeout(function() {
+                if (splash && splash.parentNode) splash.parentNode.removeChild(splash);
+              }, 360);
+            }
+            // Dismiss as soon as the page has finished loading (deferred to
+            // next tick so React hydration can start). Hard safety timeout
+            // of 4s ensures the splash never sticks on a slow device.
+            if (document.readyState === 'complete') {
+              window.requestAnimationFrame(function(){ window.setTimeout(dismiss, 250); });
+            } else {
+              window.addEventListener('load', function() {
+                window.setTimeout(dismiss, 250);
+              });
+            }
+            window.setTimeout(dismiss, 4000);
+          })();`
+        }} />
         {showMaintenance ? (
           <div className="min-h-screen flex items-center justify-center bg-black text-white">
             <div className="text-center p-8">

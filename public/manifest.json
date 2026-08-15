@@ -1,7 +1,7 @@
 {
-  "name": "TikDL — TikTok Video Downloader",
+  "name": "TikDL",
   "short_name": "TikDL",
-  "description": "Download TikTok videos without watermark instantly. Free, unlimited, HD quality.",
+  "description": "Free TikTok video downloader. Save TikTok videos without watermark in HD.",
   "start_url": "/",
   "display": "standalone",
   "background_color": "#000000",

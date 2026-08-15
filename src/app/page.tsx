@@ -498,7 +498,17 @@ const TikTokDownloader = () => {
   // The <a> link triggers the download immediately. If the proxy returns
   // an error (403/404), the browser will show a failed download — but since
   // we use Content-Type: text/plain for errors, it won't create a .json file.
-  // We do a background HEAD check only to show a toast on error.
+  //
+  // NOTE: A previous version of this function fired a parallel HEAD fetch
+  // to the proxy URL and surfaced a "Download may have failed" toast when
+  // the HEAD returned non-200. This was removed because:
+  //   1. Most TikTok/Bytedance CDNs DO NOT support HEAD on media URLs and
+  //      return 403/405 even when GET works perfectly — the toast was a
+  //      false positive that confused users.
+  //   2. The browser's own download UI already reports real failures with
+  //      a native retry prompt, so the toast was redundant.
+  // The actual download path is the <a> click below; the proxy now streams
+  // with Range support + a 10-minute timeout so large videos complete.
   const triggerProxyDownload = useCallback((downloadUrl: string, filename: string) => {
     if (!downloadUrl || downloadUrl.startsWith('#')) {
       toast.error('Download URL not available');
@@ -517,16 +527,6 @@ const TikTokDownloader = () => {
     // after click() can cancel the download in Safari and some mobile browsers.
     setTimeout(() => { if (a.parentNode) a.parentNode.removeChild(a); }, 100);
     toast.success(`Downloading ${filename}`);
-
-    // Background HEAD check — if it fails, show a generic warning
-    // NEVER expose the HTTP status code (502, 403, etc.) to the user
-    fetch(proxyUrl, { method: 'HEAD' }).then(headRes => {
-      if (!headRes.ok) {
-        toast.error('Download may have failed', { description: 'The file could not be downloaded. Please try again.' });
-      }
-    }).catch(() => {
-      // Network error — download might still work, don't show error
-    });
   }, []);
 
   const proceedAfterAd = useCallback(() => {

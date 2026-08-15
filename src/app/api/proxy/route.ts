@@ -195,14 +195,31 @@ export async function GET(request: NextRequest) {
       upstreamHeaders['Origin'] = 'https://ssstik.io';
     }
 
-    // Fetch the remote file with a timeout
+    // ===== Range request forwarding =====
+    // Browsers, especially Android Chrome, often send `Range: bytes=0-` for
+    // downloads. If we drop the Range header, the upstream CDN ignores range
+    // requests and the browser cannot resume a partial download — for large
+    // video files on flaky mobile connections, this guarantees failure when
+    // the connection drops mid-stream. Forward the header so the upstream
+    // CDN can return 206 Partial Content and the browser can resume.
+    const browserRange = request.headers.get('range');
+    if (browserRange) {
+      upstreamHeaders['Range'] = browserRange;
+    }
+
+    // ===== Stream the upstream response with a long timeout =====
+    // Previous 30-second timeout included body streaming, which aborted
+    // large video downloads on slow mobile connections while audio
+    // downloads (smaller files) completed in time. 10 minutes is plenty
+    // for any reasonable TikTok video file while still bounding the
+    // request against infinite hangs.
     const upstreamResponse = await fetch(remoteUrl, {
       headers: upstreamHeaders,
-      signal: AbortSignal.timeout(30000),
+      signal: AbortSignal.timeout(600_000),
       redirect: 'follow',
     });
 
-    if (!upstreamResponse.ok) {
+    if (!upstreamResponse.ok && upstreamResponse.status !== 206) {
       console.error(`[proxy] Upstream error: ${upstreamResponse.status} for ${remoteUrl.slice(0, 100)}`);
       // text/plain error — no .json extension on download
       return new Response(`Upstream server returned ${upstreamResponse.status}`, {
@@ -241,16 +258,38 @@ export async function GET(request: NextRequest) {
       ? `${dispositionType}; filename="${sanitizedFilename.replace(/[^\x20-\x7e]/g, '_')}"; filename*=UTF-8''${encodeURIComponent(sanitizedFilename)}`
       : `${dispositionType}; filename="${sanitizedFilename}"`;
 
+    // ===== Forward streaming-related headers so the browser can show
+    // progress, resume partial downloads, and not buffer the whole
+    // response in memory. Without these, Android Chrome on slow networks
+    // aborts large video downloads. =====
+    const responseHeaders: Record<string, string> = {
+      'Content-Disposition': contentDisposition,
+      'Content-Type': contentType,
+      // Cache for 1 hour — these are immutable CDN assets
+      'Cache-Control': 'public, max-age=3600, immutable',
+      // Security: prevent this response from being embedded in other contexts
+      'X-Content-Type-Options': 'nosniff',
+      // Always advertise range support so the browser knows it can resume
+      'Accept-Ranges': 'bytes',
+    };
+
+    // Forward Content-Length so the browser can render accurate progress
+    const upstreamContentLength = upstreamResponse.headers.get('content-length');
+    if (upstreamContentLength) {
+      responseHeaders['Content-Length'] = upstreamContentLength;
+    }
+
+    // Forward Content-Range for 206 Partial Content responses (resume support)
+    if (upstreamResponse.status === 206) {
+      const upstreamContentRange = upstreamResponse.headers.get('content-range');
+      if (upstreamContentRange) {
+        responseHeaders['Content-Range'] = upstreamContentRange;
+      }
+    }
+
     return new Response(upstreamResponse.body, {
-      status: 200,
-      headers: {
-        'Content-Disposition': contentDisposition,
-        'Content-Type': contentType,
-        // Cache for 1 hour — these are immutable CDN assets
-        'Cache-Control': 'public, max-age=3600, immutable',
-        // Security: prevent this response from being embedded in other contexts
-        'X-Content-Type-Options': 'nosniff',
-      },
+      status: upstreamResponse.status,
+      headers: responseHeaders,
     });
   } catch (error) {
     console.error('[proxy] Fetch error:', error);
