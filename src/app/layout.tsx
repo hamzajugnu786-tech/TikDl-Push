@@ -153,6 +153,26 @@ export async function generateMetadata(): Promise<Metadata> {
     },
     manifest: "/manifest.json",
     robots: robotsDirective,
+    // Phase 11A — Google Search Console ownership verification.
+    //
+    // Why use `verification.google` instead of a literal <meta> tag in <head>:
+    //  - Next.js Metadata API emits the tag server-side via the proper
+    //    `<meta name="google-site-verification" content="...">` form
+    //    (see https://nextjs.org/docs/app/api-reference/functions/generate-metadata#verification)
+    //  - It composes correctly with the dynamic `generateMetadata()` flow
+    //    already in use here (DB-backed siteName/metaTitle/etc.)
+    //  - The verification token is INTENTIONALLY PUBLIC — Google requires
+    //    it to be visible in raw server-rendered HTML. It is NOT a secret,
+    //    grants no access to GA4 data, and cannot be used to modify the
+    //    site. It only proves to Google that the site owner controls the
+    //    HTML at this domain.
+    //
+    // DO NOT remove or alter this token. It was issued by Google Search
+    // Console for the URL-prefix property https://tikdl.leadforgeai.site/
+    // and is bound to that property.
+    verification: {
+      google: "OFl83K9u-oddgOWFwkUaOn7nJYfXPnMXa1EAxduS1oI",
+    },
   };
 
   return metadata;
