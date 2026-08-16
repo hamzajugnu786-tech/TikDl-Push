@@ -22,7 +22,7 @@ export default function PrivacyPage() {
         <section className="pt-12 sm:pt-16 pb-8 px-4 sm:px-6">
           <div className="max-w-3xl mx-auto text-center">
             <h1 className="text-3xl sm:text-4xl font-extrabold tracking-tight mb-4">Privacy Policy</h1>
-            <p className="text-[#9CA3AF] text-base leading-relaxed max-w-xl mx-auto">Last updated: August 2026. Your privacy is critically important to us.</p>
+            <p className="text-[#9CA3AF] text-base leading-relaxed max-w-xl mx-auto">Last updated: August 2026. This policy describes what we collect, what we do not collect, and how Google Analytics 4 is used.</p>
           </div>
         </section>
 
@@ -49,12 +49,28 @@ export default function PrivacyPage() {
             <div className="glass rounded-[16px] p-6 sm:p-8">
               <h2 className="text-lg sm:text-xl font-bold mb-4">3. Cookies & Local Storage</h2>
               <p className="text-[#9CA3AF] leading-relaxed mb-3">TikDL uses your browser&apos;s local storage to save your recent download history so you can quickly revisit past downloads. This stays on your device and is never sent to us.</p>
-              <p className="text-[#9CA3AF] leading-relaxed">We do not use tracking cookies, advertising cookies, or analytics cookies that profile you across websites.</p>
+              <p className="text-[#9CA3AF] leading-relaxed mb-3">We use Google Analytics 4 to understand aggregate usage patterns — which pages are visited, how often downloads succeed, and similar product metrics. GA4 sets first-party cookies (such as <code className="text-[#FE2C55]">_ga</code>) on your browser to distinguish unique visitors. These cookies are scoped to <strong>tikdl.leadforgeai.site</strong> and are not used to profile you across other websites.</p>
+              <p className="text-[#9CA3AF] leading-relaxed">We do not use advertising cookies or cross-site tracking cookies. You can block GA4 cookies via your browser settings, a content blocker, or by setting a &quot;Do Not Track&quot; signal; the site will continue to work normally.</p>
+            </div>
+
+            <div className="glass rounded-[16px] p-6 sm:p-8">
+              <h2 className="text-lg sm:text-xl font-bold mb-4">3a. What Analytics Does NOT Collect</h2>
+              <p className="text-[#9CA3AF] leading-relaxed mb-3">To be explicit about the boundaries of our analytics setup, the following are NEVER sent to Google Analytics:</p>
+              <ul className="text-[#9CA3AF] text-sm leading-relaxed space-y-2 mb-3 list-disc list-inside">
+                <li>The TikTok URLs you submit</li>
+                <li>Video IDs, usernames, or video titles</li>
+                <li>Your IP address (Google IP-anonymizes by default)</li>
+                <li>The filenames of items you download</li>
+                <li>Internal provider names or error messages</li>
+                <li>Any personally identifiable information</li>
+              </ul>
+              <p className="text-[#9CA3AF] leading-relaxed">Only aggregate event parameters are sent — for example <code className="text-[#FE2C55]">download_type: video|audio</code> and <code className="text-[#FE2C55]">platform: tiktok</code>.</p>
             </div>
 
             <div className="glass rounded-[16px] p-6 sm:p-8">
               <h2 className="text-lg sm:text-xl font-bold mb-4">4. Third-Party Services</h2>
               <p className="text-[#9CA3AF] leading-relaxed mb-3">When you submit a URL, your request is forwarded to a third-party service that retrieves the video data from TikTok. Their privacy policy governs how they handle request data.</p>
+              <p className="text-[#9CA3AF] leading-relaxed mb-3">Google Analytics 4 is a third-party service that processes aggregate usage events on Google&apos;s infrastructure. Google&apos;s privacy policy and the terms at <code className="text-[#FE2C55]">https://business.safety.google/privacy/</code> govern how Google handles that data. We have configured our GA4 setup to send only the aggregate parameters described in section 3a.</p>
               <p className="text-[#9CA3AF] leading-relaxed">Ads displayed on TikDL are served through our own system. Ad networks may have their own cookie practices, which are governed by their respective privacy policies. We do not share user data with advertisers.</p>
             </div>
 

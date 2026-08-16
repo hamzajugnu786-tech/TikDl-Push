@@ -57,20 +57,28 @@ const securityHeaders = [
   },
   {
     // Content-Security-Policy — primary XSS defense
-    // Allows: scripts from same origin + unsafe-eval (for ad code)
+    // Allows: scripts from same origin + unsafe-eval (for ad code) + googletagmanager.com (GA4 loader)
     // Allows: styles from same origin + inline (Tailwind CSS requires inline styles)
     // Allows: images from any HTTPS source (TikTok CDN images)
     // Allows: fonts from same origin + Google Fonts
-    // Allows: connections to any HTTPS source (API calls to providers)
+    // Allows: connections to any HTTPS source (API calls to providers + GA4 collect endpoint)
     // Blocks: inline scripts, object/embed/applet, frame-src (except same-origin)
+    //
+    // Phase 10 — GA4 additions:
+    //   - script-src gains `https://www.googletagmanager.com` so the gtag.js
+    //     loader can be fetched. This is the minimum required CSP change for
+    //     GA4 — no other origins need to be allow-listed for the standard
+    //     page_view + event collection path. GA4 sends beacon/fetch to
+    //     https://www.google-analytics.com, which is already covered by
+    //     `connect-src 'self' https:` below.
     key: 'Content-Security-Policy',
     value: [
       "default-src 'self'",
-      "script-src 'self' 'unsafe-inline' 'unsafe-eval'",  // unsafe-inline required for Next.js RSC hydration; unsafe-eval for ad embeds
+      "script-src 'self' 'unsafe-inline' 'unsafe-eval' https://www.googletagmanager.com",  // unsafe-inline for Next.js RSC hydration; unsafe-eval for ad embeds; googletagmanager.com for GA4 gtag.js loader
       "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",  // Tailwind + Google Fonts
       "img-src 'self' data: https:",  // TikTok images from various CDN hosts
       "font-src 'self' https://fonts.gstatic.com",
-      "connect-src 'self' https:",  // API calls to TikHub/RapidAPI
+      "connect-src 'self' https:",  // API calls to TikHub/RapidAPI + GA4 collect (https://www.google-analytics.com)
       "frame-src 'self' https://www.youtube.com https://player.vimeo.com",  // video embeds
       "object-src 'none'",  // block <object>/<embed>
       "base-uri 'self'",

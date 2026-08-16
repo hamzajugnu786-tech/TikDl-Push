@@ -12,6 +12,7 @@ import {
 import { Toaster, toast } from 'sonner';
 import { sanitizeAdHtml } from '@/lib/sanitize';
 import { SITE_URL } from '@/lib/site-config';
+import { analytics } from '@/lib/analytics';
 import SiteNavbar from '@/components/site-navbar';
 import SiteFooter from '@/components/site-footer';
 // AdSlot is the centralized, page-aware ad renderer. Used here to add the
@@ -302,6 +303,12 @@ const TikTokDownloader = () => {
     setIsLoading(true);
     resetInterface();
 
+    // Phase 10: GA4 — funnel entry event. Fired BEFORE the network call so
+    // we capture the user's intent even if /api/download times out or fails.
+    // No URL, video ID, or other user input is sent — only the aggregate
+    // `platform: 'tiktok'` parameter. See src/lib/analytics.ts.
+    analytics.downloadSubmit();
+
     try {
       const response = await fetch('/api/download', {
         method: 'POST',
@@ -319,6 +326,10 @@ const TikTokDownloader = () => {
         if (parsedResult?.errorCode) {
           const unavailableCodes = ['PRIVATE_CONTENT', 'DELETED_CONTENT', 'AGE_RESTRICTED', 'GEO_BLOCKED'];
           if (unavailableCodes.includes(parsedResult.errorCode)) {
+            // Phase 10: GA4 — content-level failure (e.g. private/deleted video).
+            // No errorCode is sent to GA4 — only the aggregate `download_result:
+            // 'failure'`. See src/lib/analytics.ts.
+            analytics.downloadError();
             setIsUnavailable(true);
             setUnavailableReason('This video is unavailable. It was removed by the creator or is no longer available on TikTok.');
             setVideoInfo(null);
@@ -329,6 +340,7 @@ const TikTokDownloader = () => {
 
         // ALL other non-200 responses (429, 502, 500, 503, invalid URL, etc.) —
         // Show the large error card. NEVER leak backend details.
+        analytics.downloadError();
         setIsUnavailable(true);
         setUnavailableReason('This video is unavailable. It was removed by the creator or is no longer available on TikTok.');
         setVideoInfo(null);
@@ -341,6 +353,7 @@ const TikTokDownloader = () => {
       if (!result.success) {
         // ALL download failures show the large error card.
         // NEVER leak provider/API/quota/backend error details.
+        analytics.downloadError();
         setIsUnavailable(true);
         setUnavailableReason('This video is unavailable. The video was removed by the creator or is no longer available on TikTok.');
         setVideoInfo(null);
@@ -357,6 +370,7 @@ const TikTokDownloader = () => {
       const hasAnyMedia = data.noWatermarkUrl || data.withWatermarkUrl || data.audioUrl ||
         (data.slideImages && data.slideImages.length > 0);
       if (!hasAnyMedia) {
+        analytics.downloadError();
         setIsUnavailable(true);
         setUnavailableReason('This video is unavailable. The video was removed by the creator or is no longer available on TikTok.');
         setVideoInfo(null);
@@ -365,6 +379,10 @@ const TikTokDownloader = () => {
       }
 
       setVideoInfo(data);
+      // Phase 10: GA4 — funnel success event. Fired after the video card is
+      // rendered. No video ID, title, author, or thumbnail URL is sent —
+      // only `platform: 'tiktok'` + `download_result: 'success'`.
+      analytics.downloadSuccess();
       // Initialize photo/slide state
       if (data.postType === 'images' && data.slideImages && data.slideImages.length > 0) {
         setImagePostMode('images');
@@ -431,6 +449,8 @@ const TikTokDownloader = () => {
     } catch (err: unknown) {
       // Catch block handles true network/system errors (e.g. fetch() itself throws)
       // All download-related errors are handled above with the error card.
+      // Phase 10: GA4 — surface the failure (no error message sent).
+      analytics.downloadError();
       let errorMessage = err instanceof Error ? err.message : 'Video unavailable';
       // NEVER show provider/API/quota/backend errors to users
       const internalKeywords = ['quota', 'tikhub', 'rapidapi', 'provider', 'spi ', 'rate limit', 'offline', 'circuit', 'fallback', 'timeout', 'retry', 'v1 ', 'v2 ', 'v3 ', 'ssstik', 'musicaldown', 'tikcdn', 'error code', 'status:', 'http', 'api key', 'unauthorized', 'forbidden', 'internal', '502', '500', '503', '429', 'server returned', 'network'];
@@ -473,6 +493,8 @@ const TikTokDownloader = () => {
     setAutoProceedDone(false);
     autoProceedRef.current = false;
     setShowAdPopup(true);
+    // Phase 10: GA4 — ad interstitial shown.
+    analytics.adInterstitialShown();
     setPendingDownload({ url: downloadUrl, filename });
     countdownRef.current = duration;
     if (adTimerRef.current) cancelAnimationFrame(adTimerRef.current);
@@ -532,6 +554,8 @@ const TikTokDownloader = () => {
   const proceedAfterAd = useCallback(() => {
     setShowAdPopup(false);
     if (pendingDownload) {
+      // Phase 10: GA4 — countdown completed (or auto-proceeded), download about to start.
+      analytics.adInterstitialCompleted();
       triggerProxyDownload(pendingDownload.url, pendingDownload.filename);
       setPendingDownload(null);
     }
@@ -557,6 +581,8 @@ const TikTokDownloader = () => {
         e.preventDefault();
         if (!autoProceedRef.current) {
           autoProceedRef.current = true;
+          // Phase 10: GA4 — user dismissed the interstitial before countdown.
+          analytics.adInterstitialSkipped();
           proceedAfterAd();
         }
       }
@@ -582,6 +608,16 @@ const TikTokDownloader = () => {
     if (!downloadUrl || downloadUrl.startsWith('#')) {
       toast.error('Download URL not available for this video.');
       return;
+    }
+    // Phase 10: GA4 — track download click (video vs audio). Detect type via
+    // filename extension. We DO NOT send the filename, URL, or video ID to
+    // GA4 — only the aggregate `download_type` + `platform` parameters.
+    // Slide image downloads (.jpg) are not tracked here; the taxonomy
+    // intentionally covers only video/audio. See src/lib/analytics.ts.
+    if (/\.(?:m4a|mp3|aac|wav|opus)$/i.test(filename)) {
+      analytics.audioDownloadClick();
+    } else if (/\.mp4$/i.test(filename)) {
+      analytics.videoDownloadClick();
     }
     if (interstitialConfig.enabled) {
       startAdTimer(downloadUrl, filename);

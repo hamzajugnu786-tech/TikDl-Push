@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import { headers } from "next/headers";
 import { SITE_URL } from "@/lib/site-config";
+import GA4 from "@/components/analytics/GA4";
 import "./globals.css";
 
 // Force dynamic rendering so admin-saved settings (siteName, metaTitle,
@@ -299,6 +300,19 @@ export default async function RootLayout({
         }} />
       </head>
       <body className="min-h-full flex flex-col bg-[#000000] text-white font-[family-name:var(--font-geist-sans)]">
+        {/* ====================================================================
+            Phase 10 — Google Analytics 4
+            ====================================================================
+            Loaded via next/script with strategy="afterInteractive" — non-
+            render-blocking, async. Renders nothing when
+            NEXT_PUBLIC_GA_MEASUREMENT_ID is unset (dev / fresh clone /
+            unconfigured Vercel project). Analytics is strictly non-critical:
+            if GA4 fails to load, downloads still work, form submission still
+            works, and no user-visible error appears. See:
+              - src/components/analytics/GA4.tsx
+              - src/lib/analytics.ts
+            ==================================================================== */}
+        <GA4 />
         {/* Splash overlay — only visible in installed-PWA (standalone) mode.
             Inline script dismisses it after first paint + window.load,
             with a hard 4-second safety timeout so it never blocks the UI. */}
