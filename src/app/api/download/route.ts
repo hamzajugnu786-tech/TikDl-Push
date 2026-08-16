@@ -118,14 +118,28 @@ function parseMaxFileSizeBytes(raw: string | undefined | null): number | null {
  * in that case the size limit is NOT enforced (fail-open) because
  * rejecting without evidence would block legitimate downloads.
  *
+ * NOTE: Many TikTok/Bytedance CDNs do NOT support HEAD on media URLs
+ *       (they return 403/405 even when GET works perfectly). When that
+ *       happens this function returns null and the size limit is
+ *       skipped (fail-open) — the actual download via /api/proxy still
+ *       succeeds. This is a best-effort size guard, not a hard gate.
+ *
+ * Sends the same User-Agent string as /api/proxy so CDN logs see a
+ * consistent client identity (a missing or default Node-fetch UA can
+ * fingerprint the server and trigger CDN bot heuristics).
+ *
  * Bounded by a 4-second timeout to never stall the response path.
  */
+const HEAD_USER_AGENT =
+  'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36';
+
 async function fetchContentLengthBytes(url: string): Promise<number | null> {
   try {
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), 4000);
     const res = await fetch(url, {
       method: 'HEAD',
+      headers: { 'User-Agent': HEAD_USER_AGENT },
       signal: controller.signal,
       redirect: 'follow',
       cache: 'no-store',

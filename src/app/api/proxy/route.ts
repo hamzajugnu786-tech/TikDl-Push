@@ -14,7 +14,8 @@
  * Security:
  *   - Only allows HTTPS URLs (no http, no file://, etc.)
  *   - Only allows known CDN/file host patterns to prevent SSRF
- *   - 30-second timeout on upstream fetch
+ *   - 600-second upstream timeout (large video files on slow mobile)
+ *   - Range / Content-Length / Content-Range / Accept-Ranges forwarded
  *   - Streams response body — no buffering in memory
  *
  * CRITICAL FIX: Error responses MUST use text/plain Content-Type,

@@ -217,7 +217,13 @@ export async function GET() {
       },
     });
   } catch (error) {
-    // DB connectivity failed — system is offline
+    // DB connectivity failed — system is offline.
+    // ⚠️  This endpoint is PUBLIC and unauthenticated (monitoring tools need
+    //     access). NEVER leak error.name / error.message / error.stack —
+    //     stack traces reveal file paths, library versions, and internal
+    //     structure that attackers use for reconnaissance. Log the full
+    //     error server-side; return only a generic offline indicator.
+    console.error('[Health] Endpoint failed (logged server-side only):', error);
     const memoryUsage = process.memoryUsage();
     return NextResponse.json(
       {
@@ -243,11 +249,9 @@ export async function GET() {
           online: 0,
           offline: 0,
         },
-        error: error instanceof Error ? {
-          name: error.name,
-          message: error.message,
-          stack: error.stack,
-        } : String(error),
+        // Generic error indicator — no stack/message/name. Operators should
+        // consult server logs for diagnostics.
+        error: 'service_unavailable',
       },
       { status: 503 }
     );
