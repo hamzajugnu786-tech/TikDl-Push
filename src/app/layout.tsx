@@ -2,7 +2,8 @@ import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import { headers } from "next/headers";
 import { SITE_URL } from "@/lib/site-config";
-import GA4 from "@/components/analytics/GA4";
+import { GA4Scripts } from "@/components/analytics/GA4Scripts";
+import GA4RouteTracker from "@/components/analytics/GA4RouteTracker";
 import "./globals.css";
 
 // Force dynamic rendering so admin-saved settings (siteName, metaTitle,
@@ -321,18 +322,37 @@ export default async function RootLayout({
       </head>
       <body className="min-h-full flex flex-col bg-[#000000] text-white font-[family-name:var(--font-geist-sans)]">
         {/* ====================================================================
-            Phase 10 — Google Analytics 4
+            Phase 10 — Google Analytics 4 (Phase 12 split-component fix)
             ====================================================================
-            Loaded via next/script with strategy="afterInteractive" — non-
-            render-blocking, async. Renders nothing when
-            NEXT_PUBLIC_GA_MEASUREMENT_ID is unset (dev / fresh clone /
-            unconfigured Vercel project). Analytics is strictly non-critical:
-            if GA4 fails to load, downloads still work, form submission still
-            works, and no user-visible error appears. See:
-              - src/components/analytics/GA4.tsx
+            <GA4Scripts /> is a Server Component that renders the gtag.js
+            <Script> tags ONCE — never re-renders on client-side navigation,
+            so React never has to reconcile next/script's imperatively
+            injected <script> nodes against a DOM that has been mutated.
+
+            <GA4RouteTracker /> is a Client Component that listens to
+            usePathname() and fires page_view on client-side route changes.
+            It renders null (no DOM) so it cannot cause a reconciliation
+            mismatch.
+
+            Phase 12 root cause: the previous single-component GA4.tsx
+            combined <Script> tags + usePathname() in one Client Component.
+            On every route change, React re-rendered the <Script> element,
+            but next/script had already imperatively moved its <script> tag
+            into <head> outside of React's awareness — so React's commit
+            phase threw NotFoundError on insertBefore/removeChild, surfacing
+            to users as:
+              "Application error: a client-side exception has occurred while
+               loading tikdl.leadforgeai.site"
+
+            Both components render nothing when NEXT_PUBLIC_GA_MEASUREMENT_ID
+            is unset. Analytics is strictly non-critical: if GA4 fails to
+            load, downloads still work, form submission still works, and no
+            user-visible error appears. See:
+              - src/components/analytics/GA4Scripts.tsx
+              - src/components/analytics/GA4RouteTracker.tsx
               - src/lib/analytics.ts
             ==================================================================== */}
-        <GA4 />
+        <GA4Scripts />
         {/* Splash overlay — only visible in installed-PWA (standalone) mode.
             Inline script dismisses it after first paint + window.load,
             with a hard 4-second safety timeout so it never blocks the UI. */}
@@ -363,8 +383,21 @@ export default async function RootLayout({
               if (dismissed) return;
               dismissed = true;
               splash.classList.add('is-dismissing');
+              // Phase 12 — do NOT call splash.parentNode.removeChild(splash).
+              // Removing the splash DOM node imperatively breaks React's
+              // reconciliation on client-side navigation: when the body's
+              // first client component (e.g. <GA4RouteTracker />) re-renders
+              // on a usePathname() change, React walks the body's children
+              // to update them and finds the splash div missing — throwing
+              // NotFoundError on insertBefore / removeChild. Hide via CSS
+              // display:none + visibility:hidden + pointer-events:none so
+              // the DOM node is preserved for React's tree but is invisible
+              // to users. The CSS @media not all and (display-mode: standalone)
+              // rule already keeps it display:none in non-PWA browsers.
               window.setTimeout(function() {
-                if (splash && splash.parentNode) splash.parentNode.removeChild(splash);
+                splash.style.display = 'none';
+                splash.style.visibility = 'hidden';
+                splash.style.pointerEvents = 'none';
               }, 360);
             }
             // Dismiss as soon as the page has finished loading (deferred to
@@ -380,6 +413,7 @@ export default async function RootLayout({
             window.setTimeout(dismiss, 4000);
           })();`
         }} />
+        <GA4RouteTracker />
         {showMaintenance ? (
           <div className="min-h-screen flex items-center justify-center bg-black text-white">
             <div className="text-center p-8">
