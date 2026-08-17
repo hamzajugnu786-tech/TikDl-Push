@@ -76,6 +76,16 @@ check('tiktok.com', true, 'tiktok.com exact');
 check('www.tiktok.com', true, 'www.tiktok.com subdomain');
 check('p16-sign-sg.tiktokcdn.com', true, 'p16-sign-sg.tiktokcdn.com CDN subdomain');
 check('p77-sign-va.tiktokcdn.com', true, 'p77-sign-va.tiktokcdn.com CDN subdomain');
+// Phase 13.1 — TikTok regional CDN domains (tiktokcdn-us.com, etc.)
+// These are DISTINCT domains from tiktokcdn.com — the `-us` suffix is part
+// of the domain, not a subdomain separator. Thumbnail previews are served
+// from these hosts. Regression coverage for the Phase 13.1 fix.
+check('tiktokcdn-us.com', true, 'tiktokcdn-us.com regional CDN (exact)');
+check('p19-common-sign.tiktokcdn-us.com', true, 'p19-common-sign.tiktokcdn-us.com (thumbnail host)');
+check('p16-common-sign.tiktokcdn-us.com', true, 'p16-common-sign.tiktokcdn-us.com (thumbnail host)');
+check('tiktokcdn-sg.com', true, 'tiktokcdn-sg.com regional CDN (exact)');
+check('p77-sign-sg.tiktokcdn-sg.com', true, 'p77-sign-sg.tiktokcdn-sg.com (Singapore CDN)');
+check('tiktokcdn-va.com', true, 'tiktokcdn-va.com regional CDN (exact)');
 check('tikhub.io', true, 'tikhub.io exact');
 check('api.tikhub.io', true, 'api.tikhub.io subdomain');
 check('rapidapi.com', true, 'rapidapi.com exact');
@@ -100,6 +110,12 @@ check('muscdn.evil.com', false, 'muscdn.evil.com');
 check('ibytedtos.evil.com', false, 'ibytedtos.evil.com');
 check('foo.p16.evil.com', false, 'foo.p16.evil.com (old .p16 pattern bypass)');
 check('bar.p3.evil.com', false, 'bar.p3.evil.com (old .p3 pattern bypass)');
+// Phase 13.1 — attacker variants targeting the new regional CDN domains
+check('tiktokcdn-us.evil.com', false, 'tiktokcdn-us.evil.com (regional CDN suffix bypass)');
+check('evil-tiktokcdn-us.com', false, 'evil-tiktokcdn-us.com (regional CDN prefix bypass)');
+check('tiktokcdn-us.com.evil.com', false, 'tiktokcdn-us.com.evil.com (regional CDN trailing bypass)');
+check('tiktokcdn-sg.evil.com', false, 'tiktokcdn-sg.evil.com (SG regional CDN bypass)');
+check('fake.tiktokcdn-us.evil.com', false, 'fake.tiktokcdn-us.evil.com (nested bypass)');
 
 console.log('');
 console.log('=== SSRF Host Check — Internal/private targets (should be BLOCKED) ===');

@@ -73,6 +73,20 @@ import { NextRequest, NextResponse } from 'next/server';
 const ALLOWED_HOST_SUFFIXES: readonly string[] = [
   // ──── TikTok / Bytedance CDN ────
   'tiktokcdn.com',
+  // Phase 13.1 — TikTok CDN regional domains.
+  // TikTok serves thumbnails/covers from regional CDN domains that are
+  // DISTINCT from tiktokcdn.com (the `-us`/`-sg` suffix is part of the
+  // domain, not a subdomain separator). These are genuine ByteDance-owned
+  // domains (verified via Akamai NS records, same as tiktokcdn.com).
+  // Without these, the SSRF allowlist blocks thumbnail previews even though
+  // the thumbnail API correctly resolves the URL — the proxy rejects the
+  // host because suffix-based validation correctly distinguishes
+  // `tiktokcdn-us.com` from `tiktokcdn.com`.
+  // Verified in production: p19-common-sign.tiktokcdn-us.com serves
+  // thumbnail/originCover images returned by the V1 dynamicCover path.
+  'tiktokcdn-us.com',
+  'tiktokcdn-sg.com',
+  'tiktokcdn-va.com',
   'tiktokv.com',
   'tiktok.com',
   'muscdn.com',
