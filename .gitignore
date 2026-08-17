@@ -75,3 +75,6 @@ tool-results/
 agent-ctx/
 NovaDl-Push/
 novadl-engine/
+*.pid
+dev.pid
+.zscripts/dev.pid

@@ -27,63 +27,72 @@
 import { NextRequest, NextResponse } from 'next/server';
 
 // ============================================================================
-// SSRF PROTECTION — Allowed Host Patterns
+// SSRF PROTECTION — Allowed Host Suffixes
 // ============================================================================
 
 /**
- * Allowed host patterns for remote URLs (prevents SSRF to internal services).
+ * Allowed host suffixes for remote URLs (prevents SSRF to internal services).
+ *
+ * Phase 13 SECURITY FIX: The previous implementation used `String.includes()`
+ * (substring matching) with bare patterns like `'tiktok'`, `'bytedance'`,
+ * `'rapidapi.com'`. This was exploitable: an attacker could register
+ * `tiktok.evil.com` (or any domain containing those substrings) and the
+ * proxy would fetch from it — confirmed in production with a 502 response
+ * (the server attempted the fetch; it only failed because the domain didn't
+ * resolve). If such a domain resolved to an internal IP (e.g. 169.254.169.254),
+ * the proxy would stream internal data to the attacker.
+ *
+ * The fix uses PROPER hostname validation: a hostname is allowed only if it
+ * EXACTLY matches a suffix entry OR ends with `.` + suffix entry. This means:
+ *   - `tiktok.com`         → matches suffix `tiktok.com` (exact)
+ *   - `www.tiktok.com`     → matches suffix `tiktok.com` (subdomain via `.tiktok.com`)
+ *   - `tiktok.evil.com`    → does NOT match (not exact, not a subdomain of an allowed suffix)
+ *   - `evil-tiktok.com`    → does NOT match
+ *
+ * Bare-substring patterns (`'tiktok'`, `'bytedance'`, etc.) have been REMOVED.
+ * The `.p16` / `.p77` / `.p3` prefix patterns have also been removed — they
+ * were both ineffective (didn't match intended hosts like `p16-sign.tiktokcdn.com`
+ * because those have no dot before `p16`) and dangerous (matched `foo.p16.evil.com`).
+ * Those CDN hosts are already covered by `.tiktokcdn.com`.
  *
  * Covers ALL URL sources across all providers:
  *   - TikTok CDN: tiktokcdn.com, tiktokv.com, ibytedtos.com, byteimg.com, etc.
  *   - TikHub API: tikhub.io
  *   - RapidAPI: rapidapi.com
- *   - SSSTik.io (V2 provider): ssstik.io, cdn.ssstik.io
+ *   - SSSTik.io (V2 provider): ssstik.io
  *   - MusicalDown (V3 provider): musicaldown.com, musidown.com
  *   - BunnyCDN: b-cdn.net (used by MusicalDown)
  *   - TikTok direct: tiktok.com (video pages, CDNs)
  *   - Bytedance CDN: bytecdn.com, bytedance.com
- *   - Other known TikTok/Bytedance CDN patterns
+ *   - CloudFront / Akamai CDNs (TikTok occasionally uses these)
  *
- * Uses substring matching via String.includes() — order doesn't matter.
+ * If a legitimate CDN hostname is blocked, the console.error below logs the
+ * hostname so it can be added here. Security takes priority over convenience:
+ * a 403 on a new host is recoverable; an SSRF breach is not.
  */
-const ALLOWED_HOST_PATTERNS = [
+const ALLOWED_HOST_SUFFIXES: readonly string[] = [
   // ──── TikTok / Bytedance CDN ────
-  '.tiktokcdn.com',
-  '.tiktokv.com',
-  '.tiktok.com',
-  '.muscdn.com',
-  '.ibytedtos.com',
-  '.byteimg.com',
-  '.bytedance.com',
-  '.bytecdn.com',
-  '.bytecdn.',
-  '.ttwstatic.com',
-  '.bktgdn.win',
-  '.p16',        // p16-sign-sg.tiktokcdn.com pattern
-  '.p77',        // p77-sign-va.tiktokcdn.com pattern
-  '.p3',         // p3-sign-va.tiktokcdn.com pattern
-  'tiktokcdn',
-  'tiktokv',
-  'ibytedtos',
-  'byteimg',
-  'muscdn',
-  'tiktok',
-  'bytedance',
-  'bytecdn',
-  'bytecdntest',
+  'tiktokcdn.com',
+  'tiktokv.com',
+  'tiktok.com',
+  'muscdn.com',
+  'ibytedtos.com',
+  'byteimg.com',
+  'bytedance.com',
+  'bytecdn.com',
+  'ttwstatic.com',
+  'bktgdn.win',
+  'bytecdntest.com',
 
   // ──── TikHub API ────
-  '.tikhub.io',
-  'tikhub.io',          // exact domain (no subdomain) — API calls to https://tikhub.io/...
+  'tikhub.io',
 
   // ──── RapidAPI ────
-  '.rapidapi.com',
-  'rapidapi.com',       // exact domain (no subdomain)
+  'rapidapi.com',
 
   // ──── SSSTik.io (V2 — tiktok-api-dl) ────
   'ssstik.io',
-  'tikcdn.io',          // SSSTik CDN — serves video/audio/image media from https://tikcdn.io/ssstik/...
-  'cdn.ssstik.io',      // SSSTik alternate CDN subdomain
+  'tikcdn.io',
 
   // ──── MusicalDown.com (V3 — tiktok-api-dl) ────
   'musicaldown.com',
@@ -93,23 +102,43 @@ const ALLOWED_HOST_PATTERNS = [
   'b-cdn.net',
 
   // ──── Cloudflare CDN (many TikTok CDN URLs use CF) ────
-  '.cloudfront.net',
+  'cloudfront.net',
 
   // ──── Akamai CDN (some TikTok URLs) ────
-  '.akamaized.net',
-  '.akamaihd.net',
+  'akamaized.net',
+  'akamaihd.net',
 
   // ──── Generic video/image CDNs that TikTok occasionally uses ────
-  '.cdninstagram.com',   // sometimes used for cross-platform content
-  '.fbcdn.net',          // Meta CDN (for shared content)
+  'cdninstagram.com',
+  'fbcdn.net',
 
   // ──── Vercel blob/edge storage (if we ever host proxied content) ────
-  '.blob.vercel-storage.com',
+  'blob.vercel-storage.com',
 ];
 
+/**
+ * Check if a hostname is allowed. A hostname is allowed if it EXACTLY matches
+ * a suffix entry OR ends with `.` + suffix entry (i.e. is a subdomain).
+ *
+ * Examples:
+ *   isAllowedHost('tiktok.com')             → true  (exact match)
+ *   isAllowedHost('www.tiktok.com')         → true  (subdomain of tiktok.com)
+ *   isAllowedHost('p16-sign.tiktokcdn.com') → true  (subdomain of tiktokcdn.com)
+ *   isAllowedHost('tiktok.evil.com')        → false (not exact, not a subdomain)
+ *   isAllowedHost('evil-tiktok.com')        → false
+ *   isAllowedHost('tikhub.io')              → true  (exact match)
+ *   isAllowedHost('api.tikhub.io')          → true  (subdomain)
+ *   isAllowedHost('tikhub.io.evil.com')     → false
+ */
 function isAllowedHost(hostname: string): boolean {
   const lower = hostname.toLowerCase();
-  return ALLOWED_HOST_PATTERNS.some(pattern => lower.includes(pattern));
+  return ALLOWED_HOST_SUFFIXES.some(suffix => {
+    // Exact match
+    if (lower === suffix) return true;
+    // Subdomain match: hostname ends with `.suffix`
+    if (lower.endsWith('.' + suffix)) return true;
+    return false;
+  });
 }
 
 // ============================================================================

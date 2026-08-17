@@ -40,9 +40,6 @@
     "node_modules",
     "skills",
     "tests",
-    "tiktok-project",
-    "scripts",
-    "NovaDl-Push",
-    "novadl-engine"
+    "scripts"
   ]
 }
