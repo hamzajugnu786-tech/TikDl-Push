@@ -29,10 +29,6 @@ import { getClientIp, hashIpForRateLimit } from '@/lib/privacy';
 
 export async function POST(request: NextRequest) {
   try {
-    // Diagnostic: Check if ADMIN_PASSWORD is configured
-    const adminPasswordConfigured = !!process.env.ADMIN_PASSWORD;
-    console.log('[Auth/Login] ADMIN_PASSWORD configured:', adminPasswordConfigured, 'NODE_ENV:', process.env.NODE_ENV);
-
     // Parse request body FIRST (before rate limit check)
     let body;
     try {
@@ -59,10 +55,6 @@ export async function POST(request: NextRequest) {
     const rateLimitKey = hashIpForRateLimit(ip);
     const rateLimiter = getLoginRateLimiter();
     const isBlocked = await rateLimiter.isLimited(rateLimitKey);
-
-    // Diagnostic: Log rate limit status
-    const rlStatus = rateLimiter.getStatus(rateLimitKey);
-    console.log('[Auth/Login] Rate limit:', !isBlocked ? 'allowed' : 'BLOCKED', 'remaining:', rlStatus?.remaining, 'Banned for:', rlStatus ? Math.max(0, Math.round((rlStatus.resetTime - Date.now()) / 1000)) + 's' : 'n/a');
 
     if (isBlocked) {
       return NextResponse.json(

@@ -1031,12 +1031,12 @@ const TikTokDownloader = () => {
                             </AnimatePresence>
                             {/* Nav arrows */}
                             {currentSlide > 0 && (
-                              <button onClick={() => setCurrentSlide(i => Math.max(i - 1, 0))} aria-label="Previous slide" className="absolute left-2 top-1/2 -translate-y-1/2 w-8 h-8 bg-black/60 hover:bg-black/80 rounded-full flex items-center justify-center transition-colors">
+                              <button type="button" onClick={() => setCurrentSlide(i => Math.max(i - 1, 0))} aria-label="Previous slide" className="absolute left-2 top-1/2 -translate-y-1/2 w-8 h-8 bg-black/60 hover:bg-black/80 rounded-full flex items-center justify-center transition-colors">
                                 <ChevronDown size={16} className="text-white rotate-90" />
                               </button>
                             )}
                             {currentSlide < videoInfo.slideImages.length - 1 && (
-                              <button onClick={() => setCurrentSlide(i => Math.min(i + 1, videoInfo.slideImages!.length - 1))} aria-label="Next slide" className="absolute right-2 top-1/2 -translate-y-1/2 w-8 h-8 bg-black/60 hover:bg-black/80 rounded-full flex items-center justify-center transition-colors">
+                              <button type="button" onClick={() => setCurrentSlide(i => Math.min(i + 1, videoInfo.slideImages!.length - 1))} aria-label="Next slide" className="absolute right-2 top-1/2 -translate-y-1/2 w-8 h-8 bg-black/60 hover:bg-black/80 rounded-full flex items-center justify-center transition-colors">
                                 <ChevronDown size={16} className="text-white -rotate-90" />
                               </button>
                             )}

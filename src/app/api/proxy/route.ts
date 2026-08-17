@@ -243,11 +243,52 @@ export async function GET(request: NextRequest) {
     // downloads (smaller files) completed in time. 10 minutes is plenty
     // for any reasonable TikTok video file while still bounding the
     // request against infinite hangs.
+    // ===== Phase 13 P2 — SSRF redirect validation =====
+    // We use redirect: 'follow' because legitimate CDNs (tiktokcdn.com, etc.)
+    // routinely redirect to optimize delivery. However, if an allowed host
+    // were ever compromised or misconfigured to redirect to an internal IP
+    // (e.g. 169.254.169.254 metadata endpoint), the redirect would be
+    // followed silently and the response streamed to the client.
+    //
+    // Defense-in-depth: AFTER the fetch completes, validate upstreamResponse.url
+    // (the final URL after all redirects) against the same host allowlist.
+    // If the final host is not allowed, reject the response BEFORE streaming
+    // any bytes to the client. This prevents post-redirect SSRF data exfiltration
+    // even though the TCP connection to the internal host already occurred.
+    //
+    // The connection-level leak (headers/status code) is accepted as a
+    // theoretical risk because:
+    //   1. The allowlist is restricted to reputable CDNs that don't redirect
+    //      to internal IPs in practice.
+    //   2. A full redirect: 'manual' loop would add significant complexity
+    //      for marginal additional protection.
+    //   3. This check prevents the primary risk: streaming internal response
+    //      bodies to the attacker.
     const upstreamResponse = await fetch(remoteUrl, {
       headers: upstreamHeaders,
       signal: AbortSignal.timeout(600_000),
       redirect: 'follow',
     });
+
+    // Validate the FINAL URL after all redirects — prevents SSRF via redirect
+    let finalHost: string;
+    try {
+      finalHost = new URL(upstreamResponse.url).hostname;
+    } catch {
+      // If we can't parse the final URL, something is deeply wrong — reject.
+      console.error(`[proxy] Unparseable final URL after redirect: ${upstreamResponse.url.slice(0, 200)}`);
+      return new Response('Redirect target validation failed', {
+        status: 502,
+        headers: { 'Content-Type': 'text/plain' },
+      });
+    }
+    if (!isAllowedHost(finalHost)) {
+      console.error(`[proxy] BLOCKED post-redirect host: "${finalHost}" (original: ${parsedUrl.hostname}, final: ${upstreamResponse.url.slice(0, 200)})`);
+      return new Response(`Host not allowed after redirect: ${finalHost}`, {
+        status: 403,
+        headers: { 'Content-Type': 'text/plain' },
+      });
+    }
 
     if (!upstreamResponse.ok && upstreamResponse.status !== 206) {
       console.error(`[proxy] Upstream error: ${upstreamResponse.status} for ${remoteUrl.slice(0, 100)}`);
