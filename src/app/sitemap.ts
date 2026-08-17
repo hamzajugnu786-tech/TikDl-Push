@@ -33,6 +33,43 @@ export default function sitemap(): MetadataRoute.Sitemap {
       changeFrequency: 'daily',
       priority: 1,
     },
+    // ===== Stage 3 SEO — new feature & informational landing pages =====
+    // All five pages are user-purpose-driven (no doorway pages) and were
+    // added in Stage 3 of the SEO growth plan. Change-frequency reflects
+    // how often the editorial content is expected to change: feature
+    // pages get monthly review; the how-to and legal pages get yearly
+    // review unless real GSC data demands a refresh.
+    {
+      url: `${SITE}/tiktok-no-watermark`,
+      lastModified: now,
+      changeFrequency: 'monthly',
+      priority: 0.9,
+    },
+    {
+      url: `${SITE}/tiktok-mp3-downloader`,
+      lastModified: now,
+      changeFrequency: 'monthly',
+      priority: 0.9,
+    },
+    {
+      url: `${SITE}/how-to-download-tiktok-videos`,
+      lastModified: now,
+      changeFrequency: 'monthly',
+      priority: 0.8,
+    },
+    {
+      url: `${SITE}/tiktok-photo-downloader`,
+      lastModified: now,
+      changeFrequency: 'monthly',
+      priority: 0.8,
+    },
+    {
+      url: `${SITE}/is-it-legal-to-download-tiktok-videos`,
+      lastModified: now,
+      changeFrequency: 'yearly',
+      priority: 0.7,
+    },
+    // ===== Existing content pages =====
     {
       url: `${SITE}/about`,
       lastModified: now,

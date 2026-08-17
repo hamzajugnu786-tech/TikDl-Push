@@ -22,6 +22,11 @@ import SiteFooter from '@/components/site-footer';
 // placements like between_sections were silently excluded).
 // See BUG #3 fix — ContentPageAds already injects this slot on content pages.
 import AdSlot from '@/components/AdSlot';
+// Stage 3 SEO — additional crawlable H2 sections appended after the FAQ to
+// convert the homepage from a thin tool page into a topical hub. The
+// downloader UI above the fold is untouched. Server Component so its
+// content lands in the initial SSR HTML for crawlers.
+import HomepageSeoContent from '@/components/seo/HomepageSeoContent';
 
 interface VideoInfo {
   id: string;
@@ -105,6 +110,30 @@ const FAQ_ITEMS: FAQItem[] = [
   {
     question: 'Why is there a countdown before downloading?',
     answer: 'The brief timer supports our free service through ad revenue, keeping TikDL completely free for everyone.',
+  },
+  {
+    question: 'Can I download TikTok photo posts (slideshows)?',
+    answer: 'Yes. If you paste a link to a TikTok photo post, TikDL detects the slideshow and lets you save each image individually at original resolution. You can pick one slide or grab all of them.',
+  },
+  {
+    question: 'Does TikDL store the videos I download?',
+    answer: 'No. TikDL streams the file from TikTok through to your browser and does not keep a copy on its own servers. The only record of your download is in your own browser history.',
+  },
+  {
+    question: 'Why does a download sometimes show "video unavailable"?',
+    answer: 'The video may have been deleted, age-restricted, region-locked, or the share link may have expired. TikDL cannot bypass TikTok\'s own access controls — if the video is not viewable on TikTok itself, it cannot be fetched here either.',
+  },
+  {
+    question: 'Why does my downloaded video still have a watermark?',
+    answer: 'A small number of TikTok posts do not expose a no-watermark source variant. In those cases TikDL falls back to the watermarked file rather than failing entirely. The source variant is determined by TikTok, not by TikDL.',
+  },
+  {
+    question: 'Can I download multiple TikTok videos at once?',
+    answer: 'TikDL processes one link at a time. There is no daily cap on how many links you can fetch, but there is no batch-paste feature — each download requires its own paste-and-fetch cycle so you can preview each video before saving it.',
+  },
+  {
+    question: 'Does TikDL work on iPhone and iPad?',
+    answer: 'Yes. Open TikDL in Safari, paste your TikTok link, and download as usual. The first time you use the paste button, Safari will ask for clipboard read permission — tap "Allow". Downloaded files land in the Files app.',
   },
 ];
 
@@ -1404,6 +1433,15 @@ const TikTokDownloader = () => {
               </div>
             </div>
           </section>
+
+          {/* ===== Stage 3 SEO — Additional crawlable H2 content sections =====
+               Appended after the FAQ to convert the homepage from a thin tool
+               page into a topical hub for TikTok downloading. The downloader
+               UI above the fold is untouched. Content includes internal links
+               to /tiktok-no-watermark, /tiktok-mp3-downloader,
+               /how-to-download-tiktok-videos, /tiktok-photo-downloader, and
+               /is-it-legal-to-download-tiktok-videos. */}
+          <HomepageSeoContent />
 
           {/* ===== Universal "Between Sections" Ad (homepage) =====
                Bug #3 fix: the homepage previously had NO slot for the
